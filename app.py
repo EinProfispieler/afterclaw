@@ -125,7 +125,7 @@ SOURCE_POOL_KEY_ALIASES = {
 }
 DEFAULT_SOURCE_IP_POOL_SOURCE = (
     os.environ.get("SOURCE_IP_POOL_SOURCE", "").strip()
-    or "github:Einprofispieler/afterclaw/data/vendor-ip-pools"
+    or "github:EinProfispieler/afterclaw/data/vendor-ip-pools"
 )
 SOURCE_POOL_REMOTE_MAX_FILES = 200
 SOURCE_POOL_REMOTE_TIMEOUT = float(
@@ -442,6 +442,23 @@ def _normalize_source_ip_pools(raw) -> dict:
             rows.append(norm)
         pools[pool_key] = rows
     return pools
+
+
+def _merge_source_ip_pools(base_raw, incoming_raw) -> dict:
+    base = _normalize_source_ip_pools(base_raw)
+    incoming = _normalize_source_ip_pools(incoming_raw)
+    merged = _default_source_ip_pools()
+    for key in SOURCE_POOL_KEYS:
+        rows = []
+        seen = set()
+        for token in list(base.get(key, [])) + list(incoming.get(key, [])):
+            norm = _normalize_ip_pool_token(token)
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            rows.append(norm)
+        merged[key] = rows
+    return merged
 
 
 def _guess_source_pool_key_from_hint(hint: str, fallback: str = "") -> str:
@@ -2993,9 +3010,9 @@ def build_config_html() -> str:
             </div>
             <div class="cfg-item" style="margin-top:10px;">
               <div class="title">可更新来源（GitHub/URL）</div>
-              <p class="cfg-help">支持 <code>github:owner/repo/path</code>，例如：<code>github:Einprofispieler/afterclaw/data/vendor-ip-pools</code>。</p>
+              <p class="cfg-help">支持 <code>github:owner/repo/path</code>，例如：<code>github:EinProfispieler/afterclaw/data/vendor-ip-pools</code>。</p>
               <div class="row" style="margin-top:8px;">
-                <input id="httpPoolSource" class="grow" placeholder="例如：github:Einprofispieler/afterclaw/data/vendor-ip-pools" />
+                <input id="httpPoolSource" class="grow" placeholder="例如：github:EinProfispieler/afterclaw/data/vendor-ip-pools" />
                 <button type="button" id="syncHttpPoolSourceBtn" class="secondary">从源更新 IP 池</button>
               </div>
               <p id="httpPoolSourceMeta" class="cfg-help" style="margin-top:8px;"></p>
@@ -3131,7 +3148,7 @@ def build_config_html() -> str:
         root_dir: "/srv/Storage",
         default_dir: ".",
         source_ip_pools: { baidu: [], guangya: [], aliyun: [] },
-        source_ip_pool_source: "github:Einprofispieler/afterclaw/data/vendor-ip-pools"
+        source_ip_pool_source: "github:EinProfispieler/afterclaw/data/vendor-ip-pools"
       },
       ui: {
         hero_preset: "default",
@@ -3296,7 +3313,7 @@ def build_config_html() -> str:
     }
     function normalizeSourceIpPoolSource(raw){
       var v = String(raw || "").trim();
-      if (!v) v = "github:Einprofispieler/afterclaw/data/vendor-ip-pools";
+      if (!v) v = "github:EinProfispieler/afterclaw/data/vendor-ip-pools";
       if (v.length > 500) v = v.slice(0, 500).trim();
       return v;
     }
@@ -3318,10 +3335,12 @@ def build_config_html() -> str:
       var d = await apiJson("/api/http/source-ip-pools/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: source })
+        body: JSON.stringify({ source: source, merge: true })
       });
       applyCfg((d && d.config) || d);
       var counts = (d && d.counts) || {};
+      var remoteCounts = (d && d.remote_counts) || {};
+      var mode = String((d && d.mode) || "merge");
       var summary = "来源同步完成：百度 " + Number(counts.baidu || 0)
         + " · 光鸭 " + Number(counts.guangya || 0)
         + " · 阿里云 " + Number(counts.aliyun || 0);
@@ -3329,6 +3348,11 @@ def build_config_html() -> str:
       var meta = "当前来源：" + source;
       if (files.length) {
         meta += " | 命中文件 " + files.length + " 个";
+      }
+      if (mode === "merge") {
+        meta += " | 合并模式（远端新增：百度 " + Number(remoteCounts.baidu || 0)
+          + " · 光鸭 " + Number(remoteCounts.guangya || 0)
+          + " · 阿里云 " + Number(remoteCounts.aliyun || 0) + "）";
       }
       renderSourceIpPoolMeta(meta);
       setStatus("httpStatus", summary);
@@ -7587,6 +7611,15 @@ class AppHandler(BaseHTTPRequestHandler):
                 else http_cfg.get("source_ip_pool_source")
             )
             source = _normalize_source_ip_pool_source(raw_source)
+            merge_raw = body.get("merge", True)
+            if isinstance(merge_raw, str):
+                lv = merge_raw.strip().lower()
+                if lv in {"0", "false", "no", "off", "replace"}:
+                    merge_mode = False
+                else:
+                    merge_mode = True
+            else:
+                merge_mode = bool(merge_raw)
             try:
                 pulled = _fetch_source_ip_pools_from_source(source)
             except ValueError as exc:
@@ -7595,16 +7628,31 @@ class AppHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._error(f"同步来源失败：{exc}", status=HTTPStatus.BAD_GATEWAY)
                 return
-            pools = _normalize_source_ip_pools((pulled or {}).get("pools"))
+            local_pools = _normalize_source_ip_pools(http_cfg.get("source_ip_pools"))
+            remote_pools = _normalize_source_ip_pools((pulled or {}).get("pools"))
+            pools = (
+                _merge_source_ip_pools(local_pools, remote_pools)
+                if merge_mode
+                else remote_pools
+            )
             http_cfg["source_ip_pools"] = pools
             http_cfg["source_ip_pool_source"] = source
             saved = save_app_config(current, _APP_ROOT_DIR)
             counts = {k: len((pools or {}).get(k, [])) for k in SOURCE_POOL_KEYS}
+            remote_counts = {
+                k: len((remote_pools or {}).get(k, [])) for k in SOURCE_POOL_KEYS
+            }
+            local_counts = {
+                k: len((local_pools or {}).get(k, [])) for k in SOURCE_POOL_KEYS
+            }
             self._send_json(
                 {
                     "ok": True,
                     "source": source,
+                    "mode": "merge" if merge_mode else "replace",
                     "counts": counts,
+                    "remote_counts": remote_counts,
+                    "local_counts": local_counts,
                     "files_used": (pulled or {}).get("files_used", []),
                     "meta": (pulled or {}).get("meta", {}),
                     "pools": pools,

@@ -2,7 +2,7 @@
 
 This directory is used by AfterClaw HTTP source sync:
 
-- `github:Einprofispieler/afterclaw/data/vendor-ip-pools`
+- `github:EinProfispieler/afterclaw/data/vendor-ip-pools`
 
 ## Rules
 
