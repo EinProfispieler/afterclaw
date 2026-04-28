@@ -269,6 +269,15 @@
     }
   }
 
+  function hasActiveSelect() {
+    try {
+      var el = document.activeElement;
+      return !!el && String(el.tagName || "").toUpperCase() === "SELECT";
+    } catch (e) {
+      return false;
+    }
+  }
+
   function ensureObserver() {
     if (mutationObserver || !window.MutationObserver) return;
     mutationObserver = new MutationObserver(function () {
@@ -276,6 +285,7 @@
       if (observerTimer) return;
       observerTimer = window.setTimeout(function () {
         observerTimer = null;
+        if (hasActiveSelect()) return;
         apply(document.body);
       }, 0);
     });

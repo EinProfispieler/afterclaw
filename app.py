@@ -1597,6 +1597,7 @@ def build_frontend_html() -> str:
     const clipHistoryList = document.getElementById("clipHistoryList");
     const clipRawLink = document.getElementById("clipRawLink");
     const terminalQuickLink = document.getElementById("terminalQuickLink");
+    const langSelect = document.getElementById("langSelect");
     let currentDir = ".";
     let defaultHttpDir = ".";
     let lastCleanMoves = null;
@@ -1621,6 +1622,18 @@ def build_frontend_html() -> str:
 
     const THEME_KEY = "fc-theme";
     const HERO_THEME_KEY = "fc-hero-preset";
+    let dashboardPauseUntil = 0;
+
+    function pauseRealtime(ms = 4000) {
+      const ttl = Math.max(300, Number(ms) || 0);
+      dashboardPauseUntil = Math.max(dashboardPauseUntil, Date.now() + ttl);
+    }
+
+    function isRealtimePaused() {
+      if (Date.now() < dashboardPauseUntil) return true;
+      const ae = document.activeElement;
+      return !!ae && ae.tagName === "SELECT";
+    }
 
     function getStoredTheme() {
       return localStorage.getItem(THEME_KEY) || "light";
@@ -1874,6 +1887,15 @@ def build_frontend_html() -> str:
 
     applyTheme(getStoredTheme());
 
+    if (langSelect) {
+      const hold = () => pauseRealtime(6000);
+      ["mousedown", "focus", "click", "touchstart", "keydown"].forEach((evt) => {
+        langSelect.addEventListener(evt, hold, { passive: true });
+      });
+      langSelect.addEventListener("change", () => pauseRealtime(2500));
+      langSelect.addEventListener("blur", () => pauseRealtime(600));
+    }
+
     function setStatus(text, isError = false) {
       statusEl.textContent = text;
       statusEl.classList.toggle("err", isError);
@@ -2060,6 +2082,7 @@ def build_frontend_html() -> str:
         if (sourceSpeedText) sourceSpeedText.textContent = "来源速度：模块已关闭";
         return;
       }
+      if (isRealtimePaused()) return;
       try {
         const data = await getJson("/api/speed");
         const rxMiBps = Number(data.rx_mibps || 0);
@@ -2247,6 +2270,7 @@ def build_frontend_html() -> str:
         renderSourceSpeeds(latestSourceStats);
         return;
       }
+      if (isRealtimePaused()) return;
       try {
         const data = await getJson("/api/transfers");
         latestTransfers = data.items || [];
@@ -2325,6 +2349,7 @@ def build_frontend_html() -> str:
     }
 
     async function loadControlStatus() {
+      if (isRealtimePaused()) return;
       try {
         const data = await getJson("/api/control/status");
         renderControlStatus(data);
