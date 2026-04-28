@@ -1,3 +1,1 @@
-# Aliyun Drive IP pool
-# one IP/CIDR per line
 47.0.0.0/8
