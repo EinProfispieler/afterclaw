@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "code": "zh-CN",
+    "label": "简体中文"
+  },
+  "messages": {
+    "lang": {
+      "label": "语言"
+    }
+  },
+  "raw": {
+    "Config": "配置",
+    "Web Terminal": "网页终端",
+    "ShareClip": "ShareClip",
+    "Latest": "最新",
+    "History": "历史",
+    "Refresh": "刷新",
+    "Refresh History": "刷新历史",
+    "Raw": "原始",
+    "No content": "暂无内容",
+    "Loading...": "加载中...",
+    "Publish": "发布",
+    "Text": "文本",
+    "Image": "图片",
+    "Send": "发送",
+    "Powered by": "技术支持",
+    "Language": "语言",
+    "English": "英语",
+    "Deutsch": "德语",
+    "Français": "法语",
+    "日本語": "日语",
+    "简体中文": "简体中文",
+    "繁體中文": "繁体中文"
+  },
+  "patterns": [
+    {
+      "re": "^Active (\\d+)\\s*$",
+      "to": "活跃 $1 个"
+    },
+    {
+      "re": "^Save failed:\\s*(.*)$",
+      "to": "保存失败：$1"
+    },
+    {
+      "re": "^Load failed:\\s*(.*)$",
+      "to": "加载失败：$1"
+    }
+  ]
+}

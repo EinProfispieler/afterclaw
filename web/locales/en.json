@@ -1,0 +1,258 @@
+{
+  "meta": {
+    "code": "en",
+    "label": "English"
+  },
+  "messages": {
+    "lang": {
+      "label": "Language"
+    }
+  },
+  "raw": {
+    "文件中控台": "File Control Center",
+    "中控": "Control",
+    "目录服务": "Directory",
+    "浅色模式": "Light Mode",
+    "深色模式": "Dark Mode",
+    "中控状态与操作": "Control Status & Actions",
+    "系统状态加载中...": "Loading system status...",
+    "当前 HTTP 服务": "Current HTTP Service",
+    "切换上传开关": "Toggle Upload",
+    "重启服务并中断上传": "Restart Service and Interrupt Upload",
+    "实时公网传输": "Real-time Public Transfer",
+    "速度": "Speed",
+    "活跃连接": "Active Connections",
+    "来源速度加载中...": "Loading source speeds...",
+    "当前传输（HTTP）": "Current Transfers (HTTP)",
+    "排序": "Sort",
+    "进度": "Progress",
+    "名称": "Name",
+    "来源": "Source",
+    "活跃 0 个": "Active 0",
+    "目录与批量链接": "Directory & Batch Links",
+    "存储根目录": "Storage Root",
+    "公开访问域名": "Public Base URL",
+    "当前目录": "Current Directory",
+    "快速跳转目录（相对 /srv/Storage）": "Quick Jump (relative to /srv/Storage)",
+    "例如：BT/TV 或 .": "Example: BT/TV or .",
+    "跳转目录": "Jump",
+    "刷新目录": "Refresh",
+    "返回上级": "Up",
+    "复制当前目录名": "Copy Current Folder Name",
+    "生成当前目录所有文件 HTTP 链接": "Generate HTTP Links for All Files in Current Folder",
+    "复制全部链接": "Copy All Links",
+    "子目录（点击直接进入）": "Subdirectories (click to enter)",
+    "文件 0 · 目录 0 · 大小 0B": "Files 0 · Dirs 0 · Size 0B",
+    "目录名清洗 / 批量重命名": "Name Cleanup / Batch Rename",
+    "要删除的子串（每行一个）": "Substrings to remove (one per line)",
+    "去掉中文（CJK / 全角块）": "Remove CJK (full-width blocks)",
+    "季号 S## 挪到首个年份 20xx 前": "Move S## season before first 20xx year",
+    "对象": "Target",
+    "文件 + 子文件夹": "Files + Subfolders",
+    "仅文件": "Files Only",
+    "仅子文件夹": "Folders Only",
+    "含子目录（自底向上改名）": "Include Subdirectories (bottom-up)",
+    "预览": "Preview",
+    "按预览执行重命名": "Apply Rename by Preview",
+    "批量文本（每行一个 HTTP 链接）": "Batch Text (one HTTP link per line)",
+    "新窗口打开": "Open in New Window",
+    "读取剪贴板": "Read Clipboard",
+    "暂无内容": "No content",
+    "刷新历史": "Refresh History",
+    "查看": "View",
+    "删除": "Delete",
+    "确认删除这条记录？": "Delete this record?",
+    "已删除": "Deleted",
+    "综合配置": "General",
+    "主题": "Theme",
+    "综合配置（模块开关）/ HTTP / qB / Terminal / DDNS": "General Settings (module toggles) / HTTP / qB / Terminal / DDNS",
+    "综合配置（开关各模块）": "General Settings (Module Toggles)",
+    "qB 模块": "qB Module",
+    "DDNS 模块": "DDNS Module",
+    "ShareClip 模块": "ShareClip Module",
+    "HTTP 模块": "HTTP Module",
+    "保存综合配置": "Save General Settings",
+    "主题背景": "Theme Background",
+    "这里设置主页顶栏背景，不再在主页常驻显示配置面板。": "Set the homepage header background here. No theme panel stays on homepage.",
+    "默认": "Default",
+    "极光": "Aurora",
+    "落日": "Sunset",
+    "冰川": "Frost",
+    "云海暮光": "Cloud Dusk",
+    "自定义": "Custom",
+    "上传并应用": "Upload & Apply",
+    "恢复默认": "Reset",
+    "当前背景：默认": "Current Background: Default",
+    "支持 PNG/JPG/WEBP/GIF/AVIF，最大 12MB。": "Supports PNG/JPG/WEBP/GIF/AVIF, max 12MB.",
+    "HTTP 配置": "HTTP Settings",
+    "当前 HTTP 根目录：": "Current HTTP Root:",
+    "HTTP 根目录（允许 / 下任意目录）": "HTTP Root Directory (any path under /)",
+    "验证（扫描）": "Validate (Scan)",
+    "默认目录（相对 HTTP 根目录）": "Default Directory (relative to HTTP root)",
+    "来源 IP 池（1288 训练）": "Source IP Pools (1288 training)",
+    "百度网盘 IP 池": "Baidu Netdisk IP Pool",
+    "光鸭网盘 IP 池": "Guangya Netdisk IP Pool",
+    "阿里云盘 IP 池": "Aliyun Drive IP Pool",
+    "目录浏览器（目标服务器）": "Directory Browser (target server)",
+    "加载子目录": "Load Subdirs",
+    "上级": "Parent",
+    "保存 HTTP 配置": "Save HTTP Settings",
+    "qB 配置": "qB Settings",
+    "qB 监控": "qB Monitoring",
+    "保存 qB 配置": "Save qB Settings",
+    "一键优化配置": "One-click Optimize",
+    "修复 qB 监控权限": "Fix qB Monitor Permissions",
+    "qB 服务重启": "Restart qB Service",
+    "qB 退出": "Quit qB",
+    "Terminal / SSH": "Terminal / SSH",
+    "启用主页 Terminal 图标": "Enable Terminal icon on homepage",
+    "认证方式": "Auth Mode",
+    "key（推荐）": "key (recommended)",
+    "password（不保存密码）": "password (not stored)",
+    "配置目录 Key 文件名（可选）": "Config-dir key filename (optional)",
+    "配置目录：": "Config directory:",
+    "选择并上传 key": "Select and Upload key",
+    "刷新 key 列表": "Refresh key list",
+    "连接预览": "Connection Preview",
+    "未配置": "Not Configured",
+    "网页终端入口：": "Web terminal entry:",
+    "打开 /terminal": "Open /terminal",
+    "保存 Terminal 配置": "Save Terminal Settings",
+    "复制 SSH 命令": "Copy SSH Command",
+    "下方为 DDNS 配置页（内嵌）。": "Embedded DDNS settings page below.",
+    "浏览器内 SSH 终端（xterm.js）": "Browser SSH Terminal (xterm.js)",
+    "目标：": "Target:",
+    "加载中...": "Loading...",
+    "连接": "Connect",
+    "断开": "Disconnect",
+    "清屏": "Clear",
+    "准备就绪": "Ready",
+    "外部终端直连：": "External terminal link:",
+    "技术支持": "Powered by",
+    "来源速度：模块已关闭": "Source speed: module disabled",
+    "来源速度获取失败": "Failed to load source speeds",
+    "模块已关闭": "Module disabled",
+    "当前没有活跃 HTTP 传输任务。": "No active HTTP transfer tasks.",
+    "Language": "Language",
+    "简体中文": "Simplified Chinese",
+    "繁體中文": "Traditional Chinese",
+    "English": "English",
+    "Deutsch": "German",
+    "Français": "French",
+    "日本語": "Japanese"
+  },
+  "patterns": [
+    {
+      "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
+      "to": "Active $1 · Recently completed $2 · Overall $3%"
+    },
+    {
+      "re": "^来源速度：(.*)$",
+      "to": "Source speeds: $1"
+    },
+    {
+      "re": "^保存失败：(.*)$",
+      "to": "Save failed: $1"
+    },
+    {
+      "re": "^配置加载失败：(.*)$",
+      "to": "Config load failed: $1"
+    },
+    {
+      "re": "^加载失败：(.*)$",
+      "to": "Load failed: $1"
+    },
+    {
+      "re": "^切换失败：(.*)$",
+      "to": "Switch failed: $1"
+    },
+    {
+      "re": "^上传失败：(.*)$",
+      "to": "Upload failed: $1"
+    },
+    {
+      "re": "^恢复失败：(.*)$",
+      "to": "Reset failed: $1"
+    },
+    {
+      "re": "^目录加载失败：(.*)$",
+      "to": "Directory load failed: $1"
+    },
+    {
+      "re": "^路径验证失败：(.*)$",
+      "to": "Path validation failed: $1"
+    },
+    {
+      "re": "^已复制 (\\d+) 条链接$",
+      "to": "$1 links copied"
+    },
+    {
+      "re": "^共找到 (\\d+) 个文件$",
+      "to": "$1 files found"
+    },
+    {
+      "re": "^正在扫描目录：(.*)$",
+      "to": "Scanning directory: $1"
+    },
+    {
+      "re": "^已进入目录：(.*)$",
+      "to": "Entered directory: $1"
+    },
+    {
+      "re": "^已跳转目录：(.*)$",
+      "to": "Jumped to: $1"
+    },
+    {
+      "re": "^已返回目录：(.*)$",
+      "to": "Returned to: $1"
+    },
+    {
+      "re": "^已复制目录名：(.*)$",
+      "to": "Folder name copied: $1"
+    },
+    {
+      "re": "^外网上传已(开启|关闭)$",
+      "to": "Public upload $1"
+    },
+    {
+      "re": "^重启失败：(.*)$",
+      "to": "Restart failed: $1"
+    },
+    {
+      "re": "^删除失败：(.*)$",
+      "to": "Delete failed: $1"
+    },
+    {
+      "re": "^连接失败：(.*)$",
+      "to": "Connection failed: $1"
+    },
+    {
+      "re": "^读取失败：(.*)$",
+      "to": "Read failed: $1"
+    },
+    {
+      "re": "^输入发送失败：(.*)$",
+      "to": "Input send failed: $1"
+    },
+    {
+      "re": "^会话已结束，退出码：(.*)$",
+      "to": "Session ended, exit code: $1"
+    },
+    {
+      "re": "^准备连接到 (.*)$",
+      "to": "Ready to connect to $1"
+    },
+    {
+      "re": "^切换为(深色|浅色)主题$",
+      "to": "Switched to $1 theme"
+    },
+    {
+      "re": "^已重命名 (\\d+) 项$",
+      "to": "Renamed $1 items"
+    },
+    {
+      "re": "^综合配置已保存：(.*)$",
+      "to": "General settings saved: $1"
+    }
+  ]
+}

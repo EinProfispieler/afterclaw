@@ -1,0 +1,176 @@
+{
+  "meta": {
+    "code": "fr",
+    "label": "Français"
+  },
+  "messages": {
+    "lang": {
+      "label": "Langue"
+    }
+  },
+  "raw": {
+    "文件中控台": "Centre de contrôle des fichiers",
+    "中控": "Contrôle",
+    "目录服务": "Service de répertoire",
+    "浅色模式": "Mode clair",
+    "深色模式": "Mode sombre",
+    "中控状态与操作": "État et actions",
+    "系统状态加载中...": "Chargement de l'état système...",
+    "当前 HTTP 服务": "Service HTTP actuel",
+    "切换上传开关": "Basculer l'upload",
+    "重启服务并中断上传": "Redémarrer le service et interrompre l'upload",
+    "实时公网传输": "Transfert public en temps réel",
+    "速度": "Vitesse",
+    "活跃连接": "Connexions actives",
+    "来源速度加载中...": "Chargement des vitesses par source...",
+    "当前传输（HTTP）": "Transferts actuels (HTTP)",
+    "排序": "Tri",
+    "进度": "Progression",
+    "名称": "Nom",
+    "来源": "Source",
+    "目录与批量链接": "Répertoire et liens en lot",
+    "存储根目录": "Racine de stockage",
+    "公开访问域名": "URL publique",
+    "当前目录": "Répertoire courant",
+    "跳转目录": "Aller",
+    "刷新目录": "Actualiser",
+    "返回上级": "Dossier parent",
+    "复制当前目录名": "Copier le nom du dossier",
+    "复制全部链接": "Copier tous les liens",
+    "子目录（点击直接进入）": "Sous-répertoires (cliquer pour entrer)",
+    "目录名清洗 / 批量重命名": "Nettoyage des noms / renommage en lot",
+    "预览": "Aperçu",
+    "按预览执行重命名": "Renommer selon l'aperçu",
+    "批量文本（每行一个 HTTP 链接）": "Texte en lot (un lien HTTP par ligne)",
+    "新窗口打开": "Ouvrir dans une nouvelle fenêtre",
+    "读取剪贴板": "Lire le presse-papiers",
+    "暂无内容": "Aucun contenu",
+    "刷新历史": "Actualiser l'historique",
+    "查看": "Voir",
+    "删除": "Supprimer",
+    "Config": "Configuration",
+    "综合配置": "Général",
+    "主题": "Thème",
+    "保存综合配置": "Enregistrer la configuration générale",
+    "主题背景": "Arrière-plan du thème",
+    "默认": "Par défaut",
+    "极光": "Aurore",
+    "落日": "Coucher de soleil",
+    "冰川": "Glacier",
+    "云海暮光": "Nuages au crépuscule",
+    "自定义": "Personnalisé",
+    "上传并应用": "Téléverser et appliquer",
+    "恢复默认": "Réinitialiser",
+    "HTTP 配置": "Configuration HTTP",
+    "验证（扫描）": "Valider (scanner)",
+    "保存 HTTP 配置": "Enregistrer HTTP",
+    "qB 配置": "Configuration qB",
+    "qB 监控": "Surveillance qB",
+    "保存 qB 配置": "Enregistrer qB",
+    "一键优化配置": "Optimisation en un clic",
+    "修复 qB 监控权限": "Corriger les permissions qB",
+    "qB 服务重启": "Redémarrer le service qB",
+    "qB 退出": "Quitter qB",
+    "Terminal / SSH": "Terminal / SSH",
+    "认证方式": "Méthode d'authentification",
+    "连接预览": "Aperçu de connexion",
+    "保存 Terminal 配置": "Enregistrer Terminal",
+    "复制 SSH 命令": "Copier la commande SSH",
+    "浏览器内 SSH 终端（xterm.js）": "Terminal SSH dans le navigateur (xterm.js)",
+    "目标：": "Cible :",
+    "加载中...": "Chargement...",
+    "连接": "Connecter",
+    "断开": "Déconnecter",
+    "清屏": "Effacer",
+    "准备就绪": "Prêt",
+    "外部终端直连：": "Lien terminal externe :",
+    "Powered by": "Propulsé par",
+    "模块已关闭": "Module désactivé",
+    "当前没有活跃 HTTP 传输任务。": "Aucun transfert HTTP actif.",
+    "Language": "Langue",
+    "简体中文": "Chinois simplifié",
+    "繁體中文": "Chinois traditionnel",
+    "English": "Anglais",
+    "Deutsch": "Allemand",
+    "Français": "Français",
+    "日本語": "Japonais"
+  },
+  "patterns": [
+    {
+      "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
+      "to": "Actifs $1 · Récemment terminés $2 · Progression globale $3%"
+    },
+    {
+      "re": "^来源速度：(.*)$",
+      "to": "Vitesses par source : $1"
+    },
+    {
+      "re": "^保存失败：(.*)$",
+      "to": "Échec de l'enregistrement : $1"
+    },
+    {
+      "re": "^配置加载失败：(.*)$",
+      "to": "Échec du chargement de la configuration : $1"
+    },
+    {
+      "re": "^加载失败：(.*)$",
+      "to": "Échec du chargement : $1"
+    },
+    {
+      "re": "^切换失败：(.*)$",
+      "to": "Échec du basculement : $1"
+    },
+    {
+      "re": "^上传失败：(.*)$",
+      "to": "Échec de l'envoi : $1"
+    },
+    {
+      "re": "^恢复失败：(.*)$",
+      "to": "Échec de la réinitialisation : $1"
+    },
+    {
+      "re": "^目录加载失败：(.*)$",
+      "to": "Échec du chargement du répertoire : $1"
+    },
+    {
+      "re": "^路径验证失败：(.*)$",
+      "to": "Échec de validation du chemin : $1"
+    },
+    {
+      "re": "^已复制 (\\d+) 条链接$",
+      "to": "$1 liens copiés"
+    },
+    {
+      "re": "^共找到 (\\d+) 个文件$",
+      "to": "$1 fichiers trouvés"
+    },
+    {
+      "re": "^正在扫描目录：(.*)$",
+      "to": "Analyse du répertoire : $1"
+    },
+    {
+      "re": "^重启失败：(.*)$",
+      "to": "Échec du redémarrage : $1"
+    },
+    {
+      "re": "^连接失败：(.*)$",
+      "to": "Échec de connexion : $1"
+    },
+    {
+      "re": "^读取失败：(.*)$",
+      "to": "Échec de lecture : $1"
+    },
+    {
+      "re": "^输入发送失败：(.*)$",
+      "to": "Échec d'envoi de saisie : $1"
+    },
+    {
+      "re": "^会话已结束，退出码：(.*)$",
+      "to": "Session terminée, code de sortie : $1"
+    },
+    {
+      "re": "^综合配置已保存：(.*)$",
+      "to": "Configuration générale enregistrée : $1"
+    }
+  ]
+}

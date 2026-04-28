@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DDNS 设置</title>
+  <script>
+    (function(){
+      try {
+        var t = localStorage.getItem("fc-theme");
+        if (!t) { t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+        document.documentElement.setAttribute("data-theme", t);
+      } catch(e){}
+    })();
+  </script>
+  <link rel="stylesheet" href="/dashboard.css" />
+  <style>
+    /* ── DDNS page-local overrides ── */
+    #ddnsPage {
+      --ddns-ta-min: 96px;
+      --ddns-ta-max: 42vh;
+    }
+    #ddnsPage .wrap {
+      width: min(calc(100vw - clamp(24px, 5vw, 56px)), 1280px);
+      max-width: calc(100vw - clamp(24px, 5vw, 56px));
+    }
+    .ddns-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+    .ddns-grid .field-group { display: contents; }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      align-items: end;
+    }
+    @media (max-width: 560px) {
+      .field-row { grid-template-columns: 1fr; }
+    }
+
+    .field-block { display: flex; flex-direction: column; gap: 0; }
+    .field-block label { margin: 0 0 6px; }
+    .field-block input,
+    .field-block select,
+    .field-block textarea { width: 100%; box-sizing: border-box; }
+    #ddnsPage textarea {
+      min-height: var(--ddns-ta-min);
+      max-height: var(--ddns-ta-max);
+      resize: vertical;
+    }
+    #ip4urls, #ip6urls {
+      min-height: calc(var(--ddns-ta-min) - 10px);
+    }
+    #dom4, #dom6 {
+      min-height: calc(var(--ddns-ta-min) + 10px);
+    }
+
+    .ip-source-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .ip-source-row select { min-width: 130px; }
+    .ip-iface { max-width: 130px; }
+    .ip-split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .ip-pane {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: var(--surface-soft);
+    }
+    @media (max-width: 900px) {
+      .ip-split { grid-template-columns: 1fr; }
+    }
+
+    .ctrl-bar {
+      display: grid;
+      grid-template-columns: auto 180px 160px minmax(220px, 1fr);
+      gap: 8px 12px;
+      align-items: end;
+    }
+    .ctrl-enable {
+      align-self: center;
+      margin-top: 0;
+      margin-bottom: 8px;
+      white-space: nowrap;
+    }
+    .ctrl-item { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .ctrl-item label { margin: 0; }
+    .ctrl-item .small-inp { width: 100%; max-width: 100%; }
+    .ctrl-item select { width: 100%; }
+    @media (max-width: 1080px) {
+      .ctrl-bar {
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+      }
+      .ctrl-enable { grid-column: 1 / -1; margin-bottom: 0; }
+    }
+    @media (max-width: 620px) {
+      .ctrl-bar { grid-template-columns: 1fr; }
+      .ctrl-enable { grid-column: auto; }
+    }
+
+    .hint-text {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin: 6px 0 0;
+      line-height: 1.5;
+    }
+    .hint-text code {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 1px 5px;
+      font-size: 12px;
+    }
+    .hint-text a { color: var(--accent); text-decoration: none; }
+    .hint-text a:hover { text-decoration: underline; }
+
+    .provider-badge {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+
+    .save-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .save-bar .cfg-hint {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-family: ui-monospace, Menlo, monospace;
+    }
+
+    .sep { height: 1px; background: var(--border); margin: 14px 0; }
+
+    #ddnsPage[data-embed="1"] .back-link { display: none; }
+    #ddnsPage[data-embed="1"] .head-actions { display: none; }
+  </style>
+</head>
+<body id="ddnsPage">
+  <div class="wrap">
+
+    <!-- ── Header ── -->
+    <header class="page-head">
+      <div class="head-row">
+        <div>
+          <a href="/" class="back-link">← 返回中控台</a>
+          <h1>DDNS 设置</h1>
+          <p class="page-sub">多服务商内置 DDNS；也支持切到 <strong>ddns-go 原生模式（全服务商）</strong>。配置写入 <code>ddns_config.json</code>。需 <code>pip install tldextract</code> 以精准解析多级域名。</p>
+        </div>
+        <div class="head-actions">
+          <button type="button" id="themeToggleBtn" class="secondary">主题</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── 总开关 ── -->
+    <div class="card">
+      <span class="card-title">总开关</span>
+      <div class="ctrl-bar">
+        <label class="inline-check ctrl-enable">
+          <input type="checkbox" id="ddnsEnabled" /> 启用
+        </label>
+        <div class="ctrl-item">
+          <label for="ddnsInterval" class="muted">周期（秒，≥60）</label>
+          <input class="small-inp" type="number" id="ddnsInterval" min="60" step="60" value="300" />
+        </div>
+        <div class="ctrl-item">
+          <label for="ddnsTtl" class="muted">TTL（秒）</label>
+          <input class="small-inp" type="number" id="ddnsTtl" min="60" value="600" />
+        </div>
+        <div class="ctrl-item">
+          <label for="ddnsProvider">DNS 服务商</label>
+          <select id="ddnsProvider">
+            <option value="trafficroute">火山引擎 TrafficRoute</option>
+            <option value="cloudflare">Cloudflare</option>
+            <option value="aliyun">阿里云 DNS</option>
+            <option value="dnspod">DNSPod（腾讯云）</option>
+            <option value="duckdns">DuckDNS</option>
+            <option value="noip">No-IP</option>
+            <option value="ddnsgo">ddns-go 原生（全服务商）</option>
+            <option value="godaddy">GoDaddy</option>
+            <option value="namecheap">Namecheap</option>
+            <option value="namesilo">NameSilo</option>
+            <option value="porkbun">Porkbun</option>
+            <option value="url">HTTP GET 模板</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 公网地址获取 ── -->
+    <div class="card" id="ddnsBlockIp">
+      <span class="card-title">公网地址获取</span>
+      <p class="hint-text">与 ddns-go 类似：URL 多行探测，或 <code>interface</code> 填 Linux 网卡名（如 <code>wlo1</code>）。</p>
+      <div class="ip-split">
+        <div class="ip-pane">
+          <label class="inline-check" style="margin-bottom:8px;">
+            <input type="checkbox" id="ip4En" checked /> IPv4 (A 记录)
+          </label>
+          <div class="ip-source-row">
+            <select id="ip4get">
+              <option value="url">多 URL 探测</option>
+              <option value="if">网卡获取</option>
+            </select>
+            <input type="text" id="ip4if" class="ip-iface" placeholder="wlo1（网卡名）" />
+          </div>
+          <div class="field-block" id="ip4urlsWrap">
+            <label for="ip4urls">IPv4 探测 URL（每行一个）</label>
+            <textarea id="ip4urls" rows="3" placeholder="https://ipv4.icanhazip.com&#10;https://ip.3322.net"></textarea>
+          </div>
+        </div>
+        <div class="ip-pane">
+          <label class="inline-check" style="margin-bottom:8px;">
+            <input type="checkbox" id="ip6En" /> IPv6 (AAAA 记录)
+          </label>
+          <div class="ip-source-row">
+            <select id="ip6get">
+              <option value="url">多 URL 探测</option>
+              <option value="if">网卡获取</option>
+            </select>
+            <input type="text" id="ip6if" class="ip-iface" placeholder="wlo1（网卡名）" />
+          </div>
+          <div class="field-block" id="ip6urlsWrap">
+            <label for="ip6urls">IPv6 探测 URL（每行一个）</label>
+            <textarea id="ip6urls" rows="3" placeholder="https://api6.ipify.org&#10;https://6.ipw.cn"></textarea>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 要更新的域名 ── -->
+    <div class="card" id="ddnsBlockDom">
+      <span class="card-title">要更新的 FQDN</span>
+      <p class="hint-text">每行一个完整主机名，例如 <code>home.example.com</code>。IPv4 → A 记录，IPv6 → AAAA 记录。</p>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="dom4">A 记录域名列表</label>
+          <textarea id="dom4" rows="3" placeholder="home.example.com"></textarea>
+        </div>
+        <div class="field-block">
+          <label for="dom6">AAAA 记录域名列表</label>
+          <textarea id="dom6" rows="3" placeholder="可留空"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TrafficRoute ── -->
+    <div class="card" id="ddnsFieldsTr">
+      <span class="card-title">TrafficRoute（火山引擎）<span class="provider-badge">AK / SK</span></span>
+      <p class="hint-text">在火山引擎控制台创建 AccessKey，授权 TrafficRoute 写权限。Secret 仅在局域网下使用。</p>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="trAk">AccessKeyId</label>
+          <input type="text" id="trAk" placeholder="AKLTxxxx" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="trSk">SecretAccessKey</label>
+          <input type="password" id="trSk" placeholder="••••••••" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Cloudflare ── -->
+    <div class="card" id="ddnsFieldsCf">
+      <span class="card-title">Cloudflare<span class="provider-badge">API Token</span></span>
+      <p class="hint-text">推荐只填 API Token；Zone ID / Record ID 留空时自动查询（需 Token 有 Zone.DNS 写权限）。</p>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="ddnsCfToken">API Token（必填）</label>
+          <input type="password" id="ddnsCfToken" placeholder="••••••••" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="ddnsCfZone">Zone ID（可选）</label>
+          <input type="text" id="ddnsCfZone" placeholder="留空自动查询" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="ddnsCfRecord">Record ID（可选）</label>
+          <input type="text" id="ddnsCfRecord" placeholder="留空自动查询" autocomplete="off" />
+        </div>
+        <div class="field-block" style="justify-content:flex-end;">
+          <label class="inline-check">
+            <input type="checkbox" id="ddnsCfProxied" /> 橙云代理（proxied）
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── 阿里云 ── -->
+    <div class="card" id="ddnsFieldsAliyun">
+      <span class="card-title">阿里云 DNS<span class="provider-badge">RAM AK</span></span>
+      <p class="hint-text">RAM 控制台创建子账号，授权 <code>AliyunDNSFullAccess</code>，取得 AccessKey。</p>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="aliyunAk">AccessKeyId</label>
+          <input type="text" id="aliyunAk" placeholder="LTAIxxxx" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="aliyunSk">AccessKeySecret</label>
+          <input type="password" id="aliyunSk" placeholder="••••••••" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DNSPod ── -->
+    <div class="card" id="ddnsFieldsDnspod">
+      <span class="card-title">DNSPod（腾讯云）<span class="provider-badge">API Token</span></span>
+      <p class="hint-text">在 <a href="https://console.dnspod.cn/account/token/token" target="_blank" rel="noopener">DNSPod 控制台</a> 创建 API Token，格式为 <code>ID,Token</code>。</p>
+      <div class="field-block" style="margin-top:14px;">
+        <label for="dnspodToken">Token（格式：ID,Token）</label>
+        <input type="text" id="dnspodToken" placeholder="12345,abc123..." autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- ── DuckDNS ── -->
+    <div class="card" id="ddnsFieldsDuck">
+      <span class="card-title">DuckDNS<span class="provider-badge">Token</span></span>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="ddnsDuckDomain">子域名</label>
+          <input type="text" id="ddnsDuckDomain" placeholder="myhost（不含 .duckdns.org）" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="ddnsDuckToken">Token</label>
+          <input type="text" id="ddnsDuckToken" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── No-IP ── -->
+    <div class="card" id="ddnsFieldsNoip">
+      <span class="card-title">No-IP<span class="provider-badge">账号密码</span></span>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="noipUsername">账号（邮箱）</label>
+          <input type="text" id="noipUsername" placeholder="user@example.com" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="noipPassword">密码</label>
+          <input type="password" id="noipPassword" placeholder="••••••••" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="noipHostname">主机名</label>
+          <input type="text" id="noipHostname" placeholder="myhost.ddns.net" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ddns-go 原生 ── -->
+    <div class="card" id="ddnsFieldsDdnsgo">
+      <span class="card-title">ddns-go 原生模式<span class="provider-badge">全服务商</span></span>
+      <p class="hint-text">使用原生 ddns-go 配置与更新逻辑。当前页面仅保存接入地址并代理访问原生面板。</p>
+      <div class="field-block" style="margin-top:14px;">
+        <label for="ddnsGoBaseUrl">ddns-go Base URL</label>
+        <input type="text" id="ddnsGoBaseUrl" placeholder="http://127.0.0.1:9876" autocomplete="off" />
+      </div>
+      <div class="save-bar" style="margin-top:12px;">
+        <a id="ddnsGoProxyLink" class="secondary" href="/ddns-go/" target="_blank" rel="noopener" style="text-decoration:none;">打开原生 ddns-go 面板</a>
+      </div>
+    </div>
+
+    <!-- ── GoDaddy ── -->
+    <div class="card" id="ddnsFieldsGodaddy">
+      <span class="card-title">GoDaddy<span class="provider-badge">API Key</span></span>
+      <p class="hint-text">在 GoDaddy 控制台创建 API Key / Secret，可更新 A 与 AAAA 记录。</p>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="godaddyKey">API Key</label>
+          <input type="text" id="godaddyKey" placeholder="xxxxxxxx" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="godaddySecret">API Secret</label>
+          <input type="password" id="godaddySecret" placeholder="••••••••" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Namecheap ── -->
+    <div class="card" id="ddnsFieldsNamecheap">
+      <span class="card-title">Namecheap<span class="provider-badge">Dynamic DNS Password</span></span>
+      <p class="hint-text">Namecheap 动态 DNS 仅支持 IPv4（A 记录）。请在域名管理页获取 Dynamic DNS Password。</p>
+      <div class="field-block" style="margin-top:14px;">
+        <label for="namecheapPassword">Dynamic DNS Password</label>
+        <input type="password" id="namecheapPassword" placeholder="••••••••" autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- ── NameSilo ── -->
+    <div class="card" id="ddnsFieldsNamesilo">
+      <span class="card-title">NameSilo<span class="provider-badge">API Key</span></span>
+      <p class="hint-text">在 NameSilo 后台开启 API 并创建 Key。</p>
+      <div class="field-block" style="margin-top:14px;">
+        <label for="namesiloApiKey">API Key</label>
+        <input type="password" id="namesiloApiKey" placeholder="••••••••" autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- ── Porkbun ── -->
+    <div class="card" id="ddnsFieldsPorkbun">
+      <span class="card-title">Porkbun<span class="provider-badge">API Key</span></span>
+      <p class="hint-text">在 Porkbun API 页面获取 API Key 与 Secret API Key。</p>
+      <div class="field-row" style="margin-top:14px;">
+        <div class="field-block">
+          <label for="porkbunApiKey">API Key</label>
+          <input type="text" id="porkbunApiKey" placeholder="pk1_xxxxxxxx" autocomplete="off" />
+        </div>
+        <div class="field-block">
+          <label for="porkbunSecretApiKey">Secret API Key</label>
+          <input type="password" id="porkbunSecretApiKey" placeholder="sk1_xxxxxxxx" autocomplete="off" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── URL 模板 ── -->
+    <div class="card" id="ddnsFieldsUrl">
+      <span class="card-title">HTTP GET 模板<span class="provider-badge">自定义</span></span>
+      <p class="hint-text">URL 中用 <code>{ip}</code> 占位符代表当前公网 IP。</p>
+      <div class="field-block" style="margin-top:14px;">
+        <label for="ddnsUrlTemplate">URL 模板</label>
+        <input type="text" id="ddnsUrlTemplate" placeholder="https://example.com/update?ip={ip}&token=xxxx" autocomplete="off" />
+      </div>
+    </div>
+
+    <!-- ── 保存栏 ── -->
+    <div class="card">
+      <div class="save-bar">
+        <button type="button" id="ddnsSaveBtn">保存配置</button>
+        <span class="cfg-hint" id="ddnsConfigHint"></span>
+      </div>
+      <p id="ddnsPageStatus" class="status-line" role="status"></p>
+    </div>
+
+  </div><!-- .wrap -->
+
+  <div id="toastContainer"></div>
+
+  <script>
+  (function () {
+    "use strict";
+    try {
+      var qs = new URLSearchParams(window.location.search || "");
+      if (qs.get("embed") === "1") {
+        document.body.setAttribute("data-embed", "1");
+      }
+    } catch (e) {}
+
+    /* ── 主题 ── */
+    var THEME_KEY = "fc-theme";
+    function getTheme() { return localStorage.getItem(THEME_KEY) || "light"; }
+    function applyTheme(t) {
+      document.documentElement.setAttribute("data-theme", t);
+      try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+      var b = document.getElementById("themeToggleBtn");
+      if (b) b.textContent = t === "dark" ? "浅色模式" : "深色模式";
+    }
+    document.getElementById("themeToggleBtn").addEventListener("click", function () {
+      applyTheme(getTheme() === "dark" ? "light" : "dark");
+    });
+    applyTheme(getTheme());
+
+    /* ── Toast ── */
+    function showToast(msg, type) {
+      var c = document.getElementById("toastContainer");
+      if (!c) return;
+      var t = document.createElement("div");
+      t.className = "toast " + (type || "success");
+      t.textContent = msg;
+      c.appendChild(t);
+      setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
+    }
+
+    /* ── 工具 ── */
+    function $(id) { return document.getElementById(id); }
+    function setStatus(msg, isErr) {
+      var el = $("ddnsPageStatus");
+      el.textContent = msg || "";
+      el.className = isErr ? "status-line err" : "status-line";
+    }
+    function linesToArr(id) {
+      return $(id).value.split(/\n+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+    function apiJson(url, opts) {
+      return fetch(url, opts || {}).then(function (r) {
+        return r.json().then(function (d) {
+          if (!r.ok) throw new Error((d && d.error) || "请求失败 " + r.status);
+          return d;
+        });
+      });
+    }
+
+    /* ── IP 来源联动 ── */
+    function syncIpSourceUI(ver) {
+      var isIf = $(ver + "get").value === "if";
+      $(ver + "if").style.display = isIf ? "" : "none";
+      var wrap = $(ver + "urlsWrap");
+      if (wrap) wrap.style.display = isIf ? "none" : "";
+    }
+    ["ip4", "ip6"].forEach(function (v) {
+      $(v + "get").addEventListener("change", function () { syncIpSourceUI(v); });
+      syncIpSourceUI(v);
+    });
+
+    /* ── 服务商面板切换 ── */
+    var PROVIDER_CARDS = {
+      trafficroute: ["ddnsFieldsTr", "ddnsBlockDom", "ddnsBlockIp"],
+      cloudflare:   ["ddnsFieldsCf", "ddnsBlockDom", "ddnsBlockIp"],
+      aliyun:       ["ddnsFieldsAliyun", "ddnsBlockDom", "ddnsBlockIp"],
+      dnspod:       ["ddnsFieldsDnspod", "ddnsBlockDom", "ddnsBlockIp"],
+      duckdns:      ["ddnsFieldsDuck"],
+      noip:         ["ddnsFieldsNoip"],
+      ddnsgo:       ["ddnsFieldsDdnsgo"],
+      godaddy:      ["ddnsFieldsGodaddy", "ddnsBlockDom", "ddnsBlockIp"],
+      namecheap:    ["ddnsFieldsNamecheap", "ddnsBlockDom", "ddnsBlockIp"],
+      namesilo:     ["ddnsFieldsNamesilo", "ddnsBlockDom", "ddnsBlockIp"],
+      porkbun:      ["ddnsFieldsPorkbun", "ddnsBlockDom", "ddnsBlockIp"],
+      url:          ["ddnsFieldsUrl"],
+    };
+    var ALL_CARDS = [
+      "ddnsFieldsTr", "ddnsFieldsCf", "ddnsFieldsAliyun",
+      "ddnsFieldsDnspod", "ddnsFieldsDuck", "ddnsFieldsNoip", "ddnsFieldsDdnsgo",
+      "ddnsFieldsGodaddy", "ddnsFieldsNamecheap", "ddnsFieldsNamesilo", "ddnsFieldsPorkbun",
+      "ddnsFieldsUrl", "ddnsBlockDom", "ddnsBlockIp",
+    ];
+
+    function syncProviderUI() {
+      var p = $("ddnsProvider").value;
+      var show = PROVIDER_CARDS[p] || [];
+      ALL_CARDS.forEach(function (id) {
+        var el = $(id);
+        if (el) el.style.display = show.indexOf(id) >= 0 ? "" : "none";
+      });
+    }
+    $("ddnsProvider").addEventListener("change", syncProviderUI);
+
+    /* ── 加载配置 ── */
+    function loadConfig() {
+      setStatus("");
+      return apiJson("/api/ddns/config").then(function (res) {
+        var c = res.config || {};
+
+        $("ddnsProvider").value    = c.provider || "trafficroute";
+        $("ddnsEnabled").checked   = !!c.enabled;
+        $("ddnsInterval").value    = c.interval_sec || 300;
+        $("ddnsTtl").value         = (c.trafficroute && c.trafficroute.ttl) || c.ttl || 600;
+
+        /* IPv4 */
+        var i4 = c.ipv4 || {};
+        $("ip4En").checked  = i4.enabled !== false;
+        $("ip4get").value   = (i4.gettype === "interface" || i4.gettype === "if") ? "if" : "url";
+        $("ip4if").value    = i4.interface || "";
+        $("ip4urls").value  = (i4.urls || []).join("\n");
+
+        /* IPv6 */
+        var i6 = c.ipv6 || {};
+        $("ip6En").checked  = !!i6.enabled;
+        $("ip6get").value   = (i6.gettype === "interface" || i6.gettype === "if") ? "if" : "url";
+        $("ip6if").value    = i6.interface || "";
+        $("ip6urls").value  = (i6.urls || []).join("\n");
+
+        /* 域名 */
+        var d4 = c.ipv4_domains || (c.domains && c.domains.ipv4) || [];
+        var d6 = c.ipv6_domains || (c.domains && c.domains.ipv6) || [];
+        $("dom4").value = d4.join("\n");
+        $("dom6").value = d6.join("\n");
+
+        /* TrafficRoute */
+        var tr = c.trafficroute || {};
+        $("trAk").value = tr.access_key_id || tr.id || "";
+        $("trSk").value = tr.secret_access_key || tr.secret || "";
+
+        /* Cloudflare */
+        var cf = c.cloudflare || {};
+        $("ddnsCfToken").value   = cf.api_token || "";
+        $("ddnsCfZone").value    = cf.zone_id || "";
+        $("ddnsCfRecord").value  = cf.record_id || "";
+        $("ddnsCfProxied").checked = !!cf.proxied;
+
+        /* 阿里云 */
+        var al = c.aliyun || {};
+        $("aliyunAk").value = al.access_key_id || "";
+        $("aliyunSk").value = al.access_key_secret || "";
+
+        /* DNSPod */
+        var dp = c.dnspod || {};
+        $("dnspodToken").value = dp.token || "";
+
+        /* DuckDNS */
+        var dd = c.duckdns || {};
+        $("ddnsDuckDomain").value = dd.domain || "";
+        $("ddnsDuckToken").value  = dd.token || "";
+
+        /* No-IP */
+        var ni = c.noip || {};
+        $("noipUsername").value = ni.username || "";
+        $("noipPassword").value = ni.password || "";
+        $("noipHostname").value = ni.hostname || "";
+
+        /* ddns-go native */
+        var ng = c.ddnsgo || {};
+        $("ddnsGoBaseUrl").value = ng.base_url || "http://127.0.0.1:9876";
+        $("ddnsGoProxyLink").href = "/ddns-go/";
+
+        /* GoDaddy */
+        var gd = c.godaddy || {};
+        $("godaddyKey").value = gd.api_key || "";
+        $("godaddySecret").value = gd.api_secret || "";
+
+        /* Namecheap */
+        var nc = c.namecheap || {};
+        $("namecheapPassword").value = nc.dynamic_password || "";
+
+        /* NameSilo */
+        var ns = c.namesilo || {};
+        $("namesiloApiKey").value = ns.api_key || "";
+
+        /* Porkbun */
+        var pb = c.porkbun || {};
+        $("porkbunApiKey").value = pb.api_key || "";
+        $("porkbunSecretApiKey").value = pb.secret_api_key || "";
+
+        /* URL 模板 */
+        $("ddnsUrlTemplate").value = (c.url || {}).template || "";
+
+        /* 配置文件路径提示 */
+        if (res.config_path) {
+          var parts = String(res.config_path).replace(/\\/g, "/").split("/").filter(Boolean);
+          $("ddnsConfigHint").textContent = parts.length ? parts[parts.length - 1] : "ddns_config.json";
+        }
+
+        syncProviderUI();
+        ["ip4", "ip6"].forEach(function (v) { syncIpSourceUI(v); });
+
+      }).catch(function (e) { setStatus("加载失败: " + e.message, true); });
+    }
+
+    /* ── 保存配置 ── */
+    function saveConfig() {
+      var btn = $("ddnsSaveBtn");
+      btn.disabled = true;
+      btn.textContent = "保存中…";
+
+      var g4 = $("ip4get").value;
+      var g6 = $("ip6get").value;
+      var body = {
+        provider:     $("ddnsProvider").value,
+        enabled:      $("ddnsEnabled").checked,
+        interval_sec: parseInt($("ddnsInterval").value, 10) || 300,
+        ttl:          parseInt($("ddnsTtl").value, 10) || 600,
+        ipv4: {
+          enabled:   $("ip4En").checked,
+          gettype:   g4 === "if" ? "interface" : "url",
+          interface: $("ip4if").value.trim(),
+          urls:      linesToArr("ip4urls"),
+        },
+        ipv6: {
+          enabled:   $("ip6En").checked,
+          gettype:   g6 === "if" ? "interface" : "url",
+          interface: $("ip6if").value.trim(),
+          urls:      linesToArr("ip6urls"),
+        },
+        ipv4_domains: linesToArr("dom4"),
+        ipv6_domains: linesToArr("dom6"),
+        domains: { ipv4: linesToArr("dom4"), ipv6: linesToArr("dom6") },
+        trafficroute: {
+          access_key_id:     $("trAk").value.trim(),
+          secret_access_key: $("trSk").value.trim(),
+          ttl: parseInt($("ddnsTtl").value, 10) || 600,
+        },
+        cloudflare: {
+          api_token: $("ddnsCfToken").value.trim(),
+          zone_id:   $("ddnsCfZone").value.trim(),
+          record_id: $("ddnsCfRecord").value.trim(),
+          proxied:   $("ddnsCfProxied").checked,
+        },
+        aliyun: {
+          access_key_id:     $("aliyunAk").value.trim(),
+          access_key_secret: $("aliyunSk").value.trim(),
+        },
+        dnspod: { token: $("dnspodToken").value.trim() },
+        duckdns: {
+          domain: $("ddnsDuckDomain").value.trim(),
+          token:  $("ddnsDuckToken").value.trim(),
+        },
+        noip: {
+          username: $("noipUsername").value.trim(),
+          password: $("noipPassword").value.trim(),
+          hostname: $("noipHostname").value.trim(),
+        },
+        ddnsgo: {
+          base_url: $("ddnsGoBaseUrl").value.trim(),
+        },
+        godaddy: {
+          api_key: $("godaddyKey").value.trim(),
+          api_secret: $("godaddySecret").value.trim(),
+        },
+        namecheap: {
+          dynamic_password: $("namecheapPassword").value.trim(),
+        },
+        namesilo: {
+          api_key: $("namesiloApiKey").value.trim(),
+        },
+        porkbun: {
+          api_key: $("porkbunApiKey").value.trim(),
+          secret_api_key: $("porkbunSecretApiKey").value.trim(),
+        },
+        url: { template: $("ddnsUrlTemplate").value.trim() },
+      };
+
+      return apiJson("/api/ddns/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }).then(function () {
+        showToast("配置已保存", "success");
+        setStatus("配置已写入。");
+        return loadConfig();
+      }).catch(function (e) {
+        showToast("保存失败", "error");
+        setStatus("保存失败: " + e.message, true);
+      }).finally(function () {
+        btn.disabled = false;
+        btn.textContent = "保存配置";
+      });
+    }
+
+    $("ddnsSaveBtn").addEventListener("click", saveConfig);
+    loadConfig();
+  })();
+  </script>
+</body>
+</html>
