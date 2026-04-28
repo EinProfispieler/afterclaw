@@ -1,85 +1,89 @@
-# 文件中控台（1288 单端口）
+# AfterClaw
 
-用于统一管理你的文件目录服务、下载监控和服务控制，目标是“换服务器也能直接迁移”。
+AfterClaw 是一个面向家庭与小团队自托管场景的文件中控平台。  
+它把目录服务、HTTP 传输、下载观察、服务控制、DDNS 与实用工具整合到同一个控制台，目标是“低门槛部署、可持续维护、可跨机器迁移”。
+
+## 为什么开发 AfterClaw
+
+- 很多 NAS/轻服务器环境里，功能分散在多个页面，排障和维护成本高。
+- 纯脚本方案可用，但新成员接手难、可观测性差。
+- 我们需要一个既能稳定运行、又方便持续迭代和开源协作的统一入口。
+
+AfterClaw 的设计重点是：
+
+- 单一入口管理核心能力
+- 面向真实运维场景的状态与操作反馈
+- 对 GitHub 自动化友好（测试、构建、发布）
 
 ## 功能总览
 
-- 目录服务：浏览 `STORAGE_ROOT`（默认 `/srv/Storage`），一键生成当前目录所有文件的 HTTP 链接
-- 下载服务：`/http-files/*` 支持大文件流式传输和 `Range` 断点续传
-- 中控页面：查看系统状态、实时外网下载速度、当前活跃传输
-- 服务控制：在页面里控制 `qBittorrent-nox`、DDNS、本服务的开关和重启
-- **ShareClip**：源码在 `shareclip/`，与主程序**同一进程、同一端口 1288**，无需再开 8888；剪贴数据在 `SHARECLIP_STORAGE_ROOT`（默认 `APP_ROOT/shareclip/storage`）。页面右上角可切换**浅色 / 深色**主题（含内嵌 ShareClip）
-- 安全策略：主页和受控 API 仅局域网可访问，`/http-files/*` 可按开关对外提供下载
+- 目录服务：浏览 `STORAGE_ROOT` 并生成文件 HTTP 链接
+- 传输监控：查看实时传输速度、连接与任务列表
+- 服务控制：在 Web 控制台管理 qBittorrent、DDNS、HTTP 服务
+- 配置中心：统一配置模块开关、主题、来源池等
+- 跨平台部署：支持 Linux / macOS / Windows 安装入口
 
-## 快速启动（不装服务）
+## 快速启动（源码运行）
 
 ```bash
 WEB_PORT=1288 \
 STORAGE_ROOT=/srv/Storage \
 PUBLIC_HOST=home.rxotc.cn:1288 \
 PUBLIC_SCHEME=http \
-SHARECLIP_STORAGE_ROOT=/opt/storage-http-link-web/shareclip/storage \
 python3 -m fcc
 ```
 
-兼容入口仍可用：
+兼容入口：
 
 ```bash
 python3 app.py
 ```
 
-## 推荐安装（systemd）
+## 安装
+
+Linux / macOS:
 
 ```bash
 sudo bash install.sh
 ```
 
-`install.sh` 现已按平台分发到：
+Windows（管理员 PowerShell）:
 
-- `scripts/install_ubuntu.sh`
-- `scripts/install_mint.sh`
-- `scripts/install_macos.sh`
-
-兼容旧入口：
-
-```bash
-sudo bash install_on_130.sh
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-默认服务名：`storage-http-link-web`
+或：
+
+```bat
+install.cmd
+```
 
 ## 环境变量
 
 - `WEB_PORT`：端口，默认 `1288`
 - `STORAGE_ROOT`：文件根目录，默认 `/srv/Storage`
-- `PUBLIC_HOST`：生成外链使用的域名（可带端口）
+- `PUBLIC_HOST`：外链域名（可带端口）
 - `PUBLIC_SCHEME`：`http` / `https`
-- `DOWNLOADS_ENABLED`：是否允许外网下载（`1`/`0`）
-- `QBT_SERVICE`：qBittorrent 的 systemd 服务名
-- `QBT_API_URL`：qBittorrent WebUI 地址（默认 `http://127.0.0.1:8080`）
-- `QBT_API_USERNAME` / `QBT_API_PASSWORD`：qBittorrent WebUI 账号密码（可选；用于展示上/下行与做种统计）
-- `DDNS_SERVICE`：DDNS 的 systemd 服务名
-- `SHARECLIP_STORAGE_ROOT`：ShareClip 数据目录（各 ID 的剪贴与图片）；默认 `APP_ROOT/shareclip/storage`
+- `DOWNLOADS_ENABLED`：是否允许公网传输（`1`/`0`）
+- `QBT_SERVICE`：qBittorrent 服务名
+- `QBT_API_URL`：qBittorrent WebUI 地址
+- `QBT_API_USERNAME` / `QBT_API_PASSWORD`：qBittorrent 认证信息（可选）
+- `DDNS_SERVICE`：DDNS 服务名
+- `SHARECLIP_STORAGE_ROOT`：内置剪贴数据目录
 
-## 打包到 iCloud（迁移用）
+## GitHub 自动化
 
-在项目目录执行：
+仓库已提供 GitHub Actions：
 
-```bash
-bash package_to_icloud.sh
-```
+- `.github/workflows/test.yml`：每次 push / PR 自动测试
+- `.github/workflows/installers.yml`：每次 push 自动构建三平台安装包 artifact
+- `.github/workflows/release.yml`：打 tag 自动生成 Release 包
 
-会生成：
+推送新代码后，在 Actions 页面可直接下载各平台构建产物。
 
-- 本地包：`dist/storage-http-control-时间戳.tar.gz`
-- 自动复制：`/Users/你的用户名/Library/Mobile Documents/com~apple~CloudDocs/你的目录/`
+## 部署与迁移
 
-可通过环境变量覆盖 iCloud 目录：
-
-```bash
-ICLOUD_DIR="/Users/你的用户名/Library/Mobile Documents/com~apple~CloudDocs/你的目录" bash package_to_icloud.sh
-```
-
-## 换新服务器部署
-
-完整步骤见 `DEPLOY.md`。
+- 生产部署说明：`DEPLOY.md`
+- 变更记录：`CHANGELOG.md`
+- 贡献说明：`CONTRIBUTING.md`
