@@ -1544,10 +1544,10 @@ def build_frontend_html() -> str:
   </div>
   </div>
   <footer class="global-footer">
-    ShareClip by
+    AfterClaw by
     <a href="mailto:mengke@pku.org.cn">Support</a>
     · Apache License 2.0 ·
-    <a href="https://github.com/EinProfispieler/shareclip" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/EinProfispieler/afterclaw" target="_blank" rel="noopener">GitHub</a>
   </footer>
   </div>
 
