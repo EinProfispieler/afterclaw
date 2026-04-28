@@ -28,6 +28,11 @@ case "$OS" in
   Darwin)
     exec bash "${SCRIPT_DIR}/scripts/install_macos.sh" "$@"
     ;;
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    echo "Windows detected. Please run PowerShell installer instead:" >&2
+    echo "  powershell -ExecutionPolicy Bypass -File .\\install.ps1" >&2
+    exit 1
+    ;;
   *)
     echo "不支持的操作系统: ${OS}" >&2
     exit 1

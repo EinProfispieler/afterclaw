@@ -1,0 +1,65 @@
+name: installers
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: Build installer bundle (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build metadata
+        shell: bash
+        run: |
+          short_sha="${GITHUB_SHA::7}"
+          echo "VERSION_TAG=${GITHUB_REF_NAME}-${short_sha}" >> "$GITHUB_ENV"
+
+      - name: Create Linux bundle
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar --exclude='./.git' --exclude='./dist' -czf "dist/afterclaw-linux-${VERSION_TAG}.tar.gz" .
+          cp install.sh "dist/afterclaw-install-linux-${VERSION_TAG}.sh"
+          chmod +x "dist/afterclaw-install-linux-${VERSION_TAG}.sh"
+
+      - name: Create macOS bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar --exclude='./.git' --exclude='./dist' -czf "dist/afterclaw-macos-${VERSION_TAG}.tar.gz" .
+          cp install.sh "dist/afterclaw-install-macos-${VERSION_TAG}.sh"
+          chmod +x "dist/afterclaw-install-macos-${VERSION_TAG}.sh"
+
+      - name: Create Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $versionTag = $env:VERSION_TAG
+          $archive = "dist/afterclaw-windows-$versionTag.zip"
+          $staging = Join-Path $env:RUNNER_TEMP "afterclaw-package"
+          if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", "dist") } | ForEach-Object {
+            Copy-Item -Recurse -Force $_.FullName (Join-Path $staging $_.Name)
+          }
+          Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -Force
+          Copy-Item install.ps1 "dist/afterclaw-install-windows-$versionTag.ps1" -Force
+          Copy-Item install.cmd "dist/afterclaw-install-windows-$versionTag.cmd" -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: afterclaw-installers-${{ runner.os }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
