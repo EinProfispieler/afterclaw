@@ -6,15 +6,86 @@ on:
       - "v*"
 
 jobs:
-  release:
-    runs-on: ubuntu-24.04
+  build:
+    name: Build release assets (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+
     steps:
       - uses: actions/checkout@v6
-      - name: Build tarball
+
+      - name: Build metadata
+        shell: bash
+        run: echo "VERSION_TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+
+      - name: Create Linux release bundle
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
           mkdir -p dist
-          tar -czf dist/file-control-center-${GITHUB_REF_NAME}.tar.gz .
+          tar --exclude='./.git' --exclude='./dist' -czf "dist/afterclaw-linux-${VERSION_TAG}.tar.gz" .
+          cp install.sh "dist/afterclaw-install-linux-${VERSION_TAG}.sh"
+          chmod +x "dist/afterclaw-install-linux-${VERSION_TAG}.sh"
+
+      - name: Create macOS release bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p dist
+          tar --exclude='./.git' --exclude='./dist' -czf "dist/afterclaw-macos-${VERSION_TAG}.tar.gz" .
+          cp install.sh "dist/afterclaw-install-macos-${VERSION_TAG}.sh"
+          chmod +x "dist/afterclaw-install-macos-${VERSION_TAG}.sh"
+
+      - name: Create Windows release bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $versionTag = $env:VERSION_TAG
+          $archive = "dist/afterclaw-windows-$versionTag.zip"
+          $staging = Join-Path $env:RUNNER_TEMP "afterclaw-release-package"
+          if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", "dist") } | ForEach-Object {
+            Copy-Item -Recurse -Force $_.FullName (Join-Path $staging $_.Name)
+          }
+          Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -Force
+          Copy-Item install.ps1 "dist/afterclaw-install-windows-$versionTag.ps1" -Force
+          Copy-Item install.cmd "dist/afterclaw-install-windows-$versionTag.cmd" -Force
+
+      - name: Upload release build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: afterclaw-release-${{ runner.os }}-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download all release build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: afterclaw-release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/file-control-center-${{ github.ref_name }}.tar.gz
+          files: |
+            dist/*
