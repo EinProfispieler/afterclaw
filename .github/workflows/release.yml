@@ -1,0 +1,20 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tarball
+        run: |
+          mkdir -p dist
+          tar -czf dist/file-control-center-${GITHUB_REF_NAME}.tar.gz .
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/file-control-center-${{ github.ref_name }}.tar.gz
