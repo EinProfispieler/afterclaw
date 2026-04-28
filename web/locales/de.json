@@ -1,0 +1,176 @@
+{
+  "meta": {
+    "code": "de",
+    "label": "Deutsch"
+  },
+  "messages": {
+    "lang": {
+      "label": "Sprache"
+    }
+  },
+  "raw": {
+    "文件中控台": "Datei-Kontrollzentrum",
+    "中控": "Zentrale",
+    "目录服务": "Verzeichnisdienst",
+    "浅色模式": "Heller Modus",
+    "深色模式": "Dunkler Modus",
+    "中控状态与操作": "Status und Aktionen",
+    "系统状态加载中...": "Systemstatus wird geladen...",
+    "当前 HTTP 服务": "Aktueller HTTP-Dienst",
+    "切换上传开关": "Upload umschalten",
+    "重启服务并中断上传": "Dienst neu starten und Upload unterbrechen",
+    "实时公网传输": "Echtzeit-Internet-Transfer",
+    "速度": "Geschwindigkeit",
+    "活跃连接": "Aktive Verbindungen",
+    "来源速度加载中...": "Quellgeschwindigkeiten werden geladen...",
+    "当前传输（HTTP）": "Aktuelle Übertragungen (HTTP)",
+    "排序": "Sortieren",
+    "进度": "Fortschritt",
+    "名称": "Name",
+    "来源": "Quelle",
+    "目录与批量链接": "Verzeichnis und Batch-Links",
+    "存储根目录": "Speicher-Stammverzeichnis",
+    "公开访问域名": "Öffentliche Basis-URL",
+    "当前目录": "Aktuelles Verzeichnis",
+    "跳转目录": "Wechseln",
+    "刷新目录": "Aktualisieren",
+    "返回上级": "Eine Ebene hoch",
+    "复制当前目录名": "Aktuellen Ordnernamen kopieren",
+    "复制全部链接": "Alle Links kopieren",
+    "子目录（点击直接进入）": "Unterverzeichnisse (klicken zum Öffnen)",
+    "目录名清洗 / 批量重命名": "Namensbereinigung / Massenumbenennung",
+    "预览": "Vorschau",
+    "按预览执行重命名": "Umbenennen gemäß Vorschau",
+    "批量文本（每行一个 HTTP 链接）": "Batch-Text (eine HTTP-URL pro Zeile)",
+    "新窗口打开": "In neuem Fenster öffnen",
+    "读取剪贴板": "Zwischenablage lesen",
+    "暂无内容": "Kein Inhalt",
+    "刷新历史": "Verlauf aktualisieren",
+    "查看": "Anzeigen",
+    "删除": "Löschen",
+    "Config": "Konfiguration",
+    "综合配置": "Allgemein",
+    "主题": "Design",
+    "保存综合配置": "Allgemeine Einstellungen speichern",
+    "主题背景": "Design-Hintergrund",
+    "默认": "Standard",
+    "极光": "Aurora",
+    "落日": "Sonnenuntergang",
+    "冰川": "Frost",
+    "云海暮光": "Wolkendämmerung",
+    "自定义": "Benutzerdefiniert",
+    "上传并应用": "Hochladen und anwenden",
+    "恢复默认": "Zurücksetzen",
+    "HTTP 配置": "HTTP-Einstellungen",
+    "验证（扫描）": "Prüfen (Scan)",
+    "保存 HTTP 配置": "HTTP-Einstellungen speichern",
+    "qB 配置": "qB-Einstellungen",
+    "qB 监控": "qB-Überwachung",
+    "保存 qB 配置": "qB-Einstellungen speichern",
+    "一键优化配置": "Ein-Klick-Optimierung",
+    "修复 qB 监控权限": "qB-Monitor-Berechtigungen reparieren",
+    "qB 服务重启": "qB-Dienst neu starten",
+    "qB 退出": "qB beenden",
+    "Terminal / SSH": "Terminal / SSH",
+    "认证方式": "Authentifizierung",
+    "连接预览": "Verbindungsvorschau",
+    "保存 Terminal 配置": "Terminal-Einstellungen speichern",
+    "复制 SSH 命令": "SSH-Befehl kopieren",
+    "浏览器内 SSH 终端（xterm.js）": "SSH-Terminal im Browser (xterm.js)",
+    "目标：": "Ziel:",
+    "加载中...": "Lädt...",
+    "连接": "Verbinden",
+    "断开": "Trennen",
+    "清屏": "Leeren",
+    "准备就绪": "Bereit",
+    "外部终端直连：": "Externer Terminal-Link:",
+    "Powered by": "Bereitgestellt von",
+    "模块已关闭": "Modul deaktiviert",
+    "当前没有活跃 HTTP 传输任务。": "Derzeit keine aktiven HTTP-Übertragungen.",
+    "Language": "Sprache",
+    "简体中文": "Vereinfachtes Chinesisch",
+    "繁體中文": "Traditionelles Chinesisch",
+    "English": "Englisch",
+    "Deutsch": "Deutsch",
+    "Français": "Französisch",
+    "日本語": "Japanisch"
+  },
+  "patterns": [
+    {
+      "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
+      "to": "Aktiv $1 · Kürzlich abgeschlossen $2 · Gesamtfortschritt $3%"
+    },
+    {
+      "re": "^来源速度：(.*)$",
+      "to": "Quellgeschwindigkeiten: $1"
+    },
+    {
+      "re": "^保存失败：(.*)$",
+      "to": "Speichern fehlgeschlagen: $1"
+    },
+    {
+      "re": "^配置加载失败：(.*)$",
+      "to": "Konfiguration konnte nicht geladen werden: $1"
+    },
+    {
+      "re": "^加载失败：(.*)$",
+      "to": "Laden fehlgeschlagen: $1"
+    },
+    {
+      "re": "^切换失败：(.*)$",
+      "to": "Umschalten fehlgeschlagen: $1"
+    },
+    {
+      "re": "^上传失败：(.*)$",
+      "to": "Upload fehlgeschlagen: $1"
+    },
+    {
+      "re": "^恢复失败：(.*)$",
+      "to": "Zurücksetzen fehlgeschlagen: $1"
+    },
+    {
+      "re": "^目录加载失败：(.*)$",
+      "to": "Verzeichnis laden fehlgeschlagen: $1"
+    },
+    {
+      "re": "^路径验证失败：(.*)$",
+      "to": "Pfadprüfung fehlgeschlagen: $1"
+    },
+    {
+      "re": "^已复制 (\\d+) 条链接$",
+      "to": "$1 Links kopiert"
+    },
+    {
+      "re": "^共找到 (\\d+) 个文件$",
+      "to": "$1 Dateien gefunden"
+    },
+    {
+      "re": "^正在扫描目录：(.*)$",
+      "to": "Verzeichnis wird gescannt: $1"
+    },
+    {
+      "re": "^重启失败：(.*)$",
+      "to": "Neustart fehlgeschlagen: $1"
+    },
+    {
+      "re": "^连接失败：(.*)$",
+      "to": "Verbindung fehlgeschlagen: $1"
+    },
+    {
+      "re": "^读取失败：(.*)$",
+      "to": "Lesen fehlgeschlagen: $1"
+    },
+    {
+      "re": "^输入发送失败：(.*)$",
+      "to": "Eingabe senden fehlgeschlagen: $1"
+    },
+    {
+      "re": "^会话已结束，退出码：(.*)$",
+      "to": "Sitzung beendet, Exit-Code: $1"
+    },
+    {
+      "re": "^综合配置已保存：(.*)$",
+      "to": "Allgemeine Einstellungen gespeichert: $1"
+    }
+  ]
+}

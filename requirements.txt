@@ -1,0 +1,2 @@
+# 与 app.py 同机部署
+tldextract>=5.0.0
