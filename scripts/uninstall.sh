@@ -15,7 +15,7 @@ if [[ "$OS" == "Linux" ]]; then
 fi
 
 if [[ "$OS" == "Darwin" ]]; then
-  PLIST="${HOME}/Library/LaunchAgents/com.fcc.file-control-center.plist"
+  PLIST="${HOME}/Library/LaunchAgents/com.fcc.afterclaw.plist"
   launchctl unload "${PLIST}" >/dev/null 2>&1 || true
   rm -f "${PLIST}"
   echo "已移除 launchd agent（程序目录和数据目录未删除）"

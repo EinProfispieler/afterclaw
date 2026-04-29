@@ -43,7 +43,7 @@ _shareclip_import_lock = threading.Lock()
 
 
 def get_shareclip_app():
-    """惰性加载 ShareClip（Flask），与同进程 1288 共用，无需单独监听 8888。"""
+    """惰性加载 ShareClip（Flask），与同进程中控服务共用，无需单独监听 8888。"""
     global _shareclip_app
     if _shareclip_app is None:
         with _shareclip_import_lock:
@@ -63,6 +63,7 @@ def get_shareclip_app():
 
 DEFAULT_STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/Storage")).resolve()
 DEFAULT_WEB_PORT = int(os.environ.get("WEB_PORT", "1288"))
+ACTIVE_WEB_PORT = DEFAULT_WEB_PORT
 DEFAULT_PUBLIC_SCHEME = os.environ.get("PUBLIC_SCHEME", "http").strip() or "http"
 DEFAULT_PUBLIC_HOST = (
     os.environ.get("PUBLIC_HOST", f"home.rxotc.cn:{DEFAULT_WEB_PORT}").strip()
@@ -758,6 +759,16 @@ def _normalize_ssh_port(value, default: int = 22) -> int:
     return p
 
 
+def _normalize_web_port(value, default: int = DEFAULT_WEB_PORT) -> int:
+    try:
+        p = int(value)
+    except Exception:
+        return int(default)
+    if p <= 0 or p > 65535:
+        return int(default)
+    return p
+
+
 def _build_terminal_launch_meta(cfg: dict) -> dict:
     term = ((cfg or {}).get("terminal") or {}) if isinstance(cfg, dict) else {}
     enabled = bool(term.get("enabled", True))
@@ -847,6 +858,7 @@ def _build_terminal_ssh_argv(cfg: dict) -> tuple[list[str], dict]:
 def default_app_config() -> dict:
     return {
         "version": 1,
+        "web_port": DEFAULT_WEB_PORT,
         "modules": {
             "qbt": True,
             "ddns": True,
@@ -886,6 +898,10 @@ def default_app_config() -> dict:
 def normalize_app_config(raw) -> dict:
     base = default_app_config()
     if isinstance(raw, dict):
+        if "web_port" in raw:
+            base["web_port"] = _normalize_web_port(
+                raw.get("web_port"), base.get("web_port", DEFAULT_WEB_PORT)
+            )
         mods = raw.get("modules")
         if isinstance(mods, dict):
             for k in ("qbt", "ddns", "shareclip", "http"):
@@ -980,6 +996,9 @@ def normalize_app_config(raw) -> dict:
     base["terminal"]["port"] = _normalize_ssh_port(base["terminal"]["port"], 22)
     base["terminal"]["key_file"] = _normalize_terminal_key_file_name(
         base["terminal"].get("key_file", "")
+    )
+    base["web_port"] = _normalize_web_port(
+        base.get("web_port", DEFAULT_WEB_PORT), DEFAULT_WEB_PORT
     )
     base["ui"]["hero_preset"] = _normalize_ui_hero_preset(
         (base.get("ui") or {}).get("hero_preset", "default")
@@ -2934,6 +2953,14 @@ def build_config_html() -> str:
         <span class="card-title">综合配置（开关各模块）</span>
         <div class="cfg-module-list">
           <label class="cfg-module-item">
+            <input type="checkbox" id="modHttp" class="cfg-switch-input" checked />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div>
+              <p class="cfg-module-title">HTTP 模块</p>
+              <p class="cfg-module-desc">控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制断开一次连接并关闭上传。</p>
+            </div>
+          </label>
+          <label class="cfg-module-item">
             <input type="checkbox" id="modQbt" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
@@ -2957,17 +2984,10 @@ def build_config_html() -> str:
               <p class="cfg-module-desc">控制主页面 ShareClip 标签页显示。</p>
             </div>
           </label>
-          <label class="cfg-module-item">
-            <input type="checkbox" id="modHttp" class="cfg-switch-input" checked />
-            <span class="cfg-switch" aria-hidden="true"></span>
-            <div>
-              <p class="cfg-module-title">HTTP 模块</p>
-              <p class="cfg-module-desc">控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制断开一次连接并关闭上传。</p>
-            </div>
-          </label>
         </div>
         <div class="cfg-actions">
           <button type="button" id="saveModulesBtn">保存综合配置</button>
+          <button type="button" id="restartCfgServiceBtn" class="secondary">重启服务</button>
         </div>
         <p id="generalStatus" class="cfg-status"></p>
       </div>
@@ -3000,6 +3020,14 @@ def build_config_html() -> str:
     <section id="panel-http" class="cfg-panel">
       <div class="card">
         <span class="card-title">HTTP 配置</span>
+        <div class="cfg-grid" style="margin-top:12px;">
+          <label class="cfg-item">
+            <div class="title">程序端口</div>
+            <p class="cfg-help">默认 1288。保存 HTTP 配置后需重启程序才会切换监听端口。</p>
+            <input id="webPortInput" type="number" min="1" max="65535" placeholder="1288" />
+            <p id="webPortHint" class="cfg-help" style="margin-top:8px;">当前运行端口：1288</p>
+          </label>
+        </div>
         <p class="cfg-help">当前 HTTP 根目录：<strong id="httpStorageRoot">-</strong></p>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
@@ -3167,6 +3195,7 @@ def build_config_html() -> str:
     var HERO_THEME_KEY = "fc-hero-preset";
     var TAB_KEY = "fc-config-tab";
     var cfg = {
+      web_port: 1288,
       modules: { qbt: true, ddns: true, shareclip: true, http: true },
       qbt: { monitor_enabled: true },
       http_service: {
@@ -3189,6 +3218,7 @@ def build_config_html() -> str:
         key_file: ""
       }
     };
+    var runtimeWebPort = 1288;
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
 
     function byId(id){ return document.getElementById(id); }
@@ -3390,12 +3420,34 @@ def build_config_html() -> str:
       var fromShown = shown ? String(shown.textContent || "").trim() : "";
       return normalizeRootInput(fromShown || "/");
     }
-    function parsePort(raw){
+    function normalizePort(raw, fallback){
+      var f = Number(fallback);
+      if (!Number.isFinite(f)) f = 22;
+      f = Math.trunc(f);
+      if (f < 1 || f > 65535) f = 22;
       var n = Number(raw);
-      if (!Number.isFinite(n)) return 22;
+      if (!Number.isFinite(n)) return f;
       n = Math.trunc(n);
-      if (n < 1 || n > 65535) return 22;
+      if (n < 1 || n > 65535) return f;
       return n;
+    }
+    function parsePort(raw){
+      return normalizePort(raw, 22);
+    }
+    function parseWebPort(raw, fallback){
+      return normalizePort(raw, fallback || 1288);
+    }
+    function updateWebPortHint(){
+      var hint = byId("webPortHint");
+      if (!hint) return;
+      var desired = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : cfg.web_port, cfg.web_port || 1288);
+      var msg = "当前运行端口：" + String(runtimeWebPort) + "。";
+      if (desired !== runtimeWebPort) {
+        msg += " 保存后需重启程序，重启后切换到：" + String(desired) + "。";
+      } else {
+        msg += " 当前保存值与运行端口一致。";
+      }
+      hint.textContent = msg;
     }
     function shellQuote(s){
       var v = String(s || "");
@@ -3747,11 +3799,13 @@ def build_config_html() -> str:
     }
     function applyCfg(data){
       var c = data || {};
+      cfg.web_port = parseWebPort(c.web_port, cfg.web_port || 1288);
       cfg.modules = c.modules || cfg.modules;
       cfg.qbt = c.qbt || cfg.qbt;
       cfg.http_service = c.http_service || cfg.http_service;
       cfg.ui = c.ui || cfg.ui;
       cfg.terminal = c.terminal || cfg.terminal;
+      if (byId("webPortInput")) byId("webPortInput").value = String(cfg.web_port);
       byId("modQbt").checked = cfg.modules.qbt !== false;
       byId("modDdns").checked = cfg.modules.ddns !== false;
       byId("modShareclip").checked = cfg.modules.shareclip !== false;
@@ -3777,6 +3831,7 @@ def build_config_html() -> str:
         hero_custom_bg_file: String((cfg.ui || {}).hero_custom_bg_file || ""),
         hero_custom_bg_url: heroTheme.hero_custom_bg_url || ""
       });
+      updateWebPortHint();
     }
     async function loadCfg(){
       var d = await apiJson("/api/app-config");
@@ -3784,6 +3839,7 @@ def build_config_html() -> str:
     }
     async function loadBaseInfo(){
       var d = await apiJson("/api/base");
+      runtimeWebPort = parseWebPort(d.web_port, runtimeWebPort || cfg.web_port || 1288);
       var root = normalizeRootInput(d.http_root_dir || d.storage_root || "/");
       byId("httpStorageRoot").textContent = root;
       if (byId("httpRootDir")) {
@@ -3802,6 +3858,7 @@ def build_config_html() -> str:
         hero_custom_bg_file: String(((cfg.ui || {}).hero_custom_bg_file || "")),
         hero_custom_bg_url: ""
       });
+      updateWebPortHint();
     }
     async function loadQbtRuntime(){
       try {
@@ -3886,6 +3943,7 @@ def build_config_html() -> str:
           body: JSON.stringify(payload)
         });
         applyCfg(d.config || d);
+        updateWebPortHint();
         var actionSummary = summarizeModuleActions((d && d.module_actions) || []);
         if (actionSummary.text) {
           setStatus("generalStatus", "综合配置已保存：" + actionSummary.text, actionSummary.has_error);
@@ -3899,8 +3957,28 @@ def build_config_html() -> str:
       }
     });
 
+    byId("restartCfgServiceBtn").addEventListener("click", async function(){
+      if (!window.confirm("确认重启服务？端口等变更将在重启后生效。")) return;
+      try {
+        setStatus("generalStatus", "正在发送重启指令...");
+        var d = await apiJson("/api/control/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "config-page-restart" })
+        });
+        if (d && d.queued === false) {
+          setStatus("generalStatus", "重启任务未入队，请稍后重试。", true);
+          return;
+        }
+        setStatus("generalStatus", "已发送重启命令，端口等变更将在重启后生效。");
+      } catch (err) {
+        setStatus("generalStatus", "重启失败：" + err.message, true);
+      }
+    });
+
     byId("saveHttpBtn").addEventListener("click", async function(){
       try {
+        var webPort = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : cfg.web_port, cfg.web_port || 1288);
         var scan = await scanHttpRootPath(true);
         if (!scan.ok) throw new Error(String(scan.error || "HTTP 根目录不可访问"));
         var root = normalizeRootInput((scan && scan.path) || byId("httpRootDir").value || "/");
@@ -3911,12 +3989,15 @@ def build_config_html() -> str:
         var d = await apiJson("/api/app-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ http_service: { root_dir: root, default_dir: target, source_ip_pools: pools, source_ip_pool_source: source } })
+          body: JSON.stringify({ web_port: webPort, http_service: { root_dir: root, default_dir: target, source_ip_pools: pools, source_ip_pool_source: source } })
         });
         applyCfg(d.config || d);
         byId("httpBrowseDir").value = target;
         await loadHttpDirBrowser(target, true);
-        setStatus("httpStatus", "HTTP 配置已保存");
+        var restartMsg = (d && d.web_port_restart_required)
+          ? (" 程序端口将在重启后切换为 " + String(parseWebPort(((d.config || {}).web_port), webPort)) + "。")
+          : "";
+        setStatus("httpStatus", "HTTP 配置已保存" + restartMsg);
       } catch (err) {
         setStatus("httpStatus", "保存失败：" + err.message, true);
       }
@@ -4121,9 +4202,13 @@ def build_config_html() -> str:
       el.addEventListener("input", refreshTerminalPreview);
       el.addEventListener("change", refreshTerminalPreview);
     });
+    if (byId("webPortInput")) {
+      byId("webPortInput").addEventListener("input", updateWebPortHint);
+      byId("webPortInput").addEventListener("change", updateWebPortHint);
+    }
 
     applyTheme(getTheme());
-    var initialTab = (window.location.hash || "").replace("#", "") || safeLocalGet(TAB_KEY, "general") || "general";
+    var initialTab = (window.location.hash || "").replace("#", "") || "general";
     switchTab(initialTab);
     loadCfg()
       .then(function(){ return Promise.all([loadBaseInfo(), scanHttpRootPath(true), loadHttpDirBrowser(byId("httpBrowseDir").value, true), loadQbtRuntime()]); })
@@ -4333,6 +4418,17 @@ def build_config_html() -> str:
       });
       return { text: msgs.join("；"), has_error: hasErr };
     }
+    function parseWebPort(raw, fallback){
+      var f = Number(fallback);
+      if (!Number.isFinite(f)) f = 1288;
+      f = Math.trunc(f);
+      if (f < 1 || f > 65535) f = 1288;
+      var n = Number(raw);
+      if (!Number.isFinite(n)) return f;
+      n = Math.trunc(n);
+      if (n < 1 || n > 65535) return f;
+      return n;
+    }
     async function apiJson(url, opts){
       var r = await fetch(url, opts || {});
       var d = await r.json().catch(function(){ return {}; });
@@ -4359,13 +4455,18 @@ def build_config_html() -> str:
       if (byId("modDdns")) byId("modDdns").checked = modules.ddns !== false;
       if (byId("modShareclip")) byId("modShareclip").checked = modules.shareclip !== false;
       if (byId("modHttp")) byId("modHttp").checked = modules.http !== false;
+      var wp = parseWebPort((cfg || {}).web_port, 1288);
+      if (byId("webPortInput")) byId("webPortInput").value = String(wp);
+      if (byId("webPortHint")) byId("webPortHint").textContent = "当前保存端口：" + String(wp) + "（修改后需重启生效）";
     }
     async function loadModuleConfig(){
       var d = await apiJson("/api/app-config");
       applyModuleConfig((d && d.config) || d || {});
     }
     async function saveModuleConfig(){
+      var webPort = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : 1288, 1288);
       var payload = {
+        web_port: webPort,
         modules: {
           qbt: !!(byId("modQbt") && byId("modQbt").checked),
           ddns: !!(byId("modDdns") && byId("modDdns").checked),
@@ -4399,7 +4500,25 @@ def build_config_html() -> str:
         });
       });
     }
-    switchTab((window.location.hash || "").replace("#", "") || safeLocalGet(TAB_KEY, "general") || "general");
+    if (byId("restartCfgServiceBtn")) {
+      byId("restartCfgServiceBtn").addEventListener("click", function(){
+        if (!window.confirm("确认重启服务？端口等变更将在重启后生效。")) return;
+        apiJson("/api/control/restart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: "config-page-restart" })
+        }).then(function(d){
+          if (d && d.queued === false) {
+            setStatus("generalStatus", "重启任务未入队，请稍后重试。", true);
+            return;
+          }
+          setStatus("generalStatus", "已发送重启命令，端口等变更将在重启后生效。", false);
+        }).catch(function(err){
+          setStatus("generalStatus", "重启失败：" + ((err && err.message) || err), true);
+        });
+      });
+    }
+    switchTab((window.location.hash || "").replace("#", "") || "general");
     loadModuleConfig().catch(function(err){
       setStatus("generalStatus", "配置加载失败：" + ((err && err.message) || err), true);
     });
@@ -5761,7 +5880,7 @@ class AppHandler(BaseHTTPRequestHandler):
             optimize_block = [
                 "",
                 marker_start,
-                "# managed by file-control-center",
+                "# managed by afterclaw",
             ]
             optimize_block.extend([f"{k}={v}" for k, v in desired.items()])
             optimize_block.extend([marker_end, ""])
@@ -6829,7 +6948,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _count_established_conn_1288(cls) -> int:
-        target_port = f"{DEFAULT_WEB_PORT:04X}"
+        target_port = f"{ACTIVE_WEB_PORT:04X}"
 
         def count_file(path: str) -> int:
             total = 0
@@ -7220,7 +7339,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 {
                     "storage_root": str(http_root),
                     "http_root_dir": str(http_root),
-                    "web_port": DEFAULT_WEB_PORT,
+                    "web_port": ACTIVE_WEB_PORT,
                     "public_base_url": f"{DEFAULT_PUBLIC_SCHEME}://{DEFAULT_PUBLIC_HOST}",
                     "downloads_enabled": self._downloads_effective_enabled(),
                     "default_http_dir": _normalize_rel_dir_setting(
@@ -7698,6 +7817,17 @@ class AppHandler(BaseHTTPRequestHandler):
             prev_ddns_enabled = self._ddns_module_enabled(current)
             prev_shareclip_enabled = self._shareclip_module_enabled(current)
             prev_http_enabled = self._http_module_enabled(current)
+            if "web_port" in body:
+                web_port_raw = body.get("web_port")
+                try:
+                    web_port_new = int(web_port_raw)
+                except Exception:
+                    self._error("程序端口需为 1-65535 的整数", status=HTTPStatus.BAD_REQUEST)
+                    return
+                if web_port_new <= 0 or web_port_new > 65535:
+                    self._error("程序端口需为 1-65535 的整数", status=HTTPStatus.BAD_REQUEST)
+                    return
+                current["web_port"] = web_port_new
             if isinstance(body.get("modules"), dict):
                 mods = current.setdefault("modules", {})
                 incoming = body["modules"]
@@ -7786,6 +7916,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         incoming_ui.get("hero_custom_bg_file")
                     )
             saved = save_app_config(current, _APP_ROOT_DIR)
+            web_port_restart_required = (
+                _normalize_web_port(saved.get("web_port"), DEFAULT_WEB_PORT)
+                != ACTIVE_WEB_PORT
+            )
             new_qbt_enabled = self._qbt_module_enabled(saved)
             new_ddns_enabled = self._ddns_module_enabled(saved)
             new_shareclip_enabled = self._shareclip_module_enabled(saved)
@@ -7932,6 +8066,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 {
                     "ok": True,
                     "config": saved,
+                    "running_web_port": ACTIVE_WEB_PORT,
+                    "web_port_restart_required": bool(web_port_restart_required),
                     "http_disconnect_triggered": bool(disconnect_triggered),
                     "module_actions": module_actions,
                     "ui_theme": _ui_theme_payload(saved, _APP_ROOT_DIR),
@@ -8191,13 +8327,18 @@ class AppHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    global ACTIVE_WEB_PORT
     _migrate_legacy_state_once()
+    startup_cfg = load_app_config(_APP_ROOT_DIR)
+    ACTIVE_WEB_PORT = _normalize_web_port(
+        (startup_cfg or {}).get("web_port"), DEFAULT_WEB_PORT
+    )
     AppHandler.storage_root = DEFAULT_STORAGE_ROOT
     AppHandler.storage_root.mkdir(parents=True, exist_ok=True)
     ddns.start_worker(_APP_ROOT_DIR)
-    server = ThreadingHTTPServer(("0.0.0.0", DEFAULT_WEB_PORT), AppHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", ACTIVE_WEB_PORT), AppHandler)
     print(
-        f"Web 服务已启动: http://0.0.0.0:{DEFAULT_WEB_PORT} "
+        f"Web 服务已启动: http://0.0.0.0:{ACTIVE_WEB_PORT} "
         f"(storage={AppHandler.storage_root})"
     )
     server.serve_forever()

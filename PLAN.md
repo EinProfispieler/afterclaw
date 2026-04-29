@@ -1,8 +1,8 @@
-# File Control Center — 开源扩展规划
+# AfterClaw — 开源扩展规划
 
 ## Context
 
-file-control-center 是一个 Python 单进程家庭服务器中控台（端口 1288），目前功能包括文件浏览/HTTP分发、下载监控、服务控制、DDNS、ShareClip剪贴板、SSH Terminal、目录清理。
+afterclaw 是一个 Python 单进程家庭服务器中控台（端口 1288），目前功能包括文件浏览/HTTP分发、下载监控、服务控制、DDNS、ShareClip剪贴板、SSH Terminal、目录清理。
 
 项目目标：**开源到 GitHub**，支持 Ubuntu / Linux Mint / macOS 自动安装，让淘汰笔记本和放弃 OpenClaw 的 Mac Mini 发挥剩余价值。用户希望**一步到位重构**后再开源，并逐步加入系统监控、Docker 管理、多节点联动等功能。
 
@@ -13,8 +13,8 @@ file-control-center 是一个 Python 单进程家庭服务器中控台（端口 
 ### 目标结构
 
 ```
-file-control-center/
-├── fcc/                          # 主包（File Control Center）
+afterclaw/
+├── fcc/                          # 主包（AfterClaw）
 │   ├── __init__.py               # 版本号、包元信息
 │   ├── __main__.py               # python3 -m fcc 入口
 │   ├── server.py                 # HTTPServer + 请求分发器（替代 app.py 的 AppHandler）
@@ -158,7 +158,7 @@ esac
 `scripts/install_macos.sh`:
 - 用 `brew install python3` 或检测系统 Python3
 - pip install 依赖
-- 写入 `~/Library/LaunchAgents/com.fcc.file-control-center.plist`
+- 写入 `~/Library/LaunchAgents/com.fcc.afterclaw.plist`
 - `launchctl load` 启动服务
 - 数据目录默认 `~/fcc-data/`（macOS 没有 `/srv`）
 
