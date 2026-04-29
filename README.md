@@ -1,34 +1,117 @@
 # AfterClaw
 
-AfterClaw 是一个面向家庭与小团队自托管场景的文件中控平台。  
-它把目录服务、HTTP 传输、下载观察、服务控制、DDNS 与实用工具整合到同一个控制台，目标是“低门槛部署、可持续维护、可跨机器迁移”。
+**AfterClaw** is a unified control center for home and small-studio servers.
+It brings file browsing, transfer visibility, service control, DDNS, and lightweight clipboard sharing into one operational surface.
 
-## 为什么开发 AfterClaw
+Language: **English (Default)** | [简体中文](#简体中文)
 
-- 很多 NAS/轻服务器环境里，功能分散在多个页面，排障和维护成本高。
-- 纯脚本方案可用，但新成员接手难、可观测性差。
-- 我们需要一个既能稳定运行、又方便持续迭代和开源协作的统一入口。
+![AfterClaw Control Dashboard](docs/screenshots/afterclaw-control-dashboard.png)
 
-AfterClaw 的设计重点是：
+## Why AfterClaw
 
-- 单一入口管理核心能力
-- 面向真实运维场景的状态与操作反馈
-- 对 GitHub 自动化友好（测试、构建、发布）
+AfterClaw was built to solve a practical problem: server workflows become fragile when they are spread across too many scripts and panels.
 
-## 功能总览
+With one dashboard, teams can:
 
-- 目录服务：浏览 `STORAGE_ROOT` 并生成文件 HTTP 链接
-- 传输监控：查看实时传输速度、连接与任务列表
-- 服务控制：在 Web 控制台管理 qBittorrent、DDNS、HTTP 服务
-- 配置中心：统一配置模块开关、主题、来源池等
-- 跨平台部署：支持 Linux / macOS / Windows 安装入口
+- keep operations consistent across laptops, mini PCs, and NAS environments
+- reduce migration friction when paths and services change between machines
+- recover faster with a single place to inspect system and transfer status
 
-## 快速启动（源码运行）
+## Core Capabilities
+
+- **Unified dashboard** for system health, transfer activity, and service status
+- **Directory service** to browse `STORAGE_ROOT` and generate file links
+- **HTTP transfer pipeline** with large-file streaming and resume support
+- **Service operations** for qBittorrent, DDNS, and HTTP service controls
+- **Web terminal** with key file management for remote maintenance
+- **ShareClip module** for lightweight clipboard-style sharing
+- **LAN-first safety model** with controllable public transfer exposure
+
+## Quick Start
 
 ```bash
 WEB_PORT=1288 \
 STORAGE_ROOT=/srv/Storage \
-PUBLIC_HOST=home.rxotc.cn:1288 \
+PUBLIC_HOST=example.com:1288 \
+PUBLIC_SCHEME=http \
+python3 -m fcc
+```
+
+Compatibility entry is also available:
+
+```bash
+python3 app.py
+```
+
+## Install
+
+Recommended:
+
+```bash
+sudo bash install.sh
+```
+
+Platform-specific installers are orchestrated by:
+
+- `scripts/install_ubuntu.sh`
+- `scripts/install_mint.sh`
+- `scripts/install_macos.sh`
+- `scripts/install_windows.ps1`
+
+Windows (PowerShell as Administrator):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+## GitHub Actions Build
+
+Workflow file: `.github/workflows/installers.yml`
+
+- Trigger: `push` and manual `workflow_dispatch`
+- Platforms: Linux, macOS, Windows
+- Output: packaged installers uploaded as Actions artifacts
+
+## Docs
+
+- Deployment and migration guide: `DEPLOY.md`
+
+---
+
+## 简体中文
+
+<details>
+<summary>切换到中文说明</summary>
+
+### 产品定位
+
+**AfterClaw** 是一个面向家庭与小型工作室服务器的一体化中控台。
+它把文件目录、传输看板、服务控制、DDNS 和轻量剪贴板分享收敛到同一个入口。
+
+### 为什么开发 AfterClaw
+
+核心目标是解决“面板多、脚本散、迁移难”的问题：
+
+- 不同设备（旧笔记本、迷你主机、NAS）之间保持一致的操作体验
+- 机器迁移时减少路径和服务配置漂移
+- 出问题时可以在一个页面快速定位状态并恢复
+
+### 核心能力
+
+- **统一看板**：系统状态、实时传输、服务状态
+- **目录服务**：浏览 `STORAGE_ROOT` 并生成文件链接
+- **HTTP 传输链路**：大文件流式传输与断点续传
+- **服务控制**：页面内控制 qBittorrent / DDNS / HTTP 服务
+- **远程终端**：Web Terminal + key 文件管理
+- **轻量分享**：ShareClip 模块用于剪贴板式内容分享
+- **安全策略**：默认局域网访问，公网传输可独立开关
+
+### 快速启动
+
+```bash
+WEB_PORT=1288 \
+STORAGE_ROOT=/srv/Storage \
+PUBLIC_HOST=example.com:1288 \
 PUBLIC_SCHEME=http \
 python3 -m fcc
 ```
@@ -39,51 +122,30 @@ python3 -m fcc
 python3 app.py
 ```
 
-## 安装
+### 安装
 
-Linux / macOS:
+推荐执行：
 
 ```bash
 sudo bash install.sh
 ```
 
-Windows（管理员 PowerShell）:
+Windows（管理员 PowerShell）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-或：
+### GitHub 自动构建
 
-```bat
-install.cmd
-```
+工作流：`.github/workflows/installers.yml`
 
-## 环境变量
+- 触发：每次 `push` 和手动触发
+- 平台：Linux / macOS / Windows
+- 产物：自动上传安装包到 Actions Artifacts
 
-- `WEB_PORT`：端口，默认 `1288`
-- `STORAGE_ROOT`：文件根目录，默认 `/srv/Storage`
-- `PUBLIC_HOST`：外链域名（可带端口）
-- `PUBLIC_SCHEME`：`http` / `https`
-- `DOWNLOADS_ENABLED`：是否允许公网传输（`1`/`0`）
-- `QBT_SERVICE`：qBittorrent 服务名
-- `QBT_API_URL`：qBittorrent WebUI 地址
-- `QBT_API_USERNAME` / `QBT_API_PASSWORD`：qBittorrent 认证信息（可选）
-- `DDNS_SERVICE`：DDNS 服务名
-- `SHARECLIP_STORAGE_ROOT`：内置剪贴数据目录
+### 文档
 
-## GitHub 自动化
+- 部署与迁移：`DEPLOY.md`
 
-仓库已提供 GitHub Actions：
-
-- `.github/workflows/test.yml`：每次 push / PR 自动测试
-- `.github/workflows/installers.yml`：每次 push 自动构建三平台安装包 artifact
-- `.github/workflows/release.yml`：打 tag 自动生成 Release 包
-
-推送新代码后，在 Actions 页面可直接下载各平台构建产物。
-
-## 部署与迁移
-
-- 生产部署说明：`DEPLOY.md`
-- 变更记录：`CHANGELOG.md`
-- 贡献说明：`CONTRIBUTING.md`
+</details>
