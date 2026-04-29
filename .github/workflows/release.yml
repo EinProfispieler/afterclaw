@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          tar --exclude='./.git' --exclude='./dist' -czf "dist/afterclaw-linux-${VERSION_TAG}.tar.gz" .
+          tar --exclude='./.git' --exclude='./dist' --exclude='./install_on_130.sh' --exclude='./push_ip_file.sh' --exclude='./package_to_icloud.sh' --exclude='./*.pem' -czf "dist/afterclaw-linux-${VERSION_TAG}.tar.gz" .
           cp install.sh "dist/afterclaw-install-linux-${VERSION_TAG}.sh"
           chmod +x "dist/afterclaw-install-linux-${VERSION_TAG}.sh"
 
@@ -37,7 +37,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          tar --exclude='./.git' --exclude='./dist' -czf "dist/afterclaw-macos-${VERSION_TAG}.tar.gz" .
+          tar --exclude='./.git' --exclude='./dist' --exclude='./install_on_130.sh' --exclude='./push_ip_file.sh' --exclude='./package_to_icloud.sh' --exclude='./*.pem' -czf "dist/afterclaw-macos-${VERSION_TAG}.tar.gz" .
           cp install.sh "dist/afterclaw-install-macos-${VERSION_TAG}.sh"
           chmod +x "dist/afterclaw-install-macos-${VERSION_TAG}.sh"
 
@@ -51,7 +51,7 @@ jobs:
           $staging = Join-Path $env:RUNNER_TEMP "afterclaw-release-package"
           if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
           New-Item -ItemType Directory -Path $staging -Force | Out-Null
-          Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", "dist") } | ForEach-Object {
+          Get-ChildItem -Force | Where-Object { $_.Name -notin @(".git", "dist", "install_on_130.sh", "push_ip_file.sh", "package_to_icloud.sh") -and $_.Extension -ne ".pem" } | ForEach-Object {
             Copy-Item -Recurse -Force $_.FullName (Join-Path $staging $_.Name)
           }
           Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $archive -Force
