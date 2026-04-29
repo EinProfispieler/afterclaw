@@ -1,4 +1,4 @@
-"""File Control Center package."""
+"""AfterClaw package."""
 
 __all__ = ["__version__"]
 

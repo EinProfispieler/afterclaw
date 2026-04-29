@@ -13,7 +13,7 @@ QBT_API_USERNAME="${QBT_API_USERNAME:-}"
 QBT_API_PASSWORD="${QBT_API_PASSWORD:-}"
 DDNS_SERVICE="${DDNS_SERVICE:-ddns-go.service}"
 SHARECLIP_STORAGE_ROOT="${SHARECLIP_STORAGE_ROOT:-${APP_ROOT}/shareclip/storage}"
-PLIST="${HOME}/Library/LaunchAgents/com.fcc.file-control-center.plist"
+PLIST="${HOME}/Library/LaunchAgents/com.fcc.afterclaw.plist"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -39,7 +39,7 @@ cat > "${PLIST}" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
-    <key>Label</key><string>com.fcc.file-control-center</string>
+    <key>Label</key><string>com.fcc.afterclaw</string>
     <key>ProgramArguments</key>
     <array>
       <string>/usr/bin/env</string>
@@ -74,4 +74,4 @@ launchctl load "${PLIST}"
 
 echo "安装完成。"
 echo "管理页面: http://127.0.0.1:${WEB_PORT}"
-echo "launchctl 状态: launchctl list | grep com.fcc.file-control-center"
+echo "launchctl 状态: launchctl list | grep com.fcc.afterclaw"
