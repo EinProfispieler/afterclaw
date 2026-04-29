@@ -7,7 +7,6 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
-
 # Local env / secrets
 .env
 .env.local
@@ -15,12 +14,14 @@ __pycache__/
 *.key
 terminal_keys/
 ddns_config.json
-
 # Local tool data
 .claude/
 .firecrawl/
 .superpowers/
-
 # Runtime files
 *.log
 shareclip/shareclip.log
+install_on_130.sh
+push_ip_file.sh
+package_to_icloud.sh
+github-coordinator.md
