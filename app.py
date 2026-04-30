@@ -14,6 +14,8 @@ import shlex
 import shutil
 import struct
 import subprocess
+import tarfile
+import tempfile
 import threading
 import time
 import termios
@@ -26,6 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import ddns
+from fcc import __version__ as FCC_APP_VERSION
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
 
@@ -132,6 +135,33 @@ SOURCE_POOL_REMOTE_MAX_FILES = 200
 SOURCE_POOL_REMOTE_TIMEOUT = float(
     os.environ.get("SOURCE_POOL_REMOTE_TIMEOUT", "12").strip() or "12"
 )
+DEFAULT_UPGRADE_GITHUB_REPO = (
+    os.environ.get("UPGRADE_GITHUB_REPO", "").strip() or "EinProfispieler/afterclaw"
+)
+UPGRADE_HTTP_TIMEOUT = float(
+    os.environ.get("UPGRADE_HTTP_TIMEOUT", "20").strip() or "20"
+)
+UPGRADE_STATUS_FILE_NAME = "upgrade_status.json"
+UPGRADE_STATUS_LOCK = threading.Lock()
+APP_VERSION = str(FCC_APP_VERSION or "").strip() or "unknown"
+APP_VERSION_TEXT = (
+    f"v{APP_VERSION}"
+    if APP_VERSION and APP_VERSION.lower() != "unknown"
+    else str(APP_VERSION or "unknown")
+)
+
+
+def _page_title_with_version(title: str) -> str:
+    base = str(title or "").strip() or "AfterClaw"
+    return f"{base} · {APP_VERSION_TEXT}"
+
+
+def _inject_page_title(html: str, title: str) -> str:
+    src = f"<title>{title}</title>"
+    dst = f"<title>{_page_title_with_version(title)}</title>"
+    if src in html:
+        return html.replace(src, dst, 1)
+    return re.sub(r"<title>.*?</title>", dst, html, count=1, flags=re.IGNORECASE | re.DOTALL)
 
 
 def _migrate_legacy_state_once():
@@ -179,6 +209,101 @@ def terminal_keys_dir(app_root: Path = _APP_ROOT_DIR) -> Path:
 
 def theme_assets_dir(app_root: Path = _APP_ROOT_DIR) -> Path:
     return Path(app_root) / "web" / THEME_ASSETS_DIR_NAME
+
+
+def upgrade_status_path(app_root: Path = _APP_ROOT_DIR) -> Path:
+    return Path(app_root) / UPGRADE_STATUS_FILE_NAME
+
+
+def _utc_now_iso() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _normalize_upgrade_repo(value, default: str = DEFAULT_UPGRADE_GITHUB_REPO) -> str:
+    raw = str(value or default).strip().strip("/")
+    if not raw:
+        raw = str(default or "").strip().strip("/")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", raw):
+        raise ValueError("仓库格式无效（应为 owner/repo）")
+    return raw
+
+
+def _normalize_upgrade_tag(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) > 80:
+        raise ValueError("Tag 过长")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", raw):
+        raise ValueError("Tag 格式无效")
+    return raw
+
+
+def _default_upgrade_status() -> dict:
+    return {
+        "supported": bool(os.name == "posix"),
+        "running": False,
+        "state": "idle",
+        "current_version": APP_VERSION_TEXT,
+        "repo": DEFAULT_UPGRADE_GITHUB_REPO,
+        "requested_tag": "",
+        "target_tag": "",
+        "release_url": "",
+        "message": "",
+        "error": "",
+        "started_at": "",
+        "finished_at": "",
+        "updated_at": _utc_now_iso(),
+    }
+
+
+def _read_upgrade_status(app_root: Path = _APP_ROOT_DIR) -> dict:
+    base = _default_upgrade_status()
+    path = upgrade_status_path(app_root)
+    if not path.exists() or not path.is_file():
+        return base
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return base
+    if not isinstance(raw, dict):
+        return base
+    for key, val in raw.items():
+        base[key] = val
+    try:
+        base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
+    except Exception:
+        base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+    base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
+    base["target_tag"] = str(base.get("target_tag", "") or "").strip()
+    base["running"] = bool(base.get("running"))
+    base["state"] = str(base.get("state", "idle") or "idle").strip() or "idle"
+    return base
+
+
+def _write_upgrade_status(status: dict, app_root: Path = _APP_ROOT_DIR) -> dict:
+    base = _default_upgrade_status()
+    if isinstance(status, dict):
+        base.update(status)
+    try:
+        base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
+    except Exception:
+        base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+    base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
+    base["target_tag"] = str(base.get("target_tag", "") or "").strip()
+    base["running"] = bool(base.get("running"))
+    base["state"] = str(base.get("state", "idle") or "idle").strip() or "idle"
+    base["updated_at"] = _utc_now_iso()
+    path = upgrade_status_path(app_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with UPGRADE_STATUS_LOCK:
+        tmp.write_text(
+            json.dumps(base, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(path)
+    return base
 
 
 def _normalize_terminal_key_file_name(value) -> str:
@@ -546,27 +671,99 @@ def _apply_source_pool_payload(pools: dict, payload, default_key: str = "") -> i
     return total_added
 
 
-def _http_fetch_json(url: str, timeout: float = SOURCE_POOL_REMOTE_TIMEOUT):
-    req = urllib.request.Request(
-        str(url or "").strip(),
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "afterclaw-ip-sync/1.0",
-        },
-    )
+def _http_fetch_json(
+    url: str,
+    timeout: float = SOURCE_POOL_REMOTE_TIMEOUT,
+    headers: dict | None = None,
+):
+    req_headers = {
+        "Accept": "application/json",
+        "User-Agent": "afterclaw-ip-sync/1.0",
+    }
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if not key:
+                continue
+            req_headers[str(key)] = str(value)
+    req = urllib.request.Request(str(url or "").strip(), headers=req_headers)
     with urllib.request.urlopen(req, timeout=max(float(timeout), 3.0)) as resp:
         raw = resp.read() or b"{}"
     return json.loads(raw.decode("utf-8", errors="replace"))
 
 
-def _http_fetch_text(url: str, timeout: float = SOURCE_POOL_REMOTE_TIMEOUT) -> str:
-    req = urllib.request.Request(
-        str(url or "").strip(),
-        headers={"User-Agent": "afterclaw-ip-sync/1.0"},
-    )
+def _http_fetch_text(
+    url: str,
+    timeout: float = SOURCE_POOL_REMOTE_TIMEOUT,
+    headers: dict | None = None,
+) -> str:
+    req_headers = {"User-Agent": "afterclaw-ip-sync/1.0"}
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if not key:
+                continue
+            req_headers[str(key)] = str(value)
+    req = urllib.request.Request(str(url or "").strip(), headers=req_headers)
     with urllib.request.urlopen(req, timeout=max(float(timeout), 3.0)) as resp:
         raw = resp.read() or b""
     return raw.decode("utf-8", errors="replace")
+
+
+def _http_download_file(
+    url: str,
+    target: Path,
+    timeout: float = UPGRADE_HTTP_TIMEOUT,
+    headers: dict | None = None,
+) -> int:
+    req_headers = {"User-Agent": "afterclaw-updater/1.0"}
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            if not key:
+                continue
+            req_headers[str(key)] = str(value)
+    req = urllib.request.Request(str(url or "").strip(), headers=req_headers)
+    total = 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(req, timeout=max(float(timeout), 3.0)) as resp:
+        with open(target, "wb") as f:
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                total += len(chunk)
+    return int(total)
+
+
+def _github_release_payload(repo: str, tag: str = "") -> dict:
+    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
+    safe_tag = _normalize_upgrade_tag(tag)
+    owner, name = safe_repo.split("/", 1)
+    if safe_tag:
+        api_url = (
+            f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
+            f"/releases/tags/{quote(safe_tag)}"
+        )
+    else:
+        api_url = (
+            f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
+            "/releases/latest"
+        )
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "afterclaw-updater/1.0"}
+    try:
+        data = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            if safe_tag:
+                raise ValueError(f"未找到发布版本：{safe_tag}") from exc
+            raise ValueError("仓库暂无可用 Release") from exc
+        raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"读取 GitHub Release 失败：{exc}") from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("GitHub Release 返回格式异常")
+    return data
 
 
 def _parse_github_source_spec(source: str) -> dict:
@@ -1344,7 +1541,7 @@ def _rewrite_ddnsgo_location(location: str, base_url: str) -> str:
 
 
 def build_frontend_html() -> str:
-    return """<!doctype html>
+    html = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -2769,14 +2966,15 @@ def build_frontend_html() -> str:
 </body>
 </html>
 """
+    return _inject_page_title(html, "文件中控台")
 
 
 def build_ddns_settings_html() -> str:
-    return load_ddns_settings_page()
+    return _inject_page_title(load_ddns_settings_page(), "DDNS 设置")
 
 
 def build_config_html() -> str:
-    return """<!doctype html>
+    html = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -3059,6 +3257,27 @@ def build_config_html() -> str:
         <p id="generalStatus" class="cfg-status"></p>
       </div>
       <div class="card">
+        <span class="card-title">自动升级（GitHub Release）</span>
+        <p class="cfg-help">从 GitHub 拉取发布包并执行本地 <code>install.sh</code>。升级过程中服务可能重启，页面短暂断开属于正常现象。</p>
+        <p class="cfg-help" style="margin-top:6px;">当前服务器版本：<code id="upgradeCurrentVersion">-</code></p>
+        <div class="cfg-grid" style="margin-top:12px;">
+          <label class="cfg-item">
+            <div class="title">仓库（owner/repo）</div>
+            <input id="upgradeRepoInput" placeholder="例如：EinProfispieler/afterclaw" />
+          </label>
+          <label class="cfg-item">
+            <div class="title">目标 Tag（可选）</div>
+            <input id="upgradeTagInput" placeholder="留空则升级到 latest release" />
+          </label>
+        </div>
+        <div class="cfg-actions">
+          <button type="button" id="runUpgradeBtn">执行自动升级</button>
+          <button type="button" id="refreshUpgradeStatusBtn" class="secondary">刷新升级状态</button>
+        </div>
+        <p id="upgradeStatus" class="cfg-status"></p>
+        <p id="upgradeMeta" class="cfg-help"></p>
+      </div>
+      <div class="card">
         <span class="card-title">
           <svg class="brush-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 4.2l5.6 5.6-9.8 9.8-6.7 1 1-6.7 9.9-9.7z"></path><path d="M12.1 6.3l5.6 5.6"></path></svg>
           主题背景
@@ -3286,6 +3505,8 @@ def build_config_html() -> str:
     };
     var runtimeWebPort = 1288;
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
+    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", repo: "EinProfispieler/afterclaw", requested_tag: "", target_tag: "", release_url: "", message: "", error: "" };
+    var upgradePollTimer = 0;
 
     function byId(id){ return document.getElementById(id); }
     function trRaw(text){
@@ -3523,6 +3744,132 @@ def build_config_html() -> str:
         msg += " 当前保存值与运行端口一致。";
       }
       hint.textContent = msg;
+    }
+    function normalizeUpgradeRepoInput(raw){
+      var v = String(raw || "").trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/g, "");
+      return v;
+    }
+    function normalizeUpgradeTagInput(raw){
+      return String(raw || "").trim();
+    }
+    function stopUpgradePolling(){
+      if (upgradePollTimer) {
+        clearTimeout(upgradePollTimer);
+        upgradePollTimer = 0;
+      }
+    }
+    function renderUpgradeStatus(status){
+      var s = status || {};
+      upgradeState = {
+        supported: !!s.supported,
+        running: !!s.running,
+        state: String(s.state || (s.running ? "running" : "idle")),
+        current_version: String(s.current_version || ""),
+        repo: String(s.repo || "EinProfispieler/afterclaw"),
+        requested_tag: String(s.requested_tag || ""),
+        target_tag: String(s.target_tag || ""),
+        release_url: String(s.release_url || ""),
+        message: String(s.message || ""),
+        error: String(s.error || ""),
+        support_reason: String(s.support_reason || "")
+      };
+      if (byId("upgradeRepoInput")) {
+        if (!String(byId("upgradeRepoInput").value || "").trim()) {
+          byId("upgradeRepoInput").value = upgradeState.repo;
+        }
+      }
+      if (byId("upgradeTagInput")) {
+        var preferredTag = upgradeState.requested_tag || upgradeState.target_tag || "";
+        if (!String(byId("upgradeTagInput").value || "").trim() && preferredTag) {
+          byId("upgradeTagInput").value = preferredTag;
+        }
+      }
+      var statusText = "";
+      var isErr = false;
+      if (!upgradeState.supported) {
+        statusText = "自动升级不可用" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
+        isErr = true;
+      } else if (upgradeState.running) {
+        statusText = "升级进行中";
+        if (upgradeState.target_tag) statusText += "：" + upgradeState.target_tag;
+        if (upgradeState.message) statusText += " · " + upgradeState.message;
+      } else if (upgradeState.state === "success") {
+        statusText = upgradeState.message || ("升级完成：" + (upgradeState.target_tag || "latest"));
+      } else if (upgradeState.state === "error") {
+        statusText = upgradeState.error ? ("升级失败：" + upgradeState.error) : "升级失败";
+        isErr = true;
+      } else {
+        statusText = upgradeState.message || "等待执行升级";
+      }
+      var statusEl = byId("upgradeStatus");
+      if (statusEl) {
+        statusEl.textContent = statusText;
+        statusEl.className = isErr ? "cfg-status err" : "cfg-status";
+      }
+      if (byId("upgradeCurrentVersion")) {
+        byId("upgradeCurrentVersion").textContent = upgradeState.current_version || "-";
+      }
+      var meta = [];
+      if (upgradeState.current_version) meta.push("当前服务器版本：" + upgradeState.current_version);
+      if (upgradeState.repo) meta.push("仓库：" + upgradeState.repo);
+      if (upgradeState.requested_tag) meta.push("请求 Tag：" + upgradeState.requested_tag);
+      if (upgradeState.target_tag) meta.push("目标版本：" + upgradeState.target_tag);
+      if (s.started_at) meta.push("开始：" + String(s.started_at));
+      if (s.finished_at) meta.push("结束：" + String(s.finished_at));
+      if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
+      if (byId("upgradeMeta")) byId("upgradeMeta").textContent = meta.join(" | ");
+      if (byId("runUpgradeBtn")) {
+        byId("runUpgradeBtn").disabled = (!upgradeState.supported) || !!upgradeState.running;
+      }
+      if (byId("refreshUpgradeStatusBtn")) {
+        byId("refreshUpgradeStatusBtn").disabled = false;
+      }
+    }
+    async function loadUpgradeStatus(silent){
+      var d = await apiJson("/api/upgrade/status");
+      renderUpgradeStatus(d || {});
+      if (!silent && upgradeState.running) {
+        setStatus("upgradeStatus", "升级任务进行中，请勿关闭页面。");
+      }
+      if (upgradeState.running) {
+        stopUpgradePolling();
+        upgradePollTimer = setTimeout(function(){
+          loadUpgradeStatus(true).catch(function(){});
+        }, 2000);
+      } else {
+        stopUpgradePolling();
+      }
+      return d || {};
+    }
+    async function runAutoUpgrade(){
+      var repo = normalizeUpgradeRepoInput(byId("upgradeRepoInput") ? byId("upgradeRepoInput").value : "");
+      var tag = normalizeUpgradeTagInput(byId("upgradeTagInput") ? byId("upgradeTagInput").value : "");
+      if (!repo) {
+        throw new Error("请先填写仓库 owner/repo");
+      }
+      var hintTag = tag ? ("Tag " + tag) : "latest release";
+      if (!window.confirm("确认执行自动升级？将从 " + repo + " 拉取 " + hintTag + " 并执行 install.sh（过程中服务可能重启）。")) {
+        return null;
+      }
+      setStatus("upgradeStatus", "正在提交升级任务...");
+      var d = await apiJson("/api/upgrade/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo: repo, tag: tag })
+      });
+      renderUpgradeStatus((d && d.status) || {});
+      if (d && d.queued) {
+        setStatus("upgradeStatus", "升级任务已入队，正在执行。");
+      } else {
+        setStatus("upgradeStatus", "已有升级任务在执行或当前环境不支持自动升级。", true);
+      }
+      if (upgradeState.running) {
+        stopUpgradePolling();
+        upgradePollTimer = setTimeout(function(){
+          loadUpgradeStatus(true).catch(function(){});
+        }, 1200);
+      }
+      return d;
     }
     function shellQuote(s){
       var v = String(s || "");
@@ -4051,6 +4398,35 @@ def build_config_html() -> str:
       }
     });
 
+    if (byId("runUpgradeBtn")) {
+      byId("runUpgradeBtn").addEventListener("click", async function(){
+        try {
+          await runAutoUpgrade();
+        } catch (err) {
+          setStatus("upgradeStatus", "启动升级失败：" + err.message, true);
+        }
+      });
+    }
+    if (byId("refreshUpgradeStatusBtn")) {
+      byId("refreshUpgradeStatusBtn").addEventListener("click", async function(){
+        try {
+          await loadUpgradeStatus(false);
+        } catch (err) {
+          setStatus("upgradeStatus", "刷新失败：" + err.message, true);
+        }
+      });
+    }
+    if (byId("upgradeRepoInput")) {
+      byId("upgradeRepoInput").addEventListener("blur", function(){
+        this.value = normalizeUpgradeRepoInput(this.value);
+      });
+    }
+    if (byId("upgradeTagInput")) {
+      byId("upgradeTagInput").addEventListener("blur", function(){
+        this.value = normalizeUpgradeTagInput(this.value);
+      });
+    }
+
     byId("saveHttpBtn").addEventListener("click", async function(){
       try {
         var webPort = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : cfg.web_port, cfg.web_port || 1288);
@@ -4286,8 +4662,9 @@ def build_config_html() -> str:
     var initialTab = (window.location.hash || "").replace("#", "") || "general";
     switchTab(initialTab);
     loadCfg()
-      .then(function(){ return Promise.all([loadBaseInfo(), scanHttpRootPath(true), loadHttpDirBrowser(byId("httpBrowseDir").value, true), loadQbtRuntime()]); })
+      .then(function(){ return Promise.all([loadBaseInfo(), scanHttpRootPath(true), loadHttpDirBrowser(byId("httpBrowseDir").value, true), loadQbtRuntime(), loadUpgradeStatus(true)]); })
       .catch(function(err){ setStatus("generalStatus", "配置加载失败：" + err.message, true); });
+    window.addEventListener("beforeunload", stopUpgradePolling);
     window.__cfgMainReady = true;
   })();
   </script>
@@ -4611,11 +4988,12 @@ def build_config_html() -> str:
 </body>
 </html>
 """
+    return _inject_page_title(html, "Config")
 
 
 
 def build_terminal_html() -> str:
-    return """<!doctype html>
+    html = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -4975,6 +5353,7 @@ def build_terminal_html() -> str:
 </body>
 </html>
 """
+    return _inject_page_title(html, "Web Terminal")
 
 
 def human_size(size: int) -> str:
@@ -4999,9 +5378,11 @@ class AppHandler(BaseHTTPRequestHandler):
     )
     speed_lock = threading.Lock()
     control_lock = threading.Lock()
+    upgrade_lock = threading.Lock()
     transfers_lock = threading.Lock()
     http_cut_lock = threading.Lock()
     restart_queued = False
+    upgrade_running = False
     http_cut_epoch = 0
     speed_state = {
         "iface": None,
@@ -6869,6 +7250,214 @@ class AppHandler(BaseHTTPRequestHandler):
         threading.Thread(target=_worker, daemon=True).start()
         return True
 
+    @classmethod
+    def _upgrade_supported(cls) -> tuple[bool, str]:
+        if os.name != "posix":
+            return False, "当前仅支持 Linux 自动升级"
+        if not shutil.which("systemctl"):
+            return False, "当前环境未检测到 systemctl，暂不支持自动升级"
+        try:
+            if os.geteuid() != 0:
+                return False, "当前服务无 root 权限，无法执行 install.sh"
+        except Exception:
+            return False, "无法确认当前权限，暂不支持自动升级"
+        return True, ""
+
+    @classmethod
+    def _upgrade_status_payload(cls) -> dict:
+        status = _read_upgrade_status(_APP_ROOT_DIR)
+        ok, reason = cls._upgrade_supported()
+        with cls.upgrade_lock:
+            running = bool(cls.upgrade_running)
+        stale_running = bool(status.get("running")) and (not running)
+        status["running"] = bool(running)
+        if running:
+            status["state"] = "running"
+        elif stale_running and str(status.get("state", "")) == "running":
+            status["state"] = "unknown"
+            status["message"] = "升级任务触发了服务重启，请手动确认当前版本。"
+            status["finished_at"] = _utc_now_iso()
+            _write_upgrade_status(status, _APP_ROOT_DIR)
+        status["supported"] = bool(ok)
+        status["support_reason"] = str(reason or "")
+        status["current_version"] = APP_VERSION_TEXT
+        try:
+            status["repo"] = _normalize_upgrade_repo(
+                status.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO
+            )
+        except Exception:
+            status["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+        return status
+
+    @classmethod
+    def _schedule_upgrade(cls, repo_raw, tag_raw):
+        ok, reason = cls._upgrade_supported()
+        if not ok:
+            status = _write_upgrade_status(
+                {
+                    "supported": False,
+                    "running": False,
+                    "state": "error",
+                    "message": "自动升级不可用",
+                    "error": str(reason or "当前环境不支持"),
+                },
+                _APP_ROOT_DIR,
+            )
+            status["support_reason"] = str(reason or "")
+            return False, status
+        repo = _normalize_upgrade_repo(repo_raw, DEFAULT_UPGRADE_GITHUB_REPO)
+        tag = _normalize_upgrade_tag(tag_raw)
+        with cls.upgrade_lock:
+            if cls.upgrade_running:
+                status = _read_upgrade_status(_APP_ROOT_DIR)
+                status["support_reason"] = ""
+                return False, status
+            cls.upgrade_running = True
+            status = _write_upgrade_status(
+                {
+                    "supported": True,
+                    "running": True,
+                    "state": "running",
+                    "repo": repo,
+                    "requested_tag": tag,
+                    "target_tag": "",
+                    "release_url": "",
+                    "message": "升级任务已启动，正在拉取 Release 信息",
+                    "error": "",
+                    "started_at": _utc_now_iso(),
+                    "finished_at": "",
+                },
+                _APP_ROOT_DIR,
+            )
+
+        def _worker():
+            temp_dir = None
+            try:
+                release = _github_release_payload(repo, tag)
+                target_tag = str(release.get("tag_name") or "").strip()
+                tarball_url = str(release.get("tarball_url") or "").strip()
+                release_url = str(release.get("html_url") or "").strip()
+                if not target_tag:
+                    target_tag = tag or "latest"
+                if not tarball_url:
+                    raise RuntimeError("Release 缺少 tarball 下载地址")
+
+                status_now = _read_upgrade_status(_APP_ROOT_DIR)
+                status_now.update(
+                    {
+                        "running": True,
+                        "state": "running",
+                        "repo": repo,
+                        "requested_tag": tag,
+                        "target_tag": target_tag,
+                        "release_url": release_url,
+                        "message": f"已获取 Release {target_tag}，开始下载",
+                        "error": "",
+                    }
+                )
+                _write_upgrade_status(status_now, _APP_ROOT_DIR)
+
+                temp_dir = Path(tempfile.mkdtemp(prefix="afterclaw-upgrade-"))
+                archive_path = temp_dir / "release.tar.gz"
+                _http_download_file(
+                    tarball_url,
+                    archive_path,
+                    timeout=UPGRADE_HTTP_TIMEOUT,
+                    headers={
+                        "Accept": "application/octet-stream",
+                        "User-Agent": "afterclaw-updater/1.0",
+                    },
+                )
+
+                src_root = temp_dir / "src"
+                src_root.mkdir(parents=True, exist_ok=True)
+                with tarfile.open(archive_path, "r:gz") as tf:
+                    tf.extractall(path=src_root)
+                children = [p for p in src_root.iterdir() if p.is_dir()]
+                if not children:
+                    raise RuntimeError("解压失败：未发现源码目录")
+                pkg_dir = children[0]
+                install_script = pkg_dir / "install.sh"
+                if not install_script.exists():
+                    raise RuntimeError("升级包缺少 install.sh")
+
+                status_now = _read_upgrade_status(_APP_ROOT_DIR)
+                status_now.update(
+                    {
+                        "running": True,
+                        "state": "running",
+                        "message": f"已下载 {target_tag}，执行安装脚本中",
+                        "error": "",
+                    }
+                )
+                _write_upgrade_status(status_now, _APP_ROOT_DIR)
+
+                run_env = os.environ.copy()
+                run_env["APP_ROOT"] = str(_APP_ROOT_DIR)
+                cfg = load_app_config(_APP_ROOT_DIR)
+                web_port = _normalize_web_port(
+                    (cfg or {}).get("web_port"), DEFAULT_WEB_PORT
+                )
+                run_env["WEB_PORT"] = str(web_port)
+                run_env.setdefault("STORAGE_ROOT", str(DEFAULT_STORAGE_ROOT))
+                run_env.setdefault("PUBLIC_HOST", str(DEFAULT_PUBLIC_HOST))
+                run_env.setdefault("PUBLIC_SCHEME", str(DEFAULT_PUBLIC_SCHEME))
+                proc = subprocess.run(
+                    ["bash", "install.sh"],
+                    cwd=str(pkg_dir),
+                    env=run_env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if proc.returncode != 0:
+                    err = (proc.stderr or proc.stdout or "").strip()
+                    if err:
+                        err = err[-1200:]
+                    raise RuntimeError(err or f"install.sh 执行失败（exit {proc.returncode}）")
+
+                _write_upgrade_status(
+                    {
+                        "supported": True,
+                        "running": False,
+                        "state": "success",
+                        "repo": repo,
+                        "requested_tag": tag,
+                        "target_tag": target_tag,
+                        "release_url": release_url,
+                        "message": f"升级完成：{target_tag}",
+                        "error": "",
+                        "finished_at": _utc_now_iso(),
+                    },
+                    _APP_ROOT_DIR,
+                )
+            except Exception as exc:
+                status_now = _read_upgrade_status(_APP_ROOT_DIR)
+                status_now.update(
+                    {
+                        "running": False,
+                        "state": "error",
+                        "repo": repo,
+                        "requested_tag": tag,
+                        "message": "自动升级失败",
+                        "error": str(exc),
+                        "finished_at": _utc_now_iso(),
+                    }
+                )
+                _write_upgrade_status(status_now, _APP_ROOT_DIR)
+            finally:
+                with cls.upgrade_lock:
+                    cls.upgrade_running = False
+                if temp_dir is not None:
+                    try:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+        status["support_reason"] = ""
+        return True, status
+
     def _list_child_directories(self, rel_dir: str, root_dir: Path | None = None):
         root = Path(root_dir or self._http_root_dir())
         target_dir = ensure_under_root(root, root / rel_dir)
@@ -7468,6 +8057,12 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._require_lan():
                 return
             self._send_json({"config": load_app_config(_APP_ROOT_DIR)})
+            return
+
+        if parsed.path == "/api/upgrade/status":
+            if not self._require_lan():
+                return
+            self._send_json(self._upgrade_status_payload())
             return
 
         if parsed.path == "/api/ddns/config":
@@ -8192,6 +8787,28 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             queued = self._schedule_restart()
             self._send_json({"queued": queued})
+            return
+
+        if parsed.path == "/api/upgrade/run":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            if body is None:
+                body = {}
+            if not isinstance(body, dict):
+                self._error("请求体需为 JSON 对象", status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                queued, status = self._schedule_upgrade(
+                    body.get("repo"), body.get("tag")
+                )
+            except ValueError as exc:
+                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
+                return
+            except Exception as exc:
+                self._error(f"启动升级失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json({"queued": bool(queued), "status": status})
             return
 
         if parsed.path == "/api/ddns/config":
