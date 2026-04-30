@@ -2,57 +2,16 @@
   "use strict";
 
   var LANG_KEY = "fc-lang";
-  var DEFAULT_LANG = "zh-CN";
+  var DEFAULT_LANG = "en";
+  var FALLBACK_LANG = "zh-CN";
   var SUPPORTED = ["zh-CN", "zh-TW", "en", "de", "fr", "ja"];
-  var LANG_LABELS = {
-    "zh-CN": {
-      "zh-CN": "简体中文",
-      "zh-TW": "繁體中文",
-      "en": "English",
-      "de": "Deutsch",
-      "fr": "Français",
-      "ja": "日本語"
-    },
-    "zh-TW": {
-      "zh-CN": "簡體中文",
-      "zh-TW": "繁體中文",
-      "en": "English",
-      "de": "Deutsch",
-      "fr": "Français",
-      "ja": "日本語"
-    },
-    "en": {
-      "zh-CN": "Simplified Chinese",
-      "zh-TW": "Traditional Chinese",
-      "en": "English",
-      "de": "German",
-      "fr": "French",
-      "ja": "Japanese"
-    },
-    "de": {
-      "zh-CN": "Vereinfachtes Chinesisch",
-      "zh-TW": "Traditionelles Chinesisch",
-      "en": "Englisch",
-      "de": "Deutsch",
-      "fr": "Französisch",
-      "ja": "Japanisch"
-    },
-    "fr": {
-      "zh-CN": "Chinois simplifié",
-      "zh-TW": "Chinois traditionnel",
-      "en": "Anglais",
-      "de": "Allemand",
-      "fr": "Français",
-      "ja": "Japonais"
-    },
-    "ja": {
-      "zh-CN": "簡体字中国語",
-      "zh-TW": "繁体字中国語",
-      "en": "英語",
-      "de": "ドイツ語",
-      "fr": "フランス語",
-      "ja": "日本語"
-    }
+  var LANG_ENDONYMS = {
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文",
+    "en": "English",
+    "de": "Deutsch",
+    "fr": "Français",
+    "ja": "日本語"
   };
   var LANG_SELECT_TITLE = {
     "zh-CN": "语言",
@@ -73,10 +32,15 @@
     placeholder: "data-fcc-raw-placeholder",
     "aria-label": "data-fcc-raw-aria-label",
   };
+  var OPTION_RAW_ATTR = "data-fcc-raw-option-text";
 
   var currentLang = DEFAULT_LANG;
   var localeData = { messages: {}, raw: {}, patterns: [] };
   var fallbackData = { messages: {}, raw: {}, patterns: [] };
+  var englishData = { messages: {}, raw: {}, patterns: [] };
+  var revealGuardTimer = null;
+  var initPagePromise = null;
+  var langMenuBusyUntil = 0;
 
   function isSupported(lang) {
     return SUPPORTED.indexOf(lang) >= 0;
@@ -134,6 +98,47 @@
     return "";
   }
 
+  function translateWithData(rawText, data) {
+    var src = String(rawText || "");
+    if (!src) return "";
+    var rawMap = (data && data.raw) || {};
+    if (Object.prototype.hasOwnProperty.call(rawMap, src)) {
+      return String(rawMap[src] || "");
+    }
+    return translateByPatterns(src, data);
+  }
+
+  function translateWithChain(rawText, data, maxDepth) {
+    var src = String(rawText || "");
+    if (!src) return "";
+    var depth = Number(maxDepth);
+    if (!Number.isFinite(depth) || depth < 1) depth = 3;
+    var seen = {};
+    seen[src] = true;
+    var cur = src;
+    var changed = false;
+    for (var i = 0; i < depth; i++) {
+      var next = translateWithData(cur, data);
+      if (!next || next === cur) break;
+      changed = true;
+      if (seen[next]) {
+        cur = next;
+        break;
+      }
+      seen[next] = true;
+      cur = next;
+    }
+    return changed ? cur : "";
+  }
+
+  function shouldPreferEnglishFallback() {
+    return currentLang !== "zh-CN" && currentLang !== "zh-TW";
+  }
+
+  function hasCjk(text) {
+    return /[\u3400-\u9FFF]/.test(String(text || ""));
+  }
+
   function translateRaw(rawText) {
     var src = String(rawText || "");
     if (!src) return src;
@@ -142,30 +147,35 @@
     var core = src.trim();
     if (!core) return src;
 
-    var curRaw = (localeData && localeData.raw) || {};
-    var fbRaw = (fallbackData && fallbackData.raw) || {};
-
     var out = "";
-    if (Object.prototype.hasOwnProperty.call(curRaw, core)) out = String(curRaw[core] || "");
-    if (!out && Object.prototype.hasOwnProperty.call(fbRaw, core)) out = String(fbRaw[core] || "");
-    if (!out) out = translateByPatterns(core, localeData);
-    if (!out) out = translateByPatterns(core, fallbackData);
+    out = translateWithChain(core, localeData, 4);
+    if (!out && shouldPreferEnglishFallback()) {
+      var enOut = translateWithChain(core, englishData, 4);
+      if (enOut) {
+        // Bridge: source text may be zh-CN, enOut is English key, then map to current locale directly.
+        if (currentLang !== "en") {
+          out = translateWithChain(enOut, localeData, 4) || enOut;
+        } else {
+          out = enOut;
+        }
+      }
+    }
+    if (!out && hasCjk(core)) out = translateWithChain(core, fallbackData, 4);
     if (!out) return src;
     return lead + out + tail;
   }
 
   function t(key, params, fallback) {
     var v = getByPath(localeData.messages || {}, key);
+    if (v == null && shouldPreferEnglishFallback()) v = getByPath(englishData.messages || {}, key);
     if (v == null) v = getByPath(fallbackData.messages || {}, key);
     if (v == null) v = fallback != null ? fallback : key;
     return fillTemplate(String(v), params || {});
   }
 
   function languageLabel(uiLang, langCode) {
-    var ui = normalizeLang(uiLang);
     var code = normalizeLang(langCode);
-    var byUi = LANG_LABELS[ui] || LANG_LABELS[DEFAULT_LANG] || {};
-    return byUi[code] || code;
+    return LANG_ENDONYMS[code] || code;
   }
 
   function applyDataAttrs(root) {
@@ -240,6 +250,8 @@
       var all = root.querySelectorAll("[" + attr + "]");
       for (var j = 0; j < all.length; j++) {
         var el = all[j];
+        if (String((el.tagName || "")).toUpperCase() === "SELECT") continue;
+        if (String((el.tagName || "")).toUpperCase() === "OPTION") continue;
         var rawAttr = ATTR_RAW[attr];
         if (!el.hasAttribute(rawAttr)) {
           el.setAttribute(rawAttr, el.getAttribute(attr) || "");
@@ -251,6 +263,28 @@
     }
   }
 
+  function applySelectOptions(root) {
+    if (!root || !root.querySelectorAll) return;
+    var options = root.querySelectorAll("option");
+    for (var i = 0; i < options.length; i++) {
+      var opt = options[i];
+      var selectEl = null;
+      try { selectEl = opt.closest ? opt.closest("select") : null; } catch (e) { selectEl = null; }
+      if (!selectEl) continue;
+      // Language menu should always use endonyms rendered by renderLanguageSelect.
+      if ((selectEl.id || "") === "langSelect" || (selectEl.classList && selectEl.classList.contains("lang-select"))) {
+        continue;
+      }
+      if (opt.getAttribute && opt.getAttribute("data-i18n")) continue;
+      if (!opt.hasAttribute(OPTION_RAW_ATTR)) {
+        opt.setAttribute(OPTION_RAW_ATTR, opt.textContent || "");
+      }
+      var src = opt.getAttribute(OPTION_RAW_ATTR) || "";
+      var out = translateRaw(src);
+      if (out !== opt.textContent) opt.textContent = out;
+    }
+  }
+
   function apply(root) {
     var target = root || document.body;
     if (!target) return;
@@ -259,6 +293,7 @@
       applyDataAttrs(target);
       applyTextNodes(target);
       applyAttributes(target);
+      applySelectOptions(target);
       try {
         document.documentElement.setAttribute("lang", currentLang);
       } catch (e) {
@@ -269,23 +304,15 @@
     }
   }
 
-  function hasActiveSelect() {
-    try {
-      var el = document.activeElement;
-      return !!el && String(el.tagName || "").toUpperCase() === "SELECT";
-    } catch (e) {
-      return false;
-    }
-  }
-
   function ensureObserver() {
     if (mutationObserver || !window.MutationObserver) return;
     mutationObserver = new MutationObserver(function () {
+      if (Date.now() < langMenuBusyUntil) return;
       if (applyDepth > 0) return;
       if (observerTimer) return;
       observerTimer = window.setTimeout(function () {
         observerTimer = null;
-        if (hasActiveSelect()) return;
+        if (Date.now() < langMenuBusyUntil) return;
         apply(document.body);
       }, 0);
     });
@@ -312,9 +339,16 @@
 
   async function ensureFallback() {
     if (fallbackData && fallbackData.__loaded) return;
-    var d = await loadLocale(DEFAULT_LANG);
+    var d = await loadLocale(FALLBACK_LANG);
     d.__loaded = true;
     fallbackData = d;
+  }
+
+  async function ensureEnglish() {
+    if (englishData && englishData.__loaded) return;
+    var d = await loadLocale("en");
+    d.__loaded = true;
+    englishData = d;
   }
 
   function detectPreferredLang() {
@@ -324,24 +358,44 @@
     } catch (e) {
       // ignore
     }
-    var langs = [];
+    return DEFAULT_LANG;
+  }
+
+  function markPendingBeforeInit() {
     try {
-      if (Array.isArray(navigator.languages)) langs = navigator.languages.slice();
-      if (!langs.length && navigator.language) langs = [navigator.language];
+      // Always hide until i18n is ready to avoid first-paint mixed language flash.
+      document.documentElement.setAttribute("data-i18n-pending", "1");
     } catch (e) {
       // ignore
     }
-    for (var i = 0; i < langs.length; i++) {
-      var n = normalizeLang(langs[i]);
-      if (isSupported(n)) return n;
+  }
+
+  function clearPendingAfterInit() {
+    try { document.documentElement.removeAttribute("data-i18n-pending"); } catch (e) {}
+    if (revealGuardTimer) {
+      try { window.clearTimeout(revealGuardTimer); } catch (e) {}
+      revealGuardTimer = null;
     }
-    return DEFAULT_LANG;
+  }
+
+  markPendingBeforeInit();
+  try {
+    revealGuardTimer = window.setTimeout(function () {
+      clearPendingAfterInit();
+    }, 4500);
+  } catch (e) {
+    // ignore
   }
 
   async function setLanguage(lang, opts) {
     var o = opts || {};
     var code = normalizeLang(lang);
     await ensureFallback();
+    try {
+      await ensureEnglish();
+    } catch (e) {
+      englishData = fallbackData;
+    }
     try {
       localeData = await loadLocale(code);
       localeData.__loaded = true;
@@ -350,6 +404,8 @@
       localeData = fallbackData;
       currentLang = DEFAULT_LANG;
     }
+
+    clearPendingAfterInit();
 
     if (o.persist !== false) {
       try { localStorage.setItem(LANG_KEY, currentLang); } catch (e) {}
@@ -375,17 +431,22 @@
       // ignore
     }
     var uiLang = normalizeLang(currentLang);
+    if (document.activeElement === selectEl) {
+      try { selectEl.setAttribute("title", LANG_SELECT_TITLE[uiLang] || "Language"); } catch (e) {}
+      return;
+    }
+    var selectedCode = normalizeLang(currentLang);
+    var frag = document.createDocumentFragment();
     for (var i = 0; i < SUPPORTED.length; i++) {
       var code = SUPPORTED[i];
-      var opt = selectEl.querySelector('option[value="' + code + '"]');
-      if (!opt) {
-        opt = document.createElement("option");
-        opt.value = code;
-        selectEl.appendChild(opt);
-      }
+      var opt = document.createElement("option");
+      opt.value = code;
       opt.textContent = languageLabel(uiLang, code);
+      frag.appendChild(opt);
     }
-    selectEl.value = currentLang;
+    while (selectEl.firstChild) selectEl.removeChild(selectEl.firstChild);
+    selectEl.appendChild(frag);
+    selectEl.value = selectedCode;
     try { selectEl.setAttribute("title", LANG_SELECT_TITLE[uiLang] || "Language"); } catch (e) {}
   }
 
@@ -410,6 +471,15 @@
     selectEl.__fccLangBound = true;
     boundLanguageSelects.push(selectEl);
     renderLanguageSelect(selectEl);
+    var hold = function () {
+      langMenuBusyUntil = Math.max(langMenuBusyUntil, Date.now() + 12000);
+    };
+    ["mousedown", "click", "focus", "touchstart", "pointerdown", "keydown"].forEach(function (evt) {
+      selectEl.addEventListener(evt, hold, { passive: true });
+    });
+    selectEl.addEventListener("blur", function () {
+      langMenuBusyUntil = Math.max(langMenuBusyUntil, Date.now() + 800);
+    });
     selectEl.addEventListener("change", function () {
       setLanguage(selectEl.value, { persist: true, apply: true, emit: true }).catch(function () {});
     });
@@ -417,18 +487,23 @@
 
   async function initPage(opts) {
     var o = opts || {};
-    await setLanguage(detectPreferredLang(), { persist: false, apply: true, emit: false });
-    ensureObserver();
     var selectId = String(o.selectId || "").trim();
-    if (selectId) {
-      bindLanguageSelect(document.getElementById(selectId));
+    if (!initPagePromise) {
+      initPagePromise = (async function () {
+        await setLanguage(detectPreferredLang(), { persist: false, apply: true, emit: false });
+        ensureObserver();
+        return currentLang;
+      })();
     }
+    await initPagePromise;
+    if (selectId) bindLanguageSelect(document.getElementById(selectId));
     return currentLang;
   }
 
   window.fccI18n = {
     key: LANG_KEY,
     defaultLang: DEFAULT_LANG,
+    fallbackLang: FALLBACK_LANG,
     supported: SUPPORTED.slice(),
     normalizeLang: normalizeLang,
     getLanguage: function () { return currentLang; },
