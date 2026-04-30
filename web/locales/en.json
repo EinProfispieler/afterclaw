@@ -6,6 +6,23 @@
   "messages": {
     "lang": {
       "label": "Language"
+    },
+    "config": {
+      "title": "Configuration",
+      "tab": {
+        "http": "HTTP",
+        "terminal": "Terminal",
+        "ddns": "DDNS",
+        "general": "General",
+        "qb": "qB"
+      },
+      "subtitle": "General Settings (module toggles) / HTTP / qB / Terminal / DDNS"
+    },
+    "ddns": {
+      "ip_source": {
+        "multi_url": "Multi-URL Probe",
+        "interface": "Interface Probe"
+      }
     }
   },
   "raw": {
@@ -119,7 +136,6 @@
     "打开 /terminal": "Open /terminal",
     "保存 Terminal 配置": "Save Terminal Settings",
     "复制 SSH 命令": "Copy SSH Command",
-    "下方为 DDNS 配置页（内嵌）。": "Embedded DDNS settings page below.",
     "浏览器内 SSH 终端（xterm.js）": "Browser SSH Terminal (xterm.js)",
     "目标：": "Target:",
     "加载中...": "Loading...",
@@ -139,9 +155,311 @@
     "English": "English",
     "Deutsch": "German",
     "Français": "French",
-    "日本語": "Japanese"
+    "日本語": "Japanese",
+    "控制主页面 ShareClip 标签页显示。": "Controls whether the ShareClip tab is shown on the homepage.",
+    "重启服务": "Restart Service",
+    "程序端口": "Service Port",
+    "默认 1288。保存 HTTP 配置后需重启程序才会切换监听端口。": "Default is 1288. Restart the service after saving HTTP settings to switch listening port.",
+    "当前运行端口：1288": "Current running port: 1288",
+    "确认重启服务？端口等变更将在重启后生效。": "Restart service now? Port and related changes take effect after restart.",
+    "正在发送重启指令...": "Sending restart command...",
+    "重启任务未入队，请稍后重试。": "Restart task was not queued. Please try again shortly.",
+    "已发送重启命令，端口等变更将在重启后生效。": "Restart command sent. Port and related changes will take effect after restart.",
+    "未知": "Unknown",
+    "确认重启服务？这会中断当前所有上传连接。": "Restart service now? This will interrupt all current upload connections.",
+    "已发送重启命令，当前上传连接会被中断。": "Restart command sent. Current upload connections will be interrupted.",
+    "已发送重启命令，服务即将重启。": "Restart command sent. Service will restart shortly.",
+    "控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制断开一次连接并关闭上传。": "Controls the homepage 'Current HTTP Service' card and HTTP monitoring area. Disabling it forcibly interrupts one connection and turns uploads off.",
+    "主页面显示 qB 状态卡及 qB 相关控制入口。": "Shows the qB status card and qB control entry points on the homepage.",
+    "主页面显示 DDNS 状态卡，并保留 Config 内 DDNS 设置入口。": "Shows the DDNS status card on the homepage and keeps the DDNS settings entry in Config.",
+    "私钥路径（key 模式）": "Private key path (key mode)",
+    "未填“配置目录 Key 文件名”时使用此路径。": "Uses this path when 'Config-dir key filename' is empty.",
+    "推荐使用 key 模式；确保目标主机已授权你的公钥。": "Key mode is recommended. Make sure the target host has your public key authorized.",
+    "当前保存端口：": "Current saved port:",
+    "（修改后需重启生效）": "(restart required after changes)",
+    "HTTP 配置已保存": "HTTP settings saved",
+    "保存后需重启程序，重启后切换到：": "Restart required after save; will switch to:",
+    "当前保存值与运行端口一致。": "Saved value matches the running port.",
+    "已加载目录：": "Directory loaded:",
+    "路径验证通过，可用于 HTTP 根目录": "Path validation passed, usable as HTTP root",
+    "当前来源：": "Current source:",
+    "来源同步完成：百度": "Source sync completed: Baidu",
+    "正在从来源同步 IP 池...": "Syncing source IP pools...",
+    "从源更新 IP 池": "Sync IP pools from source",
+    "可更新来源（GitHub/URL）": "Updatable source (GitHub/URL)",
+    "按“每行一个 IP/CIDR”维护来源池。命中后优先标记为对应来源（高于 UA/Referer 关键词）。": "Maintain source pools as one IP/CIDR per line. Matched IPs take precedence over UA/Referer keywords.",
+    "点击下方子目录可快速设为默认目录。": "Click a subdirectory below to set it as default quickly.",
+    "可从当前设备选择私钥文件并上传到配置目录。": "You can select a private key file from this device and upload it to the config directory.",
+    "Terminal（未启用，点击去 Config 配置）": "Terminal (disabled, click to configure in Config)",
+    "Terminal（未配置 Host，点击去 Config 配置）": "Terminal (host not configured, click to configure in Config)",
+    "Terminal 模块未启用，请到 Config -> Terminal 开启。": "Terminal module is disabled. Enable it in Config -> Terminal.",
+    "未配置 Terminal Host，请到 Config -> Terminal 设置。": "Terminal host is not configured. Set it in Config -> Terminal.",
+    "准备连接到": "Ready to connect to",
+    "会话 ID 无效": "Invalid session ID",
+    "会话已断开": "Session disconnected",
+    "已连接，输入命令即可。": "Connected. You can start typing commands.",
+    "当前无活动会话": "No active session",
+    "没有可复制的 SSH 命令": "No SSH command available to copy",
+    "复制失败：请手工复制下方命令": "Copy failed: please copy the command below manually",
+    "xterm.js 资源加载失败，请检查 /vendor/xterm 资源后刷新。": "xterm.js assets failed to load. Check /vendor/xterm and refresh.",
+    "DDNS 设置": "DDNS Settings",
+    "总开关": "Master Switch",
+    "DNS 服务商": "DNS Provider",
+    "公网地址获取": "Public IP Detection",
+    "与 ddns-go 类似：URL 多行探测，或": "Similar to ddns-go: multi-URL probing, or",
+    "填 Linux 网卡名（如": "provide Linux interface name (e.g.",
+    "多服务商内置 DDNS；也支持切到": "Built-in DDNS for multiple providers; also supports switching to",
+    "。配置写入": ". Configuration is written to",
+    "。需": ". Requires",
+    "以精准解析多级域名。": "for accurate multi-level domain parsing.",
+    "火山引擎 TrafficRoute": "Volcengine TrafficRoute",
+    "阿里云 DNS": "Aliyun DNS",
+    "DNSPod（腾讯云）": "DNSPod (Tencent Cloud)",
+    "ddns-go 原生（全服务商）": "ddns-go native (all providers)",
+    "HTTP GET 模板": "HTTP GET Template",
+    "多 URL 探测": "Multi-URL Probe",
+    "网卡获取": "Interface Probe",
+    "wlo1（网卡名）": "wlo1 (interface name)",
+    "IPv4 (A 记录)": "IPv4 (A record)",
+    "IPv4 探测 URL（每行一个）": "IPv4 probe URLs (one per line)",
+    "IPv6 (AAAA 记录)": "IPv6 (AAAA record)",
+    "IPv6 探测 URL（每行一个）": "IPv6 probe URLs (one per line)",
+    "要更新的 FQDN": "FQDNs to Update",
+    "每行一个完整主机名，例如": "One full hostname per line, e.g.",
+    "。IPv4 → A 记录，IPv6 → AAAA 记录。": ". IPv4 -> A records, IPv6 -> AAAA records.",
+    "A 记录域名列表": "A Record Domains",
+    "AAAA 记录域名列表": "AAAA Record Domains",
+    "可留空": "Can be left empty",
+    "TrafficRoute（火山引擎）": "TrafficRoute (Volcengine)",
+    "在火山引擎控制台创建 AccessKey，授权 TrafficRoute 写权限。Secret 仅在局域网下使用。": "Create AccessKey in Volcengine console with TrafficRoute write permission. Secret should only be used inside LAN.",
+    "API Token（必填）": "API Token (required)",
+    "Zone ID（可选）": "Zone ID (optional)",
+    "Record ID（可选）": "Record ID (optional)",
+    "留空自动查询": "Auto-query when empty",
+    "橙云代理（proxied）": "Orange cloud proxy (proxied)",
+    "RAM 控制台创建子账号，授权": "Create a RAM sub-account in the console and grant",
+    "，取得 AccessKey。": ", then obtain AccessKey.",
+    "DNSPod 控制台": "DNSPod Console",
+    "创建 API Token，格式为": "Create API token in format",
+    "Token（格式：ID,Token）": "Token (format: ID,Token)",
+    "子域名": "Subdomain",
+    "myhost（不含 .duckdns.org）": "myhost (without .duckdns.org)",
+    "账号（邮箱）": "Account (email)",
+    "账号密码": "Account & Password",
+    "主机名": "Hostname",
+    "ddns-go 原生模式": "ddns-go Native Mode",
+    "ddns-go 原生模式（全服务商）": "ddns-go Native Mode (all providers)",
+    "使用原生 ddns-go 配置与更新逻辑。当前页面仅保存接入地址并代理访问原生面板。": "Use native ddns-go configuration and update logic. This page only stores base URL and proxies access to native panel.",
+    "打开原生 ddns-go 面板": "Open Native ddns-go Panel",
+    "在 GoDaddy 控制台创建 API Key / Secret，可更新 A 与 AAAA 记录。": "Create API Key/Secret in GoDaddy console to update A and AAAA records.",
+    "Namecheap 动态 DNS 仅支持 IPv4（A 记录）。请在域名管理页获取 Dynamic DNS Password。": "Namecheap dynamic DNS supports IPv4 (A records) only. Get Dynamic DNS Password from domain management page.",
+    "在 NameSilo 后台开启 API 并创建 Key。": "Enable API and create key in NameSilo panel.",
+    "在 Porkbun API 页面获取 API Key 与 Secret API Key。": "Get API Key and Secret API Key from Porkbun API page.",
+    "URL 中用": "Use",
+    "占位符代表当前公网 IP。": "as placeholder for current public IP.",
+    "URL 模板": "URL Template",
+    "保存配置": "Save Configuration",
+    "保存中…": "Saving...",
+    "配置已保存": "Configuration saved",
+    "配置已写入。": "Configuration written.",
+    "保存失败": "Save failed",
+    "保存失败:": "Save failed:",
+    "加载失败:": "Load failed:",
+    "请求失败": "Request failed",
+    "启用": "Enable",
+    "周期（秒，≥60）": "Interval (seconds, >=60)",
+    "TTL（秒）": "TTL (seconds)",
+    "关闭外网上传": "Disable Public Upload",
+    "开启外网上传": "Enable Public Upload",
+    "立即同步": "Sync now",
+    "DDNS 服务": "DDNS Service",
+    "开启": "Start",
+    "关闭": "Stop",
+    "开/关": "Toggle",
+    "修复失败：": "Fix failed:",
+    "优化失败：": "Optimize failed:",
+    "刷新失败：": "Refresh failed:",
+    "上传失败": "Upload failed",
+    "获取失败": "Fetch failed",
+    "删除失败": "Delete failed",
+    "执行失败：": "Execution failed:",
+    "预览失败：": "Preview failed:",
+    "无变更：当前规则下没有需要重命名的项。": "No changes: nothing to rename under current rules.",
+    "完成：成功": "Done: success",
+    "项重命名？此操作不可自动撤销。": "items? This rename cannot be auto-undo.",
+    "确定按预览对": "Confirm applying preview to",
+    "已重命名": "Renamed",
+    "项冲突": "conflicts",
+    "正在预览…": "Previewing...",
+    "正在执行…": "Applying...",
+    "已发送": "Sent",
+    "请先输入文本或粘贴图片": "Please enter text or paste an image first",
+    "已捕获图片": "Image captured",
+    "已捕获文本": "Text captured",
+    "已从系统剪贴板读取图片": "Image read from system clipboard",
+    "已从系统剪贴板读取文本": "Text read from system clipboard",
+    "剪贴板中没有可用内容": "No usable content in clipboard",
+    "浏览器不支持剪贴板读取 API": "Clipboard read API is not supported by this browser",
+    "剪贴板读取失败：": "Clipboard read failed:",
+    "当前目录没有可进入的子目录": "Current directory has no subdirectories you can enter",
+    "当前是根目录，目录名为空": "Current directory is root; name is empty",
+    "已在根目录": "Already at root directory",
+    "没有可复制的链接，请先生成": "No links to copy yet. Generate them first.",
+    "复制失败：已帮你选中批量文本，请按 Cmd/Ctrl+C": "Copy failed: text selected for you, press Cmd/Ctrl+C",
+    "复制失败：已将目录名填入输入框并选中，请按 Cmd/Ctrl+C": "Copy failed: folder name inserted and selected, press Cmd/Ctrl+C",
+    "点击切换单位": "Click to switch unit",
+    "点击切换单位（当前 MiB/s）": "Click to switch unit (current MiB/s)",
+    "活跃 -": "Active -",
+    "其他来源": "Other sources",
+    "已选择默认目录：": "Default directory selected:",
+    "默认目录不可访问，已回退到根目录。": "Default directory is not accessible, fell back to root.",
+    "请先填写 Host/User 等连接信息": "Please fill host/user and connection info first",
+    "复制失败，请手工复制预览命令": "Copy failed, please copy preview command manually",
+    "密码模式不会保存密码，点击后在终端中手工输入。": "Password mode does not store password; enter it manually in terminal.",
+    "示例子目录：": "Sample subdirectories:",
+    "路径：": "Path:",
+    "权限(": "Permissions(",
+    "可用": "Available",
+    "支持": "Supports",
+    "来源同步失败：": "Source sync failed:",
+    "无法列目录": "Unable to list directory",
+    "不可访问": "Not accessible",
+    "不是目录": "Not a directory",
+    "不存在": "Not found",
+    "当前相对目录": "Current relative directory",
+    "子目录": "Subdirectories",
+    "当前运行端口：": "Current running port:",
+    "程序端口将在重启后切换为": "Service port will switch after restart to",
+    "重启": "Restart",
+    "停止": "Stop",
+    "运行中": "Running",
+    "未运行": "Stopped",
+    "光鸭": "Guangya",
+    "阿里": "Aliyun",
+    "← 返回中控台": "← Back to AfterClaw",
+    "主页面“目录服务”打开时会默认跳转到此目录。": "The homepage Directory tab opens this directory by default.",
+    "仅支持 PNG/JPG/WEBP/GIF/AVIF": "Supports PNG/JPG/WEBP/GIF/AVIF only",
+    "使用配置目录 key：": "Using config-dir key:",
+    "例如：.": "Example: .",
+    "例如：/srv/Storage 或 /": "Example: /srv/Storage or /",
+    "例如：192.168.1.30": "Example: 192.168.1.30",
+    "例如：github:EinProfispieler/afterclaw/data/vendor-ip-pools": "Example: github:EinProfispieler/afterclaw/data/vendor-ip-pools",
+    "例如：id_ed25519": "Example: id_ed25519",
+    "例如：root": "Example: root",
+    "例如：~/.ssh/id_ed25519": "Example: ~/.ssh/id_ed25519",
+    "光鸭网盘": "Guangya Netdisk",
+    "百度网盘": "Baidu Netdisk",
+    "阿里云盘": "Aliyun Drive",
+    "切换为": "Switched to",
+    "浅色": "light",
+    "深色": "dark",
+    "密码": "Password",
+    "将注释当前相关配置并写入优化参数，继续吗？": "This will comment related current settings and write optimized parameters. Continue?",
+    "已切换背景：": "Background switched:",
+    "当前背景：": "Current background:",
+    "提示：": "Hint:",
+    "暂无历史记录": "No history yet",
+    "正在上传 key 文件...": "Uploading key file...",
+    "正在优化 qB 配置...": "Optimizing qB settings...",
+    "正在修复 qB 配置与权限...": "Fixing qB settings and permissions...",
+    "确定要执行 qB 退出吗？": "Confirm qB quit?",
+    "已发送 qB 退出指令": "qB quit command sent",
+    "背景已更新：": "Background updated:",
+    "自定义图片": "Custom Image",
+    "请先选择一张本地图片": "Please choose a local image first",
+    "请先配置并启用 Terminal": "Please configure and enable Terminal first",
+    "跳过:": "Skipped:",
+    "，例如：": ", for example: ",
+    "，失败": ", failed",
+    "图片过大（最大 12MB）": "Image too large (max 12MB)",
+    "启用 Terminal 时 Host 不能为空": "Host cannot be empty when Terminal is enabled",
+    "无法读取 key 文件名": "Cannot read key filename",
+    "全服务商": "All providers",
+    "启动": "Start",
+    "综合配置已保存": "General settings saved",
+    "退出失败：": "Quit failed:",
+    "已完成": "Completed",
+    "推荐只填 API Token；Zone ID / Record ID 留空时自动查询（需 Token 有 Zone.DNS 写权限）。": "Recommended: fill API Token only; Zone ID/Record ID are auto-fetched when empty (Token must have Zone.DNS write permission).",
+    "例如整段：￡cXcY@FRDS": "Example whole segment: ￡cXcY@FRDS",
+    "下重命名；先预览再执行。可去掉宣传段、中文，并将": "for renaming; preview first, then apply. You can remove promo text, Chinese, and move",
+    "（已截断）": "(truncated)",
+    "HTTP 根目录不可访问": "HTTP root directory is inaccessible",
+    "Terminal（未启用）": "Terminal (disabled)",
+    "(当前目录无子目录)": "(No subdirectories in current directory)",
+    "(未知文件)": "(Unknown file)",
+    "HTTP直连": "HTTP Direct",
+    "http直连": "HTTP Direct",
+    "ID 只能是字母/数字/_/-，长度 1-64": "ID can contain only letters/numbers/_/- and must be 1-64 chars",
+    "ID 已保存并切换": "ID saved and switched",
+    "SSH 命令已复制": "SSH command copied",
+    "Terminal 配置已保存": "Terminal settings saved",
+    "key 列表已刷新": "Key list refreshed",
+    "key 文件已上传：": "Key file uploaded:",
+    "key 文件过大（最大 1MB）": "Key file too large (max 1MB)",
+    "qB 修复完成": "qB fix completed",
+    "qB 服务已重启": "qB service restarted",
+    "qB 配置优化完成": "qB optimization completed",
+    "qB 配置已保存": "qB settings saved",
+    "| 命中文件": "| matched files",
+    "| 合并模式（远端新增：百度": "| merge mode (remote additions: Baidu",
+    "· 光鸭": "· Guangya",
+    "· 阿里云": "· Aliyun",
+    "· 文件": "· files",
+    "填写绝对路径，例如：": "Enter an absolute path, for example:",
+    "季号挪到「首个 20xx 年」前（点分节）。": "Move season number S## before the first 20xx year (dot-separated groups).",
+    "已恢复默认背景": "Default background restored",
+    "百度": "Baidu",
+    "内置 DDNS": "Built-in DDNS",
+    "发送": "Send",
+    "最新": "Latest",
+    "历史": "History",
+    "发布": "Publish",
+    "文本": "Text",
+    "图片": "Image",
+    "刷新": "Refresh",
+    "原始": "Raw",
+    "共 0 条": "Total 0 items",
+    "共 1 条": "Total 1 items",
+    "共 {count} 条": "Total {count} items",
+    "No content": "No content",
+    "Delete this record?": "Delete this record?",
+    "发送失败": "Send failed",
+    "ShareClip": "ShareClip",
+    "Per-ID temporary clip sharing in LAN.": "Per-ID temporary clip sharing in LAN.",
+    "ID": "ID",
+    "Current ID:": "Current ID:",
+    "Publish": "Publish",
+    "Text": "Text",
+    "Image": "Image",
+    "Send": "Send",
+    "Read Clipboard": "Read Clipboard",
+    "Latest": "Latest",
+    "Refresh": "Refresh",
+    "Raw": "Raw",
+    "History": "History",
+    "Refresh History": "Refresh History",
+    "No history yet": "No history yet",
+    "View": "View",
+    "Delete": "Delete",
+    "Deleted": "Deleted",
+    "Delete failed": "Delete failed",
+    "ID saved and switched": "ID saved and switched",
+    "Image captured": "Image captured",
+    "Text captured": "Text captured",
+    "Please enter text or paste an image first": "Please enter text or paste an image first",
+    "Upload failed": "Upload failed",
+    "Sent": "Sent",
+    "Send failed": "Send failed",
+    "Clipboard read failed:": "Clipboard read failed:",
+    "No usable content in clipboard": "No usable content in clipboard",
+    "Clipboard read API is not supported by this browser": "Clipboard read API is not supported by this browser",
+    "ID can only contain letters/numbers/_/- with length 1-64": "ID can only contain letters/numbers/_/- with length 1-64"
   },
   "patterns": [
+    {
+      "re": "^文件 ([0-9]+) · 目录 ([0-9]+) · 大小 (.+)$",
+      "to": "Files $1 · Dirs $2 · Size $3"
+    },
     {
       "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
       "to": "Active $1 · Recently completed $2 · Overall $3%"
@@ -253,6 +571,222 @@
     {
       "re": "^综合配置已保存：(.*)$",
       "to": "General settings saved: $1"
+    },
+    {
+      "re": "^CPU负载\\(1m\\):\\s*([0-9.]+)$",
+      "to": "CPU Load (1m): $1"
+    },
+    {
+      "re": "^内存: (.+) \\| 磁盘: (.+) \\| 运行: (.+)$",
+      "to": "Memory: $1 | Disk: $2 | Uptime: $3"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "Running | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Active $6 · Total $7 · Connections $8 · DHT $9"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "Running | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Active $6 · Total $7 · Connections $8"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "Stopped | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Active $6 · Total $7 · Connections $8 · DHT $9"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "Stopped | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Active $6 · Total $7 · Connections $8"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "Running | Built-in DDNS | $1 · v4 $2 / v6 $3 ($4s ago)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "Running | Built-in DDNS | $1 · v4 $2 ($3s ago)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+)$",
+      "to": "Running | Built-in DDNS | $1"
+    },
+    {
+      "re": "^未运行 \\| 内置 DDNS \\| (.+)$",
+      "to": "Stopped | Built-in DDNS | $1"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 / v6 $3 ($4s ago)"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 ($3s ago)"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+)（已截断） \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "Path: $1 | Permissions($2) | Subdirs $3 · Files $4 (truncated) | Available $5 / Total $6 | Sample subdirs: $7"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+) \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "Path: $1 | Permissions($2) | Subdirs $3 · Files $4 | Available $5 / Total $6 | Sample subdirs: $7"
+    },
+    {
+      "re": "^运行中 \\| (.+)$",
+      "to": "Running | $1"
+    },
+    {
+      "re": "^未运行 \\| (.+)$",
+      "to": "Stopped | $1"
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 当前保存值与运行端口一致。$",
+      "to": "Current running port: $1. Saved value matches running port."
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 保存后需重启程序，重启后切换到：([0-9]+)。$",
+      "to": "Current running port: $1. Restart after saving to switch to: $2."
+    },
+    {
+      "re": "^HTTP 配置已保存\\s+程序端口将在重启后切换为\\s*([0-9]+)。$",
+      "to": "HTTP settings saved. Service port will switch to $1 after restart."
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | Seeding $3 · Downloading $4 · Active $5 · Total $6 · Connections $7 · DHT $8"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | Seeding $3 · Downloading $4 · Active $5 · Total $6 · Connections $7"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | Seeding $3 · Downloading $4 · Active $5 · Total $6"
+    },
+    {
+      "re": "^当前保存端口：([0-9]+)（修改后需重启生效）$",
+      "to": "Current saved port: $1 (restart required after changes)"
+    },
+    {
+      "re": "^已加载目录：(.*)$",
+      "to": "Loaded directory: $1"
+    },
+    {
+      "re": "^已选择默认目录：(.*)$",
+      "to": "Selected default directory: $1"
+    },
+    {
+      "re": "^来源同步完成：百度 ([0-9]+) · 光鸭 ([0-9]+) · 阿里云 ([0-9]+)$",
+      "to": "Source sync complete: Baidu $1 · Guangya $2 · Aliyun $3"
+    },
+    {
+      "re": "^当前来源：(.*)$",
+      "to": "Current source: $1"
+    },
+    {
+      "re": "^状态获取失败：(.*)$",
+      "to": "Status load failed: $1"
+    },
+    {
+      "re": "^来源同步失败：(.*)$",
+      "to": "Source sync failed: $1"
+    },
+    {
+      "re": "^预览失败：(.*)$",
+      "to": "Preview failed: $1"
+    },
+    {
+      "re": "^执行失败：(.*)$",
+      "to": "Execution failed: $1"
+    },
+    {
+      "re": "^优化失败：(.*)$",
+      "to": "Optimize failed: $1"
+    },
+    {
+      "re": "^修复失败：(.*)$",
+      "to": "Fix failed: $1"
+    },
+    {
+      "re": "^刷新失败：(.*)$",
+      "to": "Refresh failed: $1"
+    },
+    {
+      "re": "^保存失败:\\s*(.*)$",
+      "to": "Save failed: $1"
+    },
+    {
+      "re": "^加载失败:\\s*(.*)$",
+      "to": "Load failed: $1"
+    },
+    {
+      "re": "^请求失败\\s*([0-9]+)$",
+      "to": "Request failed $1"
+    },
+    {
+      "re": "^确定按预览对\\s*([0-9]+)\\s*项重命名\\？此操作不可自动撤销。$",
+      "to": "Rename $1 items based on preview? This cannot be auto-undone."
+    },
+    {
+      "re": "^完成：成功\\s*([0-9]+)，失败\\s*([0-9]+)。$",
+      "to": "Done: success $1, failed $2."
+    },
+    {
+      "re": "^已重命名\\s*([0-9]+)\\s*项$",
+      "to": "Renamed $1 items"
+    },
+    {
+      "re": "^已切换背景：(.*)$",
+      "to": "Background switched: $1"
+    },
+    {
+      "re": "^背景已更新：(.*)$",
+      "to": "Background updated: $1"
+    },
+    {
+      "re": "^当前背景：(.*)$",
+      "to": "Current background: $1"
+    },
+    {
+      "re": "^已发送 qB 退出指令$",
+      "to": "qB quit command sent"
+    },
+    {
+      "re": "^退出失败：(.*)$",
+      "to": "Quit failed: $1"
+    },
+    {
+      "re": "^正在上传 key 文件\\.\\.\\.$",
+      "to": "Uploading key file..."
+    },
+    {
+      "re": "^正在优化 qB 配置\\.\\.\\.$",
+      "to": "Optimizing qB settings..."
+    },
+    {
+      "re": "^正在修复 qB 配置与权限\\.\\.\\.$",
+      "to": "Fixing qB settings and permissions..."
+    },
+    {
+      "re": "^提示：(.*)$",
+      "to": "Hint: $1"
+    },
+    {
+      "re": "^共\\s*([0-9]+)\\s*条$",
+      "to": "Total $1 items"
+    },
+    {
+      "re": "^删除失败：(.+)$",
+      "to": "Delete failed: $1"
+    },
+    {
+      "re": "^发送失败：(.+)$",
+      "to": "Send failed: $1"
+    },
+    {
+      "re": "^剪贴板读取失败：(.+)$",
+      "to": "Clipboard read failed: $1"
+    },
+    {
+      "re": "^Total\\s*([0-9]+)\\s*items$",
+      "to": "Total $1 items"
     }
   ]
 }

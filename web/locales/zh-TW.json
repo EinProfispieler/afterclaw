@@ -6,6 +6,23 @@
   "messages": {
     "lang": {
       "label": "語言"
+    },
+    "config": {
+      "title": "設定",
+      "tab": {
+        "http": "HTTP",
+        "terminal": "終端",
+        "ddns": "DDNS",
+        "general": "綜合設定",
+        "qb": "qB"
+      },
+      "subtitle": "綜合設定（模組開關）/ HTTP / qB / Terminal / DDNS"
+    },
+    "ddns": {
+      "ip_source": {
+        "multi_url": "多 URL 探測",
+        "interface": "網卡取得"
+      }
     }
   },
   "raw": {
@@ -101,9 +118,253 @@
     "清屏": "清屏",
     "准备就绪": "準備就緒",
     "外部终端直连：": "外部終端直連：",
-    "Powered by": "技術支援"
+    "Powered by": "技術支援",
+    "控制主页面 ShareClip 标签页显示。": "控制首頁 ShareClip 分頁顯示。",
+    "重启服务": "重啟服務",
+    "程序端口": "程式埠號",
+    "默认 1288。保存 HTTP 配置后需重启程序才会切换监听端口。": "預設 1288。儲存 HTTP 設定後需重啟程式才會切換監聽埠號。",
+    "当前运行端口：1288": "目前運行埠號：1288",
+    "确认重启服务？端口等变更将在重启后生效。": "確認重啟服務？埠號等變更將在重啟後生效。",
+    "正在发送重启指令...": "正在送出重啟指令...",
+    "重启任务未入队，请稍后重试。": "重啟任務未排入佇列，請稍後再試。",
+    "已发送重启命令，端口等变更将在重启后生效。": "已送出重啟命令，埠號等變更將在重啟後生效。",
+    "未知": "未知",
+    "确认重启服务？这会中断当前所有上传连接。": "確認重啟服務？這會中斷目前所有上傳連線。",
+    "已发送重启命令，当前上传连接会被中断。": "已送出重啟命令，目前上傳連線將被中斷。",
+    "已发送重启命令，服务即将重启。": "已送出重啟命令，服務即將重啟。",
+    "主页面显示 qB 状态卡及 qB 相关控制入口。": "主頁面顯示 qB 狀態卡及 qB 相關控制入口。",
+    "主页面显示 DDNS 状态卡，并保留 Config 内 DDNS 设置入口。": "主頁面顯示 DDNS 狀態卡，並保留 Config 內 DDNS 設定入口。",
+    "私钥路径（key 模式）": "私鑰路徑（key 模式）",
+    "未填“配置目录 Key 文件名”时使用此路径。": "未填「設定目錄 key 檔名」時使用此路徑。",
+    "DDNS 设置": "DDNS 設定",
+    "总开关": "總開關",
+    "DNS 服务商": "DNS 服務商",
+    "公网地址获取": "公網位址取得",
+    "保存配置": "儲存配置",
+    "保存中…": "儲存中...",
+    "配置已保存": "配置已儲存",
+    "配置已写入。": "配置已寫入。",
+    "加载失败:": "載入失敗:",
+    "请求失败": "請求失敗",
+    "Zone ID（可选）": "Zone ID（可選）",
+    "Record ID（可选）": "Record ID（可選）",
+    "API Token（必填）": "API Token（必填）",
+    "内置 DDNS": "內建 DDNS",
+    "Read Clipboard": "讀取剪貼簿",
+    "View": "查看",
+    "Delete": "刪除",
+    "Delete this record?": "確認刪除這條記錄？",
+    "Deleted": "已刪除",
+    "Delete failed": "刪除失敗",
+    "ID saved and switched": "ID 已儲存並切換",
+    "Image captured": "已擷取圖片",
+    "Text captured": "已擷取文字",
+    "Image read from system clipboard": "已從系統剪貼簿讀取圖片",
+    "Text read from system clipboard": "已從系統剪貼簿讀取文字",
+    "Please enter text or paste an image first": "請先輸入文字或貼上圖片",
+    "Upload failed": "上傳失敗",
+    "Sent": "已送出",
+    "Send failed": "送出失敗",
+    "No history yet": "暫無歷史記錄",
+    "Clipboard read API is not supported by this browser": "瀏覽器不支援剪貼簿讀取 API",
+    "No usable content in clipboard": "剪貼簿中沒有可用內容",
+    "Clipboard read failed:": "剪貼簿讀取失敗：",
+    "Total 0 items": "共 0 條",
+    "ShareClip": "ShareClip",
+    "Per-ID temporary clip sharing in LAN.": "區域網路內按 ID 臨時分享剪貼內容。",
+    "ID": "ID",
+    "Current ID:": "目前 ID：",
+    "Publish": "發佈",
+    "Text": "文字",
+    "Image": "圖片",
+    "Send": "送出",
+    "Latest": "最新",
+    "Refresh": "重新整理",
+    "Raw": "原始",
+    "No content": "暫無內容",
+    "History": "歷史",
+    "Refresh History": "重新整理歷史",
+    "ID can only contain letters/numbers/_/- with length 1-64": "ID 只能是字母/數字/_/-，長度 1-64",
+    "AfterClaw": "檔案中控台",
+    "Control": "中控",
+    "Directory": "目錄服務",
+    "Light Mode": "淺色模式",
+    "Dark Mode": "深色模式",
+    "Control Status & Actions": "中控狀態與操作",
+    "Loading system status...": "系統狀態載入中...",
+    "Current HTTP Service": "目前 HTTP 服務",
+    "Toggle Upload": "切換上傳開關",
+    "Restart Service and Interrupt Upload": "重啟服務並中斷上傳",
+    "Real-time Public Transfer": "即時公網傳輸",
+    "Speed": "速度",
+    "Active Connections": "活躍連線",
+    "Loading source speeds...": "來源速度載入中...",
+    "Current Transfers (HTTP)": "目前傳輸（HTTP）",
+    "Sort": "排序",
+    "Progress": "進度",
+    "Name": "名稱",
+    "Source": "來源",
+    "Directory & Batch Links": "目錄與批次連結",
+    "Storage Root": "儲存根目錄",
+    "Public Base URL": "公開存取網域",
+    "Current Directory": "目前目錄",
+    "Quick Jump (relative to /srv/Storage)": "快速跳轉目錄（相對 /srv/Storage）",
+    "Example: BT/TV or .": "例如：BT/TV 或 .",
+    "Jump": "跳轉目錄",
+    "Up": "返回上層",
+    "Copy Current Folder Name": "複製目前目錄名",
+    "Generate HTTP Links for All Files in Current Folder": "生成目前目錄所有檔案 HTTP 連結",
+    "Copy All Links": "複製全部連結",
+    "Subdirectories (click to enter)": "子目錄（點擊直接進入）",
+    "Name Cleanup / Batch Rename": "目錄名清理 / 批次重新命名",
+    "Substrings to remove (one per line)": "要刪除的子字串（每行一個）",
+    "Remove CJK (full-width blocks)": "移除中文（CJK / 全形區塊）",
+    "Move S## season before first 20xx year": "季號 S## 移到首個年份 20xx 前",
+    "Target": "對象",
+    "Files + Subfolders": "檔案 + 子資料夾",
+    "Files Only": "僅檔案",
+    "Folders Only": "僅子資料夾",
+    "Include Subdirectories (bottom-up)": "包含子目錄（自底向上改名）",
+    "Preview": "預覽",
+    "Apply Rename by Preview": "依預覽執行重新命名",
+    "Batch Text (one HTTP link per line)": "批次文字（每行一個 HTTP 連結）",
+    "Open in New Window": "新視窗開啟",
+    "General": "綜合設定",
+    "Theme": "主題",
+    "General Settings (Module Toggles)": "綜合設定（開關各模組）",
+    "qB Module": "qB 模組",
+    "DDNS Module": "DDNS 模組",
+    "ShareClip Module": "ShareClip 模組",
+    "HTTP Module": "HTTP 模組",
+    "Save General Settings": "儲存綜合設定",
+    "Theme Background": "主題背景",
+    "Default": "預設",
+    "Aurora": "極光",
+    "Sunset": "落日",
+    "Frost": "冰川",
+    "Cloud Dusk": "雲海暮光",
+    "Custom": "自訂",
+    "Upload & Apply": "上傳並套用",
+    "Reset": "恢復預設",
+    "HTTP Settings": "HTTP 設定",
+    "Validate (Scan)": "驗證（掃描）",
+    "Save HTTP Settings": "儲存 HTTP 設定",
+    "qB Settings": "qB 設定",
+    "qB Monitoring": "qB 監控",
+    "Save qB Settings": "儲存 qB 設定",
+    "One-click Optimize": "一鍵最佳化設定",
+    "Fix qB Monitor Permissions": "修復 qB 監控權限",
+    "Restart qB Service": "qB 服務重啟",
+    "Quit qB": "qB 離開",
+    "Enable Terminal icon on homepage": "啟用首頁 Terminal 圖示",
+    "Auth Mode": "驗證方式",
+    "Select and Upload key": "選擇並上傳 key",
+    "Refresh key list": "重新整理 key 清單",
+    "Connection Preview": "連線預覽",
+    "Save Terminal Settings": "儲存 Terminal 設定",
+    "Copy SSH Command": "複製 SSH 指令",
+    "Browser SSH Terminal (xterm.js)": "瀏覽器內 SSH 終端（xterm.js）",
+    "Target:": "目標：",
+    "Connect": "連線",
+    "Disconnect": "中斷",
+    "Clear": "清屏",
+    "Ready": "準備就緒",
+    "External terminal link:": "外部終端直連：",
+    "Controls whether the ShareClip tab is shown on the homepage.": "控制首頁 ShareClip 分頁顯示。",
+    "Restart Service": "重啟服務",
+    "Service Port": "程式埠號",
+    "Default is 1288. Restart the service after saving HTTP settings to switch listening port.": "預設 1288。儲存 HTTP 設定後需重啟程式才會切換監聽埠號。",
+    "Current running port: 1288": "目前運行埠號：1288",
+    "Restart service now? Port and related changes take effect after restart.": "確認重啟服務？埠號等變更將在重啟後生效。",
+    "Sending restart command...": "正在送出重啟指令...",
+    "Restart task was not queued. Please try again shortly.": "重啟任務未排入佇列，請稍後再試。",
+    "Restart command sent. Port and related changes will take effect after restart.": "已送出重啟命令，埠號等變更將在重啟後生效。",
+    "Unknown": "未知",
+    "Restart service now? This will interrupt all current upload connections.": "確認重啟服務？這會中斷目前所有上傳連線。",
+    "Restart command sent. Current upload connections will be interrupted.": "已送出重啟命令，目前上傳連線將被中斷。",
+    "Restart command sent. Service will restart shortly.": "已送出重啟命令，服務即將重啟。",
+    "Shows the qB status card and qB control entry points on the homepage.": "主頁面顯示 qB 狀態卡及 qB 相關控制入口。",
+    "Shows the DDNS status card on the homepage and keeps the DDNS settings entry in Config.": "主頁面顯示 DDNS 狀態卡，並保留 Config 內 DDNS 設定入口。",
+    "Private key path (key mode)": "私鑰路徑（key 模式）",
+    "Uses this path when 'Config-dir key filename' is empty.": "未填「設定目錄 key 檔名」時使用此路徑。",
+    "DDNS Settings": "DDNS 設定",
+    "Master Switch": "總開關",
+    "DNS Provider": "DNS 服務商",
+    "Public IP Detection": "公網位址取得",
+    "API Token (required)": "API Token（必填）",
+    "Zone ID (optional)": "Zone ID（可選）",
+    "Record ID (optional)": "Record ID（可選）",
+    "Save Configuration": "儲存配置",
+    "Saving...": "儲存中...",
+    "Configuration saved": "配置已儲存",
+    "Configuration written.": "配置已寫入。",
+    "Load failed:": "載入失敗:",
+    "Request failed": "請求失敗",
+    "Built-in DDNS": "內建 DDNS",
+    "DDNS Service": "DDNS 服務",
+    "Sync now": "立即同步",
+    "CONFIG": "配置",
+    "Stop": "停止",
+    "Start": "啟動",
+    "Running": "運行中",
+    "Stopped": "未運行",
+    "General Settings (module toggles) / HTTP / qB / Terminal / DDNS": "綜合設定（模組開關）/ HTTP / qB / Terminal / DDNS",
+    "Built-in DDNS for multiple providers; also supports switching to": "多服務商內建 DDNS；也支持切到",
+    "← Back to AfterClaw": "← 返回 AfterClaw",
+    "Set the homepage header background here. No theme panel stays on homepage.": "這裡設定首頁頂欄背景，不再於首頁常駐顯示主題面板。",
+    "Current Background: Default": "目前背景：預設",
+    "Supports PNG/JPG/WEBP/GIF/AVIF, max 12MB.": "支援 PNG/JPG/WEBP/GIF/AVIF，最大 12MB。",
+    "Controls the homepage 'Current HTTP Service' card and HTTP monitoring area. Disabling it forcibly interrupts one connection and turns uploads off.": "控制主頁面「目前 HTTP 服務」與 HTTP 監控區域。關閉時會強制中斷一次連線並關閉上傳。",
+    "Restart": "重啟",
+    "hows the qB status card and qB control entry points on the homepage.": "主頁面顯示 qB 狀態卡及 qB 相關控制入口。",
+    "Current HTTP Root:": "目前 HTTP 根目錄：",
+    "HTTP Root Directory (any path under /)": "HTTP 根目錄（允許 / 下任意目錄）",
+    "Enter an absolute path, for example:": "輸入絕對路徑，例如：",
+    "Default Directory (relative to HTTP root)": "預設目錄（相對 HTTP 根目錄）",
+    "The homepage Directory tab opens this directory by default.": "首頁「目錄」分頁開啟時會預設跳到此目錄。",
+    "Source IP Pools (1288 training)": "來源 IP 池（1288 訓練）",
+    "Maintain source pools as one IP/CIDR per line. Matched IPs take precedence over UA/Referer keywords.": "以「每行一個 IP/CIDR」維護來源池。命中後優先標記對應來源（高於 UA/Referer 關鍵字）。",
+    "Updatable source (GitHub/URL)": "可更新來源（GitHub/URL）",
+    "Directory Browser (target server)": "目錄瀏覽器（目標伺服器）",
+    "Click a subdirectory below to set it as default quickly.": "點擊下方子目錄可快速設為預設目錄。",
+    "Current source:": "目前來源：",
+    "Supports ": "支援 ",
+    ", for example: ": "，例如：",
+    "Click a subdirectory below to set it as default quickly.Supports github:owner/repo/path, for example: github:EinProfispieler/afterclaw/data/vendor-ip-pools。": "點擊下方子目錄可快速設為預設目錄。支援 github:owner/repo/path，例如：github:EinProfispieler/afterclaw/data/vendor-ip-pools。",
+    "配置目录 Key 文件名（可选）": "設定目錄 key 檔名（可選）",
+    "配置目录：": "設定目錄：",
+    "可从当前设备选择私钥文件并上传到配置目录。": "可從目前裝置選擇私鑰檔並上傳到設定目錄。",
+    "网页终端入口：": "網頁終端入口：",
+    "打开 /terminal": "開啟 /terminal",
+    "推荐使用 key 模式；确保目标主机已授权你的公钥。": "建議使用 key 模式；請確認目標主機已授權你的公鑰。",
+    "使用配置目录 key：": "使用設定目錄 key：",
+    "密码模式不会保存密码，点击后在终端中手工输入。": "密碼模式不會儲存密碼，點擊後請在終端手動輸入。",
+    "请先填写 Host/User 等连接信息": "請先填寫 Host/User 等連線資訊",
+    "启用 Terminal 时 Host 不能为空": "啟用 Terminal 時 Host 不能為空",
+    "Terminal 配置已保存": "Terminal 設定已儲存",
+    "SSH 命令已复制": "SSH 指令已複製",
+    "复制失败，请手工复制预览命令": "複製失敗，請手動複製預覽命令",
+    "正在上传 key 文件...": "正在上傳 key 檔案...",
+    "key 文件已上传：": "key 檔案已上傳：",
+    "key 文件过大（最大 1MB）": "key 檔案過大（最大 1MB）",
+    "无法读取 key 文件名": "無法讀取 key 檔案名稱",
+    "key 列表已刷新": "key 清單已更新",
+    "Config-dir key filename (optional)": "設定目錄 key 檔名（可選）",
+    "Config directory:": "設定目錄：",
+    "You can select a private key file from this device and upload it to the config directory.": "可從目前裝置選擇私鑰檔並上傳到設定目錄。",
+    "Web terminal entry:": "網頁終端入口：",
+    "Open /terminal": "開啟 /terminal",
+    "Terminal / SSH": "終端 / SSH",
+    "key（推荐）": "key（建議）",
+    "password（不保存密码）": "password（不儲存密碼）",
+    "key (recommended)": "key（建議）",
+    "password (not stored)": "password（不儲存密碼）"
   },
   "patterns": [
+    {
+      "re": "^文件 ([0-9]+) · 目录 ([0-9]+) · 大小 (.+)$",
+      "to": "檔案 $1 · 目錄 $2 · 大小 $3"
+    },
     {
       "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
       "to": "活躍 $1 個 · 最近完成 $2 個 · 總完成度 $3%"
@@ -199,6 +460,154 @@
     {
       "re": "^会话已结束，退出码：(.*)$",
       "to": "工作階段已結束，退出碼：$1"
+    },
+    {
+      "re": "^CPU负载\\(1m\\):\\s*([0-9.]+)$",
+      "to": "CPU 負載(1m): $1"
+    },
+    {
+      "re": "^内存: (.+) \\| 磁盘: (.+) \\| 运行: (.+)$",
+      "to": "記憶體: $1 | 磁碟: $2 | 運行: $3"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "運行中 | $1 | ↓ $2 · ↑ $3 | 做種 $4 · 下載 $5 · 活躍 $6 · 總計 $7 · 連線 $8 · DHT $9"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "運行中 | $1 | ↓ $2 · ↑ $3 | 做種 $4 · 下載 $5 · 活躍 $6 · 總計 $7 · 連線 $8"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "未運行 | $1 | ↓ $2 · ↑ $3 | 做種 $4 · 下載 $5 · 活躍 $6 · 總計 $7 · 連線 $8 · DHT $9"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "未運行 | $1 | ↓ $2 · ↑ $3 | 做種 $4 · 下載 $5 · 活躍 $6 · 總計 $7 · 連線 $8"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "運行中 | 內建 DDNS | $1 · v4 $2 / v6 $3 ($4s 前)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "運行中 | 內建 DDNS | $1 · v4 $2 ($3s 前)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+)$",
+      "to": "運行中 | 內建 DDNS | $1"
+    },
+    {
+      "re": "^未运行 \\| 内置 DDNS \\| (.+)$",
+      "to": "未運行 | 內建 DDNS | $1"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 / v6 $3 ($4s 前)"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 ($3s 前)"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+)（已截断） \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "路徑: $1 | 權限($2) | 子目錄 $3 · 檔案 $4 （已截斷） | 可用 $5 / 總 $6 | 示例子目錄: $7"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+) \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "路徑: $1 | 權限($2) | 子目錄 $3 · 檔案 $4 | 可用 $5 / 總 $6 | 示例子目錄: $7"
+    },
+    {
+      "re": "^运行中 \\| (.+)$",
+      "to": "運行中 | $1"
+    },
+    {
+      "re": "^未运行 \\| (.+)$",
+      "to": "未運行 | $1"
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 当前保存值与运行端口一致。$",
+      "to": "目前運行埠號：$1。目前儲存值與運行埠號一致。"
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 保存后需重启程序，重启后切换到：([0-9]+)。$",
+      "to": "目前運行埠號：$1。儲存後需重啟程式，重啟後切換到：$2。"
+    },
+    {
+      "re": "^HTTP 配置已保存\\s+程序端口将在重启后切换为\\s*([0-9]+)。$",
+      "to": "HTTP 設定已儲存。程式埠號將在重啟後切換為 $1。"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | 做種 $3 · 下載 $4 · 活躍 $5 · 總計 $6 · 連線 $7 · DHT $8"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | 做種 $3 · 下載 $4 · 活躍 $5 · 總計 $6 · 連線 $7"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | 做種 $3 · 下載 $4 · 活躍 $5 · 總計 $6"
+    },
+    {
+      "re": "^Total\\s*([0-9]+)\\s*items$",
+      "to": "共 $1 條"
+    },
+    {
+      "re": "^Delete failed:\\s*(.+)$",
+      "to": "刪除失敗：$1"
+    },
+    {
+      "re": "^Send failed:\\s*(.+)$",
+      "to": "送出失敗：$1"
+    },
+    {
+      "re": "^Clipboard read failed:\\s*(.+)$",
+      "to": "剪貼簿讀取失敗：$1"
+    },
+    {
+      "re": "^Files ([0-9]+) · Dirs ([0-9]+) · Size (.+)$",
+      "to": "檔案 $1 · 目錄 $2 · 大小 $3"
+    },
+    {
+      "re": "^Path: ([^|]+) \\| Permissions\\(([^)]+)\\) \\| Subdirs ([0-9]+) · Files ([0-9]+) \\(truncated\\) \\| Available ([^|]+) / Total ([^|]+) \\| Sample subdirs: (.+)$",
+      "to": "路徑：$1 | 權限($2) | 子目錄 $3 · 檔案 $4（已截斷） | 可用 $5 / 總 $6 | 示例子目錄：$7"
+    },
+    {
+      "re": "^Path: ([^|]+) \\| Permissions\\(([^)]+)\\) \\| Subdirs ([0-9]+) · Files ([0-9]+) \\| Available ([^|]+) / Total ([^|]+) \\| Sample subdirs: (.+)$",
+      "to": "路徑：$1 | 權限($2) | 子目錄 $3 · 檔案 $4 | 可用 $5 / 總 $6 | 示例子目錄：$7"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+) · v4 (.+) / v6 (.+) \\(([0-9]+)s ago\\)$",
+      "to": "運行中 | 內建 DDNS | $1 · v4 $2 / v6 $3（$4s 前）"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+) · v4 (.+) \\(([0-9]+)s ago\\)$",
+      "to": "運行中 | 內建 DDNS | $1 · v4 $2（$3s 前）"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+)$",
+      "to": "運行中 | 內建 DDNS | $1"
+    },
+    {
+      "re": "^Stopped \\| Built-in DDNS \\| (.+)$",
+      "to": "未運行 | 內建 DDNS | $1"
+    },
+    {
+      "re": "^Running \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| Seeding ([0-9]+) · Downloading ([0-9]+) · Active ([0-9]+) · Total ([0-9]+) · Connections ([0-9]+) · DHT ([0-9]+)$",
+      "to": "運行中 | $1 | ↓ $2 · ↑ $3 | 做種 $4 · 下載 $5 · 活躍 $6 · 總計 $7 · 連接 $8 · DHT $9"
+    },
+    {
+      "re": "^Running \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| Seeding ([0-9]+) · Downloading ([0-9]+) · Active ([0-9]+) · Total ([0-9]+) · Connections ([0-9]+)$",
+      "to": "運行中 | $1 | ↓ $2 · ↑ $3 | 做種 $4 · 下載 $5 · 活躍 $6 · 總計 $7 · 連接 $8"
+    },
+    {
+      "re": "^Current source:\\s*(.+)$",
+      "to": "目前來源：$1"
+    },
+    {
+      "re": "^当前来源：\\s*(.+)$",
+      "to": "目前來源：$1"
     }
   ]
 }

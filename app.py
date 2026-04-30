@@ -1264,7 +1264,7 @@ def _inject_pub_theme_link(html: str) -> str:
             if gt >= 0:
                 html = html[: gt + 1] + link + html[gt + 1 :]
         else:
-            html = '<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"/>' + link + "</head><body>" + html + "</body></html>"
+            html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>' + link + "</head><body>" + html + "</body></html>"
             
     # Re-evaluate lower after html mutation
     lower = html.lower()
@@ -1345,7 +1345,7 @@ def _rewrite_ddnsgo_location(location: str, base_url: str) -> str:
 
 def build_frontend_html() -> str:
     return """<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1362,7 +1362,7 @@ def build_frontend_html() -> str:
     })();
   </script>
   <link rel="stylesheet" href="/dashboard.css" />
-  <script src="/i18n.js"></script>
+  <script src="/i18n.js?v=20260430d"></script>
 </head>
 <body>
   <div class="wrap">
@@ -1464,34 +1464,34 @@ def build_frontend_html() -> str:
     </div>
     <div class="clip-grid">
       <section class="clip-card">
-        <h3 class="clip-title">ShareClip</h3>
-        <div class="clip-sub">Per-ID temporary clip sharing in LAN.</div>
-        <label for="clipIdInput">ID</label>
+        <h3 class="clip-title" id="clipCardTitle">ShareClip</h3>
+        <div class="clip-sub" id="clipSubText">Per-ID temporary clip sharing in LAN.</div>
+        <label id="clipIdLabel" for="clipIdInput">ID</label>
         <input id="clipIdInput" placeholder="Example: team_alpha or group01" value="pub" />
-        <div class="clip-meta">Current ID: <code id="clipCurrentId">pub</code></div>
-        <h4 style="margin:10px 0 6px;">Publish</h4>
-        <label for="clipTextInput">Text</label>
+        <div class="clip-meta"><span id="clipCurrentLabel">Current ID:</span> <code id="clipCurrentId">pub</code></div>
+        <h4 id="clipPublishTitle" style="margin:10px 0 6px;">Publish</h4>
+        <label id="clipTextLabel" for="clipTextInput">Text</label>
         <textarea id="clipTextInput"></textarea>
         <div id="clipPasteZone" class="clip-paste" tabindex="0">Click then Ctrl+V (image/text)</div>
-        <label for="clipImageInput">Image</label>
+        <label id="clipImageLabel" for="clipImageInput">Image</label>
         <input id="clipImageInput" type="file" accept="image/*" />
         <div class="clip-row" style="margin-top:8px;">
           <button id="clipSendBtn" type="button">Send</button>
-          <button id="clipReadBtn" class="secondary" type="button">读取剪贴板</button>
+          <button id="clipReadBtn" class="secondary" type="button">Read Clipboard</button>
         </div>
         <div id="clipStatus" class="clip-status"></div>
       </section>
       <section class="clip-card">
-        <h3 class="clip-title">Latest</h3>
+        <h3 class="clip-title" id="clipLatestTitle">Latest</h3>
         <div class="clip-row">
           <button id="clipRefreshLatestBtn" class="secondary" type="button">Refresh</button>
           <a id="clipRawLink" href="#" target="_blank" rel="noopener">Raw</a>
         </div>
         <div id="clipLatestMeta" class="clip-meta">No content</div>
-        <div id="clipLatestView" class="clip-panel">暂无内容</div>
+        <div id="clipLatestView" class="clip-panel">No content</div>
       </section>
       <section class="clip-card">
-        <h3 class="clip-title">History</h3>
+        <h3 class="clip-title" id="clipHistoryTitle">History</h3>
         <div class="clip-row">
           <button id="clipRefreshHistoryBtn" class="secondary" type="button">Refresh History</button>
         </div>
@@ -1605,7 +1605,16 @@ def build_frontend_html() -> str:
     const bulkText = document.getElementById("bulkText");
     const currentDirText = document.getElementById("currentDirText");
     const clipIdInput = document.getElementById("clipIdInput");
+    const clipCurrentLabel = document.getElementById("clipCurrentLabel");
     const clipCurrentId = document.getElementById("clipCurrentId");
+    const clipCardTitle = document.getElementById("clipCardTitle");
+    const clipSubText = document.getElementById("clipSubText");
+    const clipIdLabel = document.getElementById("clipIdLabel");
+    const clipPublishTitle = document.getElementById("clipPublishTitle");
+    const clipTextLabel = document.getElementById("clipTextLabel");
+    const clipImageLabel = document.getElementById("clipImageLabel");
+    const clipLatestTitle = document.getElementById("clipLatestTitle");
+    const clipHistoryTitle = document.getElementById("clipHistoryTitle");
     const clipTextInput = document.getElementById("clipTextInput");
     const clipImageInput = document.getElementById("clipImageInput");
     const clipPasteZone = document.getElementById("clipPasteZone");
@@ -1615,6 +1624,10 @@ def build_frontend_html() -> str:
     const clipHistoryMeta = document.getElementById("clipHistoryMeta");
     const clipHistoryList = document.getElementById("clipHistoryList");
     const clipRawLink = document.getElementById("clipRawLink");
+    const clipSendBtn = document.getElementById("clipSendBtn");
+    const clipReadBtn = document.getElementById("clipReadBtn");
+    const clipRefreshLatestBtn = document.getElementById("clipRefreshLatestBtn");
+    const clipRefreshHistoryBtn = document.getElementById("clipRefreshHistoryBtn");
     const terminalQuickLink = document.getElementById("terminalQuickLink");
     const langSelect = document.getElementById("langSelect");
     let currentDir = ".";
@@ -1636,6 +1649,7 @@ def build_frontend_html() -> str:
     let heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
     let clipCurrent = "pub";
     let clipCapturedImage = null;
+    let qbtControlOn = false;
     let ddnsControlOn = false;
     let httpModuleOn = true;
 
@@ -1719,16 +1733,38 @@ def build_frontend_html() -> str:
       return u.toString();
     }
 
+    function applyShareclipLocaleUI() {
+      if (clipCardTitle) clipCardTitle.textContent = "ShareClip";
+      if (clipSubText) clipSubText.textContent = "Per-ID temporary clip sharing in LAN.";
+      if (clipIdLabel) clipIdLabel.textContent = "ID";
+      if (clipCurrentLabel) clipCurrentLabel.textContent = "Current ID:";
+      if (clipPublishTitle) clipPublishTitle.textContent = "Publish";
+      if (clipTextLabel) clipTextLabel.textContent = "Text";
+      if (clipImageLabel) clipImageLabel.textContent = "Image";
+      if (clipLatestTitle) clipLatestTitle.textContent = "Latest";
+      if (clipHistoryTitle) clipHistoryTitle.textContent = "History";
+      if (clipPasteZone) clipPasteZone.textContent = "Click then Ctrl+V (image/text)";
+      if (clipSendBtn) clipSendBtn.textContent = "Send";
+      if (clipReadBtn) clipReadBtn.textContent = "Read Clipboard";
+      if (clipRefreshLatestBtn) clipRefreshLatestBtn.textContent = "Refresh";
+      if (clipRefreshHistoryBtn) clipRefreshHistoryBtn.textContent = "Refresh History";
+      if (clipRawLink) clipRawLink.textContent = "Raw";
+      if (clipIdInput) clipIdInput.placeholder = "Example: team_alpha or group01";
+      if (window.fccI18n && typeof window.fccI18n.apply === "function" && tabPubPanel) {
+        window.fccI18n.apply(tabPubPanel);
+      }
+    }
+
     function setClipStatus(text, isError = false) {
-      clipStatus.textContent = text;
+      clipStatus.textContent = trRaw(text);
       clipStatus.classList.toggle("err", isError);
-      showToast(text, isError ? "error" : "success");
+      showToast(trRaw(text), isError ? "error" : "success");
     }
 
     function normalizeClipId(v) {
       const id = String(v || "").trim();
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) {
-        throw new Error("ID 只能是字母/数字/_/-，长度 1-64");
+        throw new Error("ID can only contain letters/numbers/_/- with length 1-64");
       }
       return id;
     }
@@ -1745,8 +1781,8 @@ def build_frontend_html() -> str:
 
     function renderClipLatest(rec) {
       if (!rec || rec.type === "empty") {
-        clipLatestMeta.textContent = "No content";
-        clipLatestView.textContent = "暂无内容";
+        clipLatestMeta.textContent = trRaw("No content");
+        clipLatestView.textContent = trRaw("No content");
         return;
       }
       const t = rec.updated_at || "unknown";
@@ -1765,10 +1801,10 @@ def build_frontend_html() -> str:
 
     function renderClipHistory(items) {
       const rows = Array.isArray(items) ? items : [];
-      clipHistoryMeta.textContent = `共 ${rows.length} 条`;
+      clipHistoryMeta.textContent = trRaw(`Total ${rows.length} items`);
       clipHistoryList.innerHTML = "";
       if (!rows.length) {
-        clipHistoryList.textContent = "暂无历史记录";
+        clipHistoryList.textContent = trRaw("No history yet");
         return;
       }
       for (const it of rows) {
@@ -1795,23 +1831,23 @@ def build_frontend_html() -> str:
         const viewBtn = document.createElement("button");
         viewBtn.type = "button";
         viewBtn.className = "secondary";
-        viewBtn.textContent = "查看";
+        viewBtn.textContent = trRaw("View");
         viewBtn.addEventListener("click", () => renderClipLatest(it));
         const delBtn = document.createElement("button");
         delBtn.type = "button";
         delBtn.className = "secondary";
-        delBtn.textContent = "删除";
+        delBtn.textContent = trRaw("Delete");
         delBtn.addEventListener("click", async () => {
           if (!it.id) return;
-          if (!confirm("确认删除这条记录？")) return;
+          if (!confirm(trRaw("Delete this record?"))) return;
           try {
             const r = await fetch(`/api/history/${encodeURIComponent(it.id)}?id=${encodeURIComponent(clipCurrent)}`, { method: "DELETE" });
             const d = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error(d.error || "删除失败");
-            setClipStatus("已删除");
+            if (!r.ok) throw new Error(d.error || "Delete failed");
+            setClipStatus("Deleted");
             await refreshClipAll();
           } catch (err) {
-            setClipStatus(`删除失败：${err.message || err}`, true);
+            setClipStatus(`Delete failed: ${err.message || err}`, true);
           }
         });
         row.appendChild(viewBtn);
@@ -1844,7 +1880,7 @@ def build_frontend_html() -> str:
         localStorage.setItem("shareclip_id", clipCurrent);
         await refreshClipAll();
         if (showSuccess) {
-          setClipStatus("ID 已保存并切换");
+          setClipStatus("ID saved and switched");
         }
       } catch (err) {
         setClipStatus(err.message || String(err), true);
@@ -1860,7 +1896,7 @@ def build_frontend_html() -> str:
           const ext = (b.type.split("/")[1] || "png").replace("jpeg", "jpg");
           clipCapturedImage = new File([b], `clipboard-${Date.now()}.${ext}`, { type: b.type });
           clipImageInput.value = "";
-          setClipStatus("已捕获图片");
+          setClipStatus("Image captured");
           return;
         }
       }
@@ -1869,7 +1905,7 @@ def build_frontend_html() -> str:
         tx.getAsString((v) => {
           clipTextInput.value = v || "";
           clipCapturedImage = null;
-          setClipStatus("已捕获文本");
+          setClipStatus("Text captured");
         });
       }
     }
@@ -1882,18 +1918,18 @@ def build_frontend_html() -> str:
         const txt = (clipTextInput.value || "").trim();
         if (file) fd.append("image", file, file.name || "clip.png");
         else if (txt) fd.append("text", txt);
-        else throw new Error("请先输入文本或粘贴图片");
+        else throw new Error("Please enter text or paste an image first");
         const r = await fetch("/api/clip", { method: "POST", body: fd });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "上传失败");
+        if (!r.ok) throw new Error(d.error || "Upload failed");
         clipCapturedImage = null;
         clipImageInput.value = "";
         clipTextInput.value = "";
-        setClipStatus("已发送");
+        setClipStatus("Sent");
         renderClipLatest(d.clip);
         await loadClipHistory();
       } catch (err) {
-        setClipStatus(`发送失败：${err.message || err}`, true);
+        setClipStatus(`Send failed: ${err.message || err}`, true);
       }
     }
 
@@ -1907,12 +1943,12 @@ def build_frontend_html() -> str:
     applyTheme(getStoredTheme());
 
     if (langSelect) {
-      const hold = () => pauseRealtime(6000);
-      ["mousedown", "focus", "click", "touchstart", "keydown"].forEach((evt) => {
+      const hold = () => pauseRealtime(30000);
+      ["mousedown", "focus", "click", "touchstart", "keydown", "pointerdown"].forEach((evt) => {
         langSelect.addEventListener(evt, hold, { passive: true });
       });
-      langSelect.addEventListener("change", () => pauseRealtime(2500));
-      langSelect.addEventListener("blur", () => pauseRealtime(600));
+      langSelect.addEventListener("change", () => pauseRealtime(8000));
+      langSelect.addEventListener("blur", () => pauseRealtime(1200));
     }
 
     function setStatus(text, isError = false) {
@@ -2102,8 +2138,10 @@ def build_frontend_html() -> str:
         return;
       }
       if (isRealtimePaused()) return;
+      const reqTs = Date.now();
       try {
         const data = await getJson("/api/speed");
+        if (isRealtimePaused() || reqTs < dashboardPauseUntil) return;
         const rxMiBps = Number(data.rx_mibps || 0);
         const rxMbps = Number(data.rx_mbps || 0);
         const txMiBps = Number(data.tx_mibps || 0);
@@ -2290,8 +2328,10 @@ def build_frontend_html() -> str:
         return;
       }
       if (isRealtimePaused()) return;
+      const reqTs = Date.now();
       try {
         const data = await getJson("/api/transfers");
+        if (isRealtimePaused() || reqTs < dashboardPauseUntil) return;
         latestTransfers = data.items || [];
         latestSourceStats = data.source_stats || [];
         latestTransferOverview = {
@@ -2312,14 +2352,24 @@ def build_frontend_html() -> str:
       toggleDownloadBtn.className = downloadsEnabled ? "secondary" : "";
     }
 
+    function trRaw(src) {
+      try {
+        if (window.fccI18n && typeof window.fccI18n.translateRaw === "function") {
+          return window.fccI18n.translateRaw(src) || src;
+        }
+      } catch (e) {}
+      return src;
+    }
+
     function svcText(svc) {
-      if (!svc) return '<span class="svc-dot bad"></span>未知';
+      if (!svc) return '<span class="svc-dot bad"></span>' + trRaw("Unknown");
       const isActive = svc.active_state === "active";
-      const mark = isActive ? "运行中" : "未运行";
-      const unit = svc.unit || "-";
+      const mark = trRaw(isActive ? "Running" : "Stopped");
+      const unit = trRaw(String(svc.unit || "-"));
       const dotClass = isActive ? "ok" : "bad";
       if (svc.detail) {
-        return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit)) + '<br><span class="svc-meta" style="font-size:12px; line-height:1.4;">' + escapeHtml(String(svc.detail)) + '</span>';
+        const detail = trRaw(String(svc.detail));
+        return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit)) + '<br><span class="svc-meta" style="font-size:12px; line-height:1.4;">' + escapeHtml(String(detail)) + '</span>';
       }
       return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit));
     }
@@ -2351,13 +2401,14 @@ def build_frontend_html() -> str:
         switchTab("monitor");
       }
       const qbtActive = data.qbt && data.qbt.active_state === "active";
+      qbtControlOn = !!qbtActive;
       const ddnsBuiltin = data.ddns && data.ddns.source === "builtin";
       const ddnsActive = ddnsBuiltin ? !!data.ddns.enabled : (data.ddns && data.ddns.active_state === "active");
       ddnsControlOn = !!ddnsActive;
-      document.getElementById("qbtToggleBtn").textContent = qbtActive ? "停止" : "启动";
-      document.getElementById("ddnsToggleBtn").textContent = ddnsActive ? "停止" : "启动";
+      document.getElementById("qbtToggleBtn").textContent = trRaw(qbtActive ? "Stop" : "Start");
+      document.getElementById("ddnsToggleBtn").textContent = trRaw(ddnsActive ? "Stop" : "Start");
       const rbtn = document.getElementById("ddnsRestartBtn");
-      if (rbtn) rbtn.textContent = (data.ddns && data.ddns.source === "builtin") ? "立即同步" : "重启";
+      if (rbtn) rbtn.textContent = trRaw((data.ddns && data.ddns.source === "builtin") ? "Sync now" : "Restart");
       // 内置 DDNS 有配置就显示卡片；外部 DDNS 也显示
       const ddnsSvcCard = document.getElementById("ddnsSvcCard");
       if (ddnsSvcCard) {
@@ -2369,8 +2420,10 @@ def build_frontend_html() -> str:
 
     async function loadControlStatus() {
       if (isRealtimePaused()) return;
+      const reqTs = Date.now();
       try {
         const data = await getJson("/api/control/status");
+        if (isRealtimePaused() || reqTs < dashboardPauseUntil) return;
         renderControlStatus(data);
       } catch (err) {
         sysStatus.className = "sys-strip";
@@ -2567,7 +2620,10 @@ def build_frontend_html() -> str:
     }
 
     async function restartService() {
-      if (!confirm("确认重启服务？这会中断当前所有上传连接。")) {
+      const restartConfirmText = (window.fccI18n && typeof window.fccI18n.translateRaw === "function")
+        ? (window.fccI18n.translateRaw("确认重启服务？这会中断当前所有上传连接。") || "确认重启服务？这会中断当前所有上传连接。")
+        : "确认重启服务？这会中断当前所有上传连接。";
+      if (!confirm(restartConfirmText)) {
         return;
       }
       try {
@@ -2592,8 +2648,7 @@ def build_frontend_html() -> str:
     document.getElementById("toggleDownloadBtn").addEventListener("click", toggleDownloads);
     document.getElementById("restartServiceBtn").addEventListener("click", restartService);
     document.getElementById("qbtToggleBtn").addEventListener("click", () => {
-      const isActive = (qbtStatusText.textContent || "").includes("运行中");
-      controlService("qbt", isActive ? "stop" : "start");
+      controlService("qbt", qbtControlOn ? "stop" : "start");
     });
     document.getElementById("qbtRestartBtn").addEventListener("click", () => controlService("qbt", "restart"));
     document.getElementById("ddnsToggleBtn").addEventListener("click", () => {
@@ -2610,7 +2665,7 @@ def build_frontend_html() -> str:
     document.getElementById("clipSendBtn").addEventListener("click", sendClip);
     document.getElementById("clipReadBtn").addEventListener("click", async () => {
       if (!navigator.clipboard || !navigator.clipboard.read) {
-        setClipStatus("浏览器不支持剪贴板读取 API", true);
+        setClipStatus("Clipboard read API is not supported by this browser", true);
         return;
       }
       try {
@@ -2622,20 +2677,20 @@ def build_frontend_html() -> str:
             const ext = (t.split("/")[1] || "png").replace("jpeg", "jpg");
             clipCapturedImage = new File([b], `clipboard-${Date.now()}.${ext}`, { type: t });
             clipImageInput.value = "";
-            setClipStatus("已从系统剪贴板读取图片");
+            setClipStatus("Image read from system clipboard");
             return;
           }
           if (it.types.includes("text/plain")) {
             const b = await it.getType("text/plain");
             clipTextInput.value = await b.text();
             clipCapturedImage = null;
-            setClipStatus("已从系统剪贴板读取文本");
+            setClipStatus("Text read from system clipboard");
             return;
           }
         }
-        setClipStatus("剪贴板中没有可用内容", true);
+        setClipStatus("No usable content in clipboard", true);
       } catch (err) {
-        setClipStatus("剪贴板读取失败：" + (err.message || err), true);
+        setClipStatus("Clipboard read failed: " + (err.message || err), true);
       }
     });
     document.getElementById("clipRefreshLatestBtn").addEventListener("click", () => loadClipLatest().catch((err) => setClipStatus(err.message || String(err), true)));
@@ -2682,22 +2737,34 @@ def build_frontend_html() -> str:
         renderSpeedValue();
       });
     }
-    loadBaseAndDirs(true).catch((err) => setStatus(err.message, true));
-    try {
-      const storedClipId = localStorage.getItem("shareclip_id");
-      if (storedClipId) clipCurrent = normalizeClipId(storedClipId);
-    } catch (e) {}
-    clipIdInput.value = clipCurrent;
-    clipCurrentId.textContent = clipCurrent;
-    clipRawLink.href = clipUrl("/api/clip/raw");
-    refreshClipAll().catch((err) => setClipStatus(err.message || String(err), true));
-    syncTransferSortButtons();
-    loadSpeed();
-    loadTransfers();
-    loadControlStatus();
-    setInterval(loadSpeed, 2000);
-    setInterval(loadTransfers, 2000);
-    setInterval(loadControlStatus, 5000);
+    Promise.resolve(i18nReady).finally(() => {
+      loadBaseAndDirs(true).catch((err) => setStatus(err.message, true));
+      try {
+        const storedClipId = localStorage.getItem("shareclip_id");
+        if (storedClipId) clipCurrent = normalizeClipId(storedClipId);
+      } catch (e) {}
+      clipIdInput.value = clipCurrent;
+      clipCurrentId.textContent = clipCurrent;
+      clipRawLink.href = clipUrl("/api/clip/raw");
+      applyShareclipLocaleUI();
+      refreshClipAll().catch((err) => setClipStatus(err.message || String(err), true));
+      syncTransferSortButtons();
+      loadSpeed();
+      loadTransfers();
+      loadControlStatus();
+      setInterval(loadSpeed, 2000);
+      setInterval(loadTransfers, 2000);
+      setInterval(loadControlStatus, 5000);
+    });
+
+    document.addEventListener("fcc:lang-changed", () => {
+      pauseRealtime(1200);
+      applyShareclipLocaleUI();
+      refreshClipAll().catch(() => {});
+      loadControlStatus();
+      loadSpeed();
+      loadTransfers();
+    });
   </script>
 </body>
 </html>
@@ -2710,7 +2777,7 @@ def build_ddns_settings_html() -> str:
 
 def build_config_html() -> str:
     return """<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -2727,7 +2794,7 @@ def build_config_html() -> str:
     })();
   </script>
   <link rel="stylesheet" href="/dashboard.css" />
-  <script src="/i18n.js"></script>
+  <script src="/i18n.js?v=20260430d"></script>
   <style>
     .cfg-tabs-row {
       display: grid;
@@ -2919,20 +2986,20 @@ def build_config_html() -> str:
     <header class="page-head">
       <div class="head-row">
         <div>
-          <a href="/" class="back-link">← 返回中控台</a>
-          <h1>Config</h1>
-          <p class="page-sub">综合配置（模块开关）/ HTTP / qB / Terminal / DDNS</p>
+          <a href="/" class="back-link">← Back to AfterClaw</a>
+          <h1 data-i18n="config.title" data-i18n-fallback="Configuration">Configuration</h1>
+          <p class="page-sub" data-i18n="config.subtitle" data-i18n-fallback="General Settings (module toggles) / HTTP / qB / Terminal / DDNS">General Settings (module toggles) / HTTP / qB / Terminal / DDNS</p>
         </div>
       </div>
     </header>
 
     <div class="cfg-tabs-row">
       <div class="cfg-tabs">
-        <button class="cfg-tab active" type="button" data-tab="general">综合配置</button>
-        <button class="cfg-tab" type="button" data-tab="http">HTTP</button>
-        <button class="cfg-tab" type="button" data-tab="qbt">qB</button>
-        <button class="cfg-tab" type="button" data-tab="terminal">Terminal</button>
-        <button class="cfg-tab" type="button" data-tab="ddns">DDNS</button>
+        <button class="cfg-tab active" type="button" data-tab="general" data-i18n="config.tab.general" data-i18n-fallback="General">General</button>
+        <button class="cfg-tab" type="button" data-tab="http" data-i18n="config.tab.http" data-i18n-fallback="HTTP">HTTP</button>
+        <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.qb" data-i18n-fallback="qB">qB</button>
+        <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
+        <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
       </div>
       <div class="cfg-tabs-actions">
         <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect><path d="M7.5 10.5 L10 12.5 L7.5 14.5"></path><line x1="11.5" y1="14.5" x2="15.8" y2="14.5"></line><line x1="9" y1="19.5" x2="15" y2="19.5"></line></svg></a>
@@ -3176,7 +3243,6 @@ def build_config_html() -> str:
     <section id="panel-ddns" class="cfg-panel">
       <div class="card">
         <span class="card-title">DDNS</span>
-        <p class="muted" style="margin-top:8px;">下方为 DDNS 配置页（内嵌）。</p>
         <div class="ddns-frame-wrap">
           <iframe id="ddnsFrame" src="/ddns?embed=1" title="DDNS Config"></iframe>
         </div>
@@ -3222,6 +3288,15 @@ def build_config_html() -> str:
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
 
     function byId(id){ return document.getElementById(id); }
+    function trRaw(text){
+      var src = String(text || "");
+      try {
+        if (window.fccI18n && typeof window.fccI18n.translateRaw === "function") {
+          return window.fccI18n.translateRaw(src) || src;
+        }
+      } catch (e) {}
+      return src;
+    }
     function showToast(msg, type){
       var text = String(msg || "").trim();
       if (!text) return;
@@ -3866,9 +3941,9 @@ def build_config_html() -> str:
         var q = d.qbt || {};
         var line = (q.active_state === "active" ? "运行中" : "未运行") + " | " + (q.unit || "-");
         if (q.detail) line += " | " + q.detail;
-        byId("qbtRuntimeStatus").textContent = line;
+        byId("qbtRuntimeStatus").textContent = trRaw(line);
       } catch (err) {
-        byId("qbtRuntimeStatus").textContent = "状态获取失败：" + err.message;
+        byId("qbtRuntimeStatus").textContent = trRaw("加载失败:") + " " + err.message;
       }
     }
     function switchTab(name){
@@ -3958,7 +4033,7 @@ def build_config_html() -> str:
     });
 
     byId("restartCfgServiceBtn").addEventListener("click", async function(){
-      if (!window.confirm("确认重启服务？端口等变更将在重启后生效。")) return;
+      if (!window.confirm(trRaw("确认重启服务？端口等变更将在重启后生效。"))) return;
       try {
         setStatus("generalStatus", "正在发送重启指令...");
         var d = await apiJson("/api/control/restart", {
@@ -4375,6 +4450,15 @@ def build_config_html() -> str:
 
     var TAB_KEY = "fc-config-tab";
     function byId(id){ return document.getElementById(id); }
+    function trRaw(text){
+      var src = String(text || "");
+      try {
+        if (window.fccI18n && typeof window.fccI18n.translateRaw === "function") {
+          return window.fccI18n.translateRaw(src) || src;
+        }
+      } catch (e) {}
+      return src;
+    }
     function showToast(msg, type){
       var text = String(msg || "").trim();
       if (!text) return;
@@ -4502,7 +4586,7 @@ def build_config_html() -> str:
     }
     if (byId("restartCfgServiceBtn")) {
       byId("restartCfgServiceBtn").addEventListener("click", function(){
-        if (!window.confirm("确认重启服务？端口等变更将在重启后生效。")) return;
+        if (!window.confirm(trRaw("确认重启服务？端口等变更将在重启后生效。"))) return;
         apiJson("/api/control/restart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4532,7 +4616,7 @@ def build_config_html() -> str:
 
 def build_terminal_html() -> str:
     return """<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -4547,7 +4631,7 @@ def build_terminal_html() -> str:
     })();
   </script>
   <link rel="stylesheet" href="/dashboard.css" />
-  <script src="/i18n.js"></script>
+  <script src="/i18n.js?v=20260430d"></script>
   <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
   <style>
     .term-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
@@ -4586,7 +4670,7 @@ def build_terminal_html() -> str:
     <header class="page-head">
       <div class="head-row">
         <div>
-          <a href="/" class="back-link">← 返回中控台</a>
+          <a href="/" class="back-link">← Back to AfterClaw</a>
           <h1>Web Terminal</h1>
           <p class="page-sub">浏览器内 SSH 终端（xterm.js）</p>
         </div>
@@ -4962,6 +5046,17 @@ class AppHandler(BaseHTTPRequestHandler):
     terminal_sessions = {}
     terminal_session_ttl_sec = 30 * 60
     terminal_max_sessions = 6
+
+    @staticmethod
+    def _is_hidden_system_name(name: str) -> bool:
+        n = str(name or "").strip()
+        if not n:
+            return True
+        if n.startswith("."):
+            return True
+        if n.lower() == "__macosx":
+            return True
+        return False
 
     def _dispatch_shareclip_flask(self, parsed, command: str, send_body: bool) -> bool:
         path = parsed.path or "/"
@@ -6784,7 +6879,7 @@ class AppHandler(BaseHTTPRequestHandler):
         for entry in target_dir.iterdir():
             if not entry.is_dir():
                 continue
-            if entry.name.startswith("."):
+            if self._is_hidden_system_name(entry.name):
                 continue
             rel = entry.relative_to(root).as_posix()
             children.append(rel)
@@ -6801,9 +6896,9 @@ class AppHandler(BaseHTTPRequestHandler):
         total_size = 0
 
         for root, dirnames, filenames in os.walk(target_dir):
-            visible_dirs = [d for d in dirnames if not d.startswith(".")]
+            visible_dirs = [d for d in dirnames if not self._is_hidden_system_name(d)]
             dirnames[:] = visible_dirs
-            visible_files = [f for f in filenames if not f.startswith(".")]
+            visible_files = [f for f in filenames if not self._is_hidden_system_name(f)]
             total_dirs += len(visible_dirs)
             total_files += len(visible_files)
             for name in visible_files:
@@ -6879,7 +6974,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if idx >= max_entries:
                     info["truncated"] = True
                     break
-                if entry.name.startswith("."):
+                if self._is_hidden_system_name(entry.name):
                     continue
                 try:
                     is_entry_dir = entry.is_dir()
@@ -7461,8 +7556,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     return
 
                 items = []
-                for root, _, files in os.walk(target_dir):
+                for root, dirnames, files in os.walk(target_dir):
+                    dirnames[:] = [d for d in dirnames if not self._is_hidden_system_name(d)]
                     for filename in files:
+                        if self._is_hidden_system_name(filename):
+                            continue
                         full_path = Path(root) / filename
                         rel_file = full_path.relative_to(http_root).as_posix()
                         file_size = full_path.stat().st_size

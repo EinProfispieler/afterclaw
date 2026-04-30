@@ -6,6 +6,23 @@
   "messages": {
     "lang": {
       "label": "Sprache"
+    },
+    "config": {
+      "title": "Konfiguration",
+      "tab": {
+        "http": "HTTP",
+        "terminal": "Terminal",
+        "ddns": "DDNS",
+        "general": "Allgemein",
+        "qb": "qB"
+      },
+      "subtitle": "Allgemeine Einstellungen (Modulschalter) / HTTP / qB / Terminal / DDNS"
+    },
+    "ddns": {
+      "ip_source": {
+        "multi_url": "Multi-URL-Pruefung",
+        "interface": "Schnittstellen-Pruefung"
+      }
     }
   },
   "raw": {
@@ -93,9 +110,249 @@
     "English": "Englisch",
     "Deutsch": "Deutsch",
     "Français": "Französisch",
-    "日本語": "Japanisch"
+    "日本語": "Japanisch",
+    "控制主页面 ShareClip 标签页显示。": "Steuert die Anzeige des ShareClip-Tabs auf der Startseite.",
+    "重启服务": "Dienst neu starten",
+    "程序端口": "Dienst-Port",
+    "默认 1288。保存 HTTP 配置后需重启程序才会切换监听端口。": "Standard ist 1288. Nach dem Speichern der HTTP-Einstellungen muss der Dienst neu gestartet werden, damit der Portwechsel wirksam wird.",
+    "当前运行端口：1288": "Aktueller Laufzeit-Port: 1288",
+    "确认重启服务？端口等变更将在重启后生效。": "Dienst jetzt neu starten? Port- und ähnliche Änderungen werden nach dem Neustart wirksam.",
+    "正在发送重启指令...": "Neustartbefehl wird gesendet...",
+    "重启任务未入队，请稍后重试。": "Neustartauftrag wurde nicht eingereiht. Bitte später erneut versuchen.",
+    "已发送重启命令，端口等变更将在重启后生效。": "Neustartbefehl gesendet. Port- und ähnliche Änderungen werden nach dem Neustart wirksam.",
+    "未知": "Unbekannt",
+    "确认重启服务？这会中断当前所有上传连接。": "Dienst jetzt neu starten? Dadurch werden alle aktuellen Upload-Verbindungen unterbrochen.",
+    "已发送重启命令，当前上传连接会被中断。": "Neustartbefehl gesendet. Aktuelle Upload-Verbindungen werden unterbrochen.",
+    "已发送重启命令，服务即将重启。": "Neustartbefehl gesendet. Der Dienst wird in Kürze neu gestartet.",
+    "主页面显示 qB 状态卡及 qB 相关控制入口。": "Zeigt die qB-Statuskarte und qB-Steuereingänge auf der Startseite.",
+    "主页面显示 DDNS 状态卡，并保留 Config 内 DDNS 设置入口。": "Zeigt die DDNS-Statuskarte auf der Startseite und behält den DDNS-Einstieg in Konfiguration.",
+    "私钥路径（key 模式）": "Pfad zum privaten Schluessel (Key-Modus)",
+    "未填“配置目录 Key 文件名”时使用此路径。": "Dieser Pfad wird verwendet, wenn 'Key-Dateiname im Konfigurationsverzeichnis' leer ist.",
+    "DDNS 设置": "DDNS-Einstellungen",
+    "总开关": "Hauptschalter",
+    "DNS 服务商": "DNS-Anbieter",
+    "公网地址获取": "Öffentliche IP-Ermittlung",
+    "保存配置": "Konfiguration speichern",
+    "保存中…": "Speichert...",
+    "配置已保存": "Konfiguration gespeichert",
+    "配置已写入。": "Konfiguration geschrieben.",
+    "加载失败:": "Laden fehlgeschlagen:",
+    "请求失败": "Anfrage fehlgeschlagen",
+    "Zone ID（可选）": "Zone-ID (optional)",
+    "Record ID（可选）": "Record-ID (optional)",
+    "API Token（必填）": "API-Token (erforderlich)",
+    "内置 DDNS": "Integriertes DDNS",
+    "ShareClip": "ShareClip",
+    "Per-ID temporary clip sharing in LAN.": "Temporäres Clip-Sharing pro ID im LAN.",
+    "ID": "ID",
+    "Current ID:": "Aktuelle ID:",
+    "Publish": "Veröffentlichen",
+    "Text": "Text",
+    "Image": "Bild",
+    "Send": "Senden",
+    "Read Clipboard": "Zwischenablage lesen",
+    "Latest": "Neueste",
+    "Refresh": "Aktualisieren",
+    "Raw": "Rohdaten",
+    "No content": "Kein Inhalt",
+    "History": "Verlauf",
+    "Refresh History": "Verlauf aktualisieren",
+    "No history yet": "Noch kein Verlauf",
+    "View": "Anzeigen",
+    "Delete": "Löschen",
+    "Delete this record?": "Diesen Eintrag löschen?",
+    "Deleted": "Gelöscht",
+    "Delete failed": "Löschen fehlgeschlagen",
+    "ID saved and switched": "ID gespeichert und gewechselt",
+    "Image captured": "Bild erfasst",
+    "Text captured": "Text erfasst",
+    "Please enter text or paste an image first": "Bitte zuerst Text eingeben oder ein Bild einfügen",
+    "Upload failed": "Upload fehlgeschlagen",
+    "Sent": "Gesendet",
+    "Send failed": "Senden fehlgeschlagen",
+    "Clipboard read failed:": "Zwischenablage-Lesen fehlgeschlagen:",
+    "No usable content in clipboard": "Kein nutzbarer Inhalt in der Zwischenablage",
+    "Clipboard read API is not supported by this browser": "Clipboard-Read-API wird von diesem Browser nicht unterstützt",
+    "ID can only contain letters/numbers/_/- with length 1-64": "ID darf nur Buchstaben/Zahlen/_/- enthalten (Länge 1-64)",
+    "AfterClaw": "Datei-Kontrollzentrum",
+    "Control": "Zentrale",
+    "Directory": "Verzeichnisdienst",
+    "Light Mode": "Heller Modus",
+    "Dark Mode": "Dunkler Modus",
+    "Control Status & Actions": "Status und Aktionen",
+    "Loading system status...": "Systemstatus wird geladen...",
+    "Current HTTP Service": "Aktueller HTTP-Dienst",
+    "Toggle Upload": "Upload umschalten",
+    "Restart Service and Interrupt Upload": "Dienst neu starten und Upload unterbrechen",
+    "Real-time Public Transfer": "Echtzeit-Internet-Transfer",
+    "Speed": "Geschwindigkeit",
+    "Active Connections": "Aktive Verbindungen",
+    "Loading source speeds...": "Quellgeschwindigkeiten werden geladen...",
+    "Current Transfers (HTTP)": "Aktuelle Übertragungen (HTTP)",
+    "Sort": "Sortieren",
+    "Progress": "Fortschritt",
+    "Name": "Name",
+    "Source": "Quelle",
+    "Directory & Batch Links": "Verzeichnis und Batch-Links",
+    "Storage Root": "Speicher-Stammverzeichnis",
+    "Public Base URL": "Öffentliche Basis-URL",
+    "Current Directory": "Aktuelles Verzeichnis",
+    "Jump": "Wechseln",
+    "Up": "Eine Ebene hoch",
+    "Copy Current Folder Name": "Aktuellen Ordnernamen kopieren",
+    "Copy All Links": "Alle Links kopieren",
+    "Subdirectories (click to enter)": "Unterverzeichnisse (klicken zum Öffnen)",
+    "Name Cleanup / Batch Rename": "Namensbereinigung / Massenumbenennung",
+    "Preview": "Vorschau",
+    "Apply Rename by Preview": "Umbenennen gemäß Vorschau",
+    "Batch Text (one HTTP link per line)": "Batch-Text (eine HTTP-URL pro Zeile)",
+    "Open in New Window": "In neuem Fenster öffnen",
+    "General": "Allgemein",
+    "Theme": "Design",
+    "Save General Settings": "Allgemeine Einstellungen speichern",
+    "Theme Background": "Design-Hintergrund",
+    "Default": "Standard",
+    "Aurora": "Aurora",
+    "Sunset": "Sonnenuntergang",
+    "Frost": "Frost",
+    "Cloud Dusk": "Wolkendämmerung",
+    "Custom": "Benutzerdefiniert",
+    "Upload & Apply": "Hochladen und anwenden",
+    "Reset": "Zurücksetzen",
+    "HTTP Settings": "HTTP-Einstellungen",
+    "Validate (Scan)": "Prüfen (Scan)",
+    "Save HTTP Settings": "HTTP-Einstellungen speichern",
+    "qB Settings": "qB-Einstellungen",
+    "qB Monitoring": "qB-Überwachung",
+    "Save qB Settings": "qB-Einstellungen speichern",
+    "One-click Optimize": "Ein-Klick-Optimierung",
+    "Fix qB Monitor Permissions": "qB-Monitor-Berechtigungen reparieren",
+    "Restart qB Service": "qB-Dienst neu starten",
+    "Quit qB": "qB beenden",
+    "Auth Mode": "Authentifizierung",
+    "Connection Preview": "Verbindungsvorschau",
+    "Save Terminal Settings": "Terminal-Einstellungen speichern",
+    "Copy SSH Command": "SSH-Befehl kopieren",
+    "Browser SSH Terminal (xterm.js)": "SSH-Terminal im Browser (xterm.js)",
+    "Target:": "Ziel:",
+    "Loading...": "Lädt...",
+    "Connect": "Verbinden",
+    "Disconnect": "Trennen",
+    "Clear": "Leeren",
+    "Ready": "Bereit",
+    "External terminal link:": "Externer Terminal-Link:",
+    "Module disabled": "Modul deaktiviert",
+    "No active HTTP transfer tasks.": "Derzeit keine aktiven HTTP-Übertragungen.",
+    "Simplified Chinese": "Vereinfachtes Chinesisch",
+    "Traditional Chinese": "Traditionelles Chinesisch",
+    "German": "Deutsch",
+    "French": "Französisch",
+    "Japanese": "Japanisch",
+    "Controls whether the ShareClip tab is shown on the homepage.": "Steuert die Anzeige des ShareClip-Tabs auf der Startseite.",
+    "Restart Service": "Dienst neu starten",
+    "Service Port": "Dienst-Port",
+    "Default is 1288. Restart the service after saving HTTP settings to switch listening port.": "Standard ist 1288. Nach dem Speichern der HTTP-Einstellungen muss der Dienst neu gestartet werden, damit der Portwechsel wirksam wird.",
+    "Current running port: 1288": "Aktueller Laufzeit-Port: 1288",
+    "Restart service now? Port and related changes take effect after restart.": "Dienst jetzt neu starten? Port- und ähnliche Änderungen werden nach dem Neustart wirksam.",
+    "Sending restart command...": "Neustartbefehl wird gesendet...",
+    "Restart task was not queued. Please try again shortly.": "Neustartauftrag wurde nicht eingereiht. Bitte später erneut versuchen.",
+    "Restart command sent. Port and related changes will take effect after restart.": "Neustartbefehl gesendet. Port- und ähnliche Änderungen werden nach dem Neustart wirksam.",
+    "Unknown": "Unbekannt",
+    "Restart service now? This will interrupt all current upload connections.": "Dienst jetzt neu starten? Dadurch werden alle aktuellen Upload-Verbindungen unterbrochen.",
+    "Restart command sent. Current upload connections will be interrupted.": "Neustartbefehl gesendet. Aktuelle Upload-Verbindungen werden unterbrochen.",
+    "Restart command sent. Service will restart shortly.": "Neustartbefehl gesendet. Der Dienst wird in Kürze neu gestartet.",
+    "Shows the qB status card and qB control entry points on the homepage.": "Zeigt die qB-Statuskarte und qB-Steuereingänge auf der Startseite.",
+    "Shows the DDNS status card on the homepage and keeps the DDNS settings entry in Config.": "Zeigt die DDNS-Statuskarte auf der Startseite und behält den DDNS-Einstieg in Konfiguration.",
+    "Private key path (key mode)": "Pfad zum privaten Schluessel (Key-Modus)",
+    "Uses this path when 'Config-dir key filename' is empty.": "Dieser Pfad wird verwendet, wenn 'Key-Dateiname im Konfigurationsverzeichnis' leer ist.",
+    "DDNS Settings": "DDNS-Einstellungen",
+    "Master Switch": "Hauptschalter",
+    "DNS Provider": "DNS-Anbieter",
+    "Public IP Detection": "Öffentliche IP-Ermittlung",
+    "API Token (required)": "API-Token (erforderlich)",
+    "Zone ID (optional)": "Zone-ID (optional)",
+    "Record ID (optional)": "Record-ID (optional)",
+    "Save Configuration": "Konfiguration speichern",
+    "Saving...": "Speichert...",
+    "Configuration saved": "Konfiguration gespeichert",
+    "Configuration written.": "Konfiguration geschrieben.",
+    "Load failed:": "Laden fehlgeschlagen:",
+    "Request failed": "Anfrage fehlgeschlagen",
+    "Built-in DDNS": "Integriertes DDNS",
+    "DDNS Service": "DDNS-Dienst",
+    "Sync now": "Jetzt synchronisieren",
+    "CONFIG": "KONFIG",
+    "Stop": "Stoppen",
+    "Start": "Starten",
+    "Running": "Läuft",
+    "Stopped": "Gestoppt",
+    "General Settings (module toggles) / HTTP / qB / Terminal / DDNS": "Allgemeine Einstellungen (Modulschalter) / HTTP / qB / Terminal / DDNS",
+    "HTTP Module": "HTTP-Modul",
+    "qB Module": "qB-Modul",
+    "DDNS Module": "DDNS-Modul",
+    "ShareClip Module": "ShareClip-Modul",
+    "Built-in DDNS for multiple providers; also supports switching to": "Integriertes DDNS für mehrere Anbieter; unterstützt außerdem den Wechsel zu",
+    "← Back to AfterClaw": "← Zurück zu AfterClaw",
+    "General Settings (Module Toggles)": "Allgemeine Einstellungen (Modulschalter)",
+    "Controls the homepage 'Current HTTP Service' card and HTTP monitoring area. Disabling it forcibly interrupts one connection and turns uploads off.": "Steuert die Karte 'Aktueller HTTP-Dienst' und den HTTP-Monitorbereich auf der Startseite. Beim Deaktivieren wird eine Verbindung zwangsweise getrennt und Uploads werden ausgeschaltet.",
+    "Set the homepage header background here. No theme panel stays on homepage.": "Hier legst du den Hintergrund des Startseiten-Headers fest. Auf der Startseite bleibt kein Theme-Panel dauerhaft sichtbar.",
+    "Current Background: Default": "Aktueller Hintergrund: Standard",
+    "Supports PNG/JPG/WEBP/GIF/AVIF, max 12MB.": "Unterstützt PNG/JPG/WEBP/GIF/AVIF, max. 12MB.",
+    "Restart": "Neustart",
+    "hows the qB status card and qB control entry points on the homepage.": "Zeigt die qB-Statuskarte und qB-Steuereingänge auf der Startseite.",
+    "Current HTTP Root:": "Aktuelles HTTP-Root:",
+    "HTTP Root Directory (any path under /)": "HTTP-Root-Verzeichnis (beliebiger Pfad unter /)",
+    "Enter an absolute path, for example:": "Geben Sie einen absoluten Pfad ein, zum Beispiel:",
+    "Default Directory (relative to HTTP root)": "Standardverzeichnis (relativ zum HTTP-Root)",
+    "The homepage Directory tab opens this directory by default.": "Der Verzeichnis-Tab auf der Startseite öffnet dieses Verzeichnis standardmäßig.",
+    "Source IP Pools (1288 training)": "Quell-IP-Pools (1288-Training)",
+    "Maintain source pools as one IP/CIDR per line. Matched IPs take precedence over UA/Referer keywords.": "Verwalten Sie Quellpools als eine IP/CIDR pro Zeile. Treffer haben Vorrang vor UA/Referer-Schlüsselwörtern.",
+    "Updatable source (GitHub/URL)": "Aktualisierbare Quelle (GitHub/URL)",
+    "Directory Browser (target server)": "Verzeichnisbrowser (Zielserver)",
+    "Click a subdirectory below to set it as default quickly.": "Klicken Sie unten auf ein Unterverzeichnis, um es schnell als Standard zu setzen.",
+    "Current source:": "Aktuelle Quelle:",
+    "Supports ": "Unterstützt ",
+    ", for example: ": ", zum Beispiel: ",
+    "Click a subdirectory below to set it as default quickly.Supports github:owner/repo/path, for example: github:EinProfispieler/afterclaw/data/vendor-ip-pools。": "Klicken Sie unten auf ein Unterverzeichnis, um es schnell als Standard zu setzen. Unterstützt github:owner/repo/path, zum Beispiel: github:EinProfispieler/afterclaw/data/vendor-ip-pools.",
+    "启用主页 Terminal 图标": "Terminal-Symbol auf der Startseite anzeigen",
+    "配置目录 Key 文件名（可选）": "Key-Dateiname im Konfigurationsverzeichnis (optional)",
+    "配置目录：": "Konfigurationsverzeichnis:",
+    "选择并上传 key": "Key auswaehlen und hochladen",
+    "刷新 key 列表": "Key-Liste aktualisieren",
+    "可从当前设备选择私钥文件并上传到配置目录。": "Sie koennen eine private Schluesseldatei von diesem Geraet auswaehlen und in das Konfigurationsverzeichnis hochladen.",
+    "网页终端入口：": "Web-Terminal-Einstieg:",
+    "打开 /terminal": "/terminal oeffnen",
+    "推荐使用 key 模式；确保目标主机已授权你的公钥。": "Key-Modus wird empfohlen. Stellen Sie sicher, dass der Zielhost Ihren oeffentlichen Schluessel autorisiert hat.",
+    "使用配置目录 key：": "Konfigurationsverzeichnis-Key verwenden:",
+    "密码模式不会保存密码，点击后在终端中手工输入。": "Im Passwortmodus wird kein Passwort gespeichert. Bitte nach dem Klicken im Terminal manuell eingeben.",
+    "请先填写 Host/User 等连接信息": "Bitte zuerst Host/User und andere Verbindungsinformationen ausfuellen.",
+    "启用 Terminal 时 Host 不能为空": "Wenn Terminal aktiviert ist, darf Host nicht leer sein.",
+    "Terminal 配置已保存": "Terminal-Einstellungen gespeichert",
+    "SSH 命令已复制": "SSH-Befehl kopiert",
+    "复制失败，请手工复制预览命令": "Kopieren fehlgeschlagen, bitte den Vorschau-Befehl manuell kopieren",
+    "正在上传 key 文件...": "Key-Datei wird hochgeladen...",
+    "key 文件已上传：": "Key-Datei hochgeladen:",
+    "key 文件过大（最大 1MB）": "Key-Datei zu gross (maximal 1MB)",
+    "无法读取 key 文件名": "Key-Dateiname kann nicht gelesen werden",
+    "key 列表已刷新": "Key-Liste aktualisiert",
+    "Enable Terminal icon on homepage": "Terminal-Symbol auf der Startseite anzeigen",
+    "Config-dir key filename (optional)": "Key-Dateiname im Konfigurationsverzeichnis (optional)",
+    "Config directory:": "Konfigurationsverzeichnis:",
+    "Select and Upload key": "Key auswaehlen und hochladen",
+    "Refresh key list": "Key-Liste aktualisieren",
+    "You can select a private key file from this device and upload it to the config directory.": "Sie koennen eine private Schluesseldatei von diesem Geraet auswaehlen und in das Konfigurationsverzeichnis hochladen.",
+    "Web terminal entry:": "Web-Terminal-Einstieg:",
+    "Open /terminal": "/terminal oeffnen",
+    "key（推荐）": "key (empfohlen)",
+    "password（不保存密码）": "password (nicht gespeichert)",
+    "key (recommended)": "key (empfohlen)",
+    "password (not stored)": "password (nicht gespeichert)"
   },
   "patterns": [
+    {
+      "re": "^文件 ([0-9]+) · 目录 ([0-9]+) · 大小 (.+)$",
+      "to": "Dateien $1 · Ordner $2 · Größe $3"
+    },
     {
       "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
       "to": "Aktiv $1 · Kürzlich abgeschlossen $2 · Gesamtfortschritt $3%"
@@ -171,6 +428,154 @@
     {
       "re": "^综合配置已保存：(.*)$",
       "to": "Allgemeine Einstellungen gespeichert: $1"
+    },
+    {
+      "re": "^CPU负载\\(1m\\):\\s*([0-9.]+)$",
+      "to": "CPU-Last (1m): $1"
+    },
+    {
+      "re": "^内存: (.+) \\| 磁盘: (.+) \\| 运行: (.+)$",
+      "to": "Speicher: $1 | Festplatte: $2 | Laufzeit: $3"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "Läuft | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Aktiv $6 · Gesamt $7 · Verbindungen $8 · DHT $9"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "Läuft | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Aktiv $6 · Gesamt $7 · Verbindungen $8"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "Gestoppt | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Aktiv $6 · Gesamt $7 · Verbindungen $8 · DHT $9"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "Gestoppt | $1 | ↓ $2 · ↑ $3 | Seeding $4 · Downloading $5 · Aktiv $6 · Gesamt $7 · Verbindungen $8"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "Läuft | Integriertes DDNS | $1 · v4 $2 / v6 $3 ($4s her)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "Läuft | Integriertes DDNS | $1 · v4 $2 ($3s her)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+)$",
+      "to": "Läuft | Integriertes DDNS | $1"
+    },
+    {
+      "re": "^未运行 \\| 内置 DDNS \\| (.+)$",
+      "to": "Gestoppt | Integriertes DDNS | $1"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 / v6 $3 ($4s her)"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 ($3s her)"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+)（已截断） \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "Pfad: $1 | Berechtigungen($2) | Unterverzeichnisse $3 · Dateien $4 (gekürzt) | Verfügbar $5 / Gesamt $6 | Beispiel-Unterverzeichnisse: $7"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+) \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "Pfad: $1 | Berechtigungen($2) | Unterverzeichnisse $3 · Dateien $4 | Verfügbar $5 / Gesamt $6 | Beispiel-Unterverzeichnisse: $7"
+    },
+    {
+      "re": "^运行中 \\| (.+)$",
+      "to": "Läuft | $1"
+    },
+    {
+      "re": "^未运行 \\| (.+)$",
+      "to": "Gestoppt | $1"
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 当前保存值与运行端口一致。$",
+      "to": "Aktueller Laufzeit-Port: $1. Der gespeicherte Wert stimmt mit dem laufenden Port überein."
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 保存后需重启程序，重启后切换到：([0-9]+)。$",
+      "to": "Aktueller Laufzeit-Port: $1. Nach dem Speichern und Neustart wird auf $2 gewechselt."
+    },
+    {
+      "re": "^HTTP 配置已保存\\s+程序端口将在重启后切换为\\s*([0-9]+)。$",
+      "to": "HTTP-Einstellungen gespeichert. Der Dienst-Port wechselt nach Neustart auf $1."
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | Seeding $3 · Downloading $4 · Aktiv $5 · Gesamt $6 · Verbindungen $7 · DHT $8"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | Seeding $3 · Downloading $4 · Aktiv $5 · Gesamt $6 · Verbindungen $7"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | Seeding $3 · Downloading $4 · Aktiv $5 · Gesamt $6"
+    },
+    {
+      "re": "^Total\\s*([0-9]+)\\s*items$",
+      "to": "$1 Einträge"
+    },
+    {
+      "re": "^Delete failed:\\s*(.+)$",
+      "to": "Löschen fehlgeschlagen: $1"
+    },
+    {
+      "re": "^Send failed:\\s*(.+)$",
+      "to": "Senden fehlgeschlagen: $1"
+    },
+    {
+      "re": "^Clipboard read failed:\\s*(.+)$",
+      "to": "Zwischenablage-Lesen fehlgeschlagen: $1"
+    },
+    {
+      "re": "^Files ([0-9]+) · Dirs ([0-9]+) · Size (.+)$",
+      "to": "Dateien $1 · Ordner $2 · Größe $3"
+    },
+    {
+      "re": "^Path: ([^|]+) \\| Permissions\\(([^)]+)\\) \\| Subdirs ([0-9]+) · Files ([0-9]+) \\(truncated\\) \\| Available ([^|]+) / Total ([^|]+) \\| Sample subdirs: (.+)$",
+      "to": "Pfad: $1 | Berechtigungen($2) | Unterordner $3 · Dateien $4 (gekürzt) | Frei $5 / Gesamt $6 | Beispiel-Unterordner: $7"
+    },
+    {
+      "re": "^Path: ([^|]+) \\| Permissions\\(([^)]+)\\) \\| Subdirs ([0-9]+) · Files ([0-9]+) \\| Available ([^|]+) / Total ([^|]+) \\| Sample subdirs: (.+)$",
+      "to": "Pfad: $1 | Berechtigungen($2) | Unterordner $3 · Dateien $4 | Frei $5 / Gesamt $6 | Beispiel-Unterordner: $7"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+) · v4 (.+) / v6 (.+) \\(([0-9]+)s ago\\)$",
+      "to": "Läuft | Integriertes DDNS | $1 · v4 $2 / v6 $3 ($4s zuvor)"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+) · v4 (.+) \\(([0-9]+)s ago\\)$",
+      "to": "Läuft | Integriertes DDNS | $1 · v4 $2 ($3s zuvor)"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+)$",
+      "to": "Läuft | Integriertes DDNS | $1"
+    },
+    {
+      "re": "^Stopped \\| Built-in DDNS \\| (.+)$",
+      "to": "Gestoppt | Integriertes DDNS | $1"
+    },
+    {
+      "re": "^Running \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| Seeding ([0-9]+) · Downloading ([0-9]+) · Active ([0-9]+) · Total ([0-9]+) · Connections ([0-9]+) · DHT ([0-9]+)$",
+      "to": "Läuft | $1 | ↓ $2 · ↑ $3 | Seeder $4 · Downloads $5 · Aktiv $6 · Gesamt $7 · Verbindungen $8 · DHT $9"
+    },
+    {
+      "re": "^Running \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| Seeding ([0-9]+) · Downloading ([0-9]+) · Active ([0-9]+) · Total ([0-9]+) · Connections ([0-9]+)$",
+      "to": "Läuft | $1 | ↓ $2 · ↑ $3 | Seeder $4 · Downloads $5 · Aktiv $6 · Gesamt $7 · Verbindungen $8"
+    },
+    {
+      "re": "^Current source:\\s*(.+)$",
+      "to": "Aktuelle Quelle: $1"
+    },
+    {
+      "re": "^当前来源：\\s*(.+)$",
+      "to": "Aktuelle Quelle: $1"
     }
   ]
 }

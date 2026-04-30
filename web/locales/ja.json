@@ -6,6 +6,23 @@
   "messages": {
     "lang": {
       "label": "言語"
+    },
+    "config": {
+      "title": "設定",
+      "tab": {
+        "http": "HTTP",
+        "terminal": "ターミナル",
+        "ddns": "DDNS",
+        "general": "総合",
+        "qb": "qB"
+      },
+      "subtitle": "総合設定（モジュール切替）/ HTTP / qB / Terminal / DDNS"
+    },
+    "ddns": {
+      "ip_source": {
+        "multi_url": "複数 URL 検出",
+        "interface": "インターフェース検出"
+      }
     }
   },
   "raw": {
@@ -71,7 +88,7 @@
     "修复 qB 监控权限": "qB監視権限を修復",
     "qB 服务重启": "qB サービス再起動",
     "qB 退出": "qB 終了",
-    "Terminal / SSH": "Terminal / SSH",
+    "Terminal / SSH": "ターミナル / SSH",
     "认证方式": "認証方式",
     "连接预览": "接続プレビュー",
     "保存 Terminal 配置": "Terminal 設定を保存",
@@ -93,9 +110,249 @@
     "English": "英語",
     "Deutsch": "ドイツ語",
     "Français": "フランス語",
-    "日本語": "日本語"
+    "日本語": "日本語",
+    "控制主页面 ShareClip 标签页显示。": "ホーム画面の ShareClip タブ表示を制御します。",
+    "重启服务": "サービス再起動",
+    "程序端口": "サービスポート",
+    "默认 1288。保存 HTTP 配置后需重启程序才会切换监听端口。": "既定は 1288。HTTP 設定保存後、ポート切替にはサービス再起動が必要です。",
+    "当前运行端口：1288": "現在の稼働ポート: 1288",
+    "确认重启服务？端口等变更将在重启后生效。": "サービスを再起動しますか？ポートなどの変更は再起動後に有効になります。",
+    "正在发送重启指令...": "再起動コマンド送信中...",
+    "重启任务未入队，请稍后重试。": "再起動タスクをキューに入れられませんでした。しばらくして再試行してください。",
+    "已发送重启命令，端口等变更将在重启后生效。": "再起動コマンドを送信しました。ポートなどの変更は再起動後に有効になります。",
+    "未知": "不明",
+    "确认重启服务？这会中断当前所有上传连接。": "サービスを再起動しますか？現在のアップロード接続はすべて中断されます。",
+    "已发送重启命令，当前上传连接会被中断。": "再起動コマンドを送信しました。現在のアップロード接続は中断されます。",
+    "已发送重启命令，服务即将重启。": "再起動コマンドを送信しました。サービスはまもなく再起動します。",
+    "主页面显示 qB 状态卡及 qB 相关控制入口。": "ホームページに qB 状態カードと qB 制御入口を表示します。",
+    "主页面显示 DDNS 状态卡，并保留 Config 内 DDNS 设置入口。": "ホームページに DDNS 状態カードを表示し、Config 内の DDNS 設定入口を保持します。",
+    "私钥路径（key 模式）": "秘密鍵パス（key モード）",
+    "未填“配置目录 Key 文件名”时使用此路径。": "「設定ディレクトリ key ファイル名」が未入力のときにこのパスを使用します。",
+    "DDNS 设置": "DDNS 設定",
+    "总开关": "マスター切替",
+    "DNS 服务商": "DNS プロバイダ",
+    "公网地址获取": "公開 IP 検出",
+    "保存配置": "設定を保存",
+    "保存中…": "保存中...",
+    "配置已保存": "設定を保存しました",
+    "配置已写入。": "設定を書き込みました。",
+    "加载失败:": "読み込み失敗:",
+    "请求失败": "リクエスト失敗",
+    "Zone ID（可选）": "Zone ID（任意）",
+    "Record ID（可选）": "Record ID（任意）",
+    "API Token（必填）": "APIトークン（必須）",
+    "内置 DDNS": "内蔵DDNS",
+    "ShareClip": "ShareClip",
+    "Per-ID temporary clip sharing in LAN.": "LAN 内で ID ごとに一時共有するクリップです。",
+    "ID": "ID",
+    "Current ID:": "現在の ID：",
+    "Publish": "公開",
+    "Text": "テキスト",
+    "Image": "画像",
+    "Send": "送信",
+    "Read Clipboard": "クリップボードを読み取る",
+    "Latest": "最新",
+    "Refresh": "更新",
+    "Raw": "生データ",
+    "No content": "内容なし",
+    "History": "履歴",
+    "Refresh History": "履歴を更新",
+    "No history yet": "履歴はまだありません",
+    "View": "表示",
+    "Delete": "削除",
+    "Delete this record?": "この記録を削除しますか？",
+    "Deleted": "削除済み",
+    "Delete failed": "削除に失敗しました",
+    "ID saved and switched": "ID を保存して切り替えました",
+    "Image captured": "画像を取得しました",
+    "Text captured": "テキストを取得しました",
+    "Please enter text or paste an image first": "先にテキスト入力または画像貼り付けをしてください",
+    "Upload failed": "アップロード失敗",
+    "Sent": "送信済み",
+    "Send failed": "送信失敗",
+    "Clipboard read failed:": "クリップボード読み取り失敗：",
+    "No usable content in clipboard": "クリップボードに利用可能な内容がありません",
+    "Clipboard read API is not supported by this browser": "このブラウザはクリップボード読み取り API をサポートしていません",
+    "ID can only contain letters/numbers/_/- with length 1-64": "ID は英数字/_/- のみ、長さは 1-64 です",
+    "AfterClaw": "ファイルコントロールセンター",
+    "Control": "コントロール",
+    "Directory": "ディレクトリサービス",
+    "Light Mode": "ライトモード",
+    "Dark Mode": "ダークモード",
+    "Control Status & Actions": "状態と操作",
+    "Loading system status...": "システム状態を読み込み中...",
+    "Current HTTP Service": "現在の HTTP サービス",
+    "Toggle Upload": "アップロード切替",
+    "Restart Service and Interrupt Upload": "サービス再起動してアップロードを中断",
+    "Real-time Public Transfer": "リアルタイム外部転送",
+    "Speed": "速度",
+    "Active Connections": "アクティブ接続",
+    "Loading source speeds...": "ソース速度を読み込み中...",
+    "Current Transfers (HTTP)": "現在の転送（HTTP）",
+    "Sort": "並び替え",
+    "Progress": "進捗",
+    "Name": "名前",
+    "Source": "ソース",
+    "Directory & Batch Links": "ディレクトリと一括リンク",
+    "Storage Root": "ストレージルート",
+    "Public Base URL": "公開アクセスURL",
+    "Current Directory": "現在のディレクトリ",
+    "Jump": "移動",
+    "Up": "上へ",
+    "Copy Current Folder Name": "現在のフォルダ名をコピー",
+    "Copy All Links": "すべてのリンクをコピー",
+    "Subdirectories (click to enter)": "サブディレクトリ（クリックで移動）",
+    "Name Cleanup / Batch Rename": "名前クリーンアップ / 一括リネーム",
+    "Preview": "プレビュー",
+    "Apply Rename by Preview": "プレビュー内容で実行",
+    "Batch Text (one HTTP link per line)": "一括テキスト（1行1リンク）",
+    "Open in New Window": "新しいウィンドウで開く",
+    "General": "総合設定",
+    "Theme": "テーマ",
+    "Save General Settings": "総合設定を保存",
+    "Theme Background": "テーマ背景",
+    "Default": "デフォルト",
+    "Aurora": "オーロラ",
+    "Sunset": "夕焼け",
+    "Frost": "フロスト",
+    "Cloud Dusk": "雲海の夕暮れ",
+    "Custom": "カスタム",
+    "Upload & Apply": "アップロードして適用",
+    "Reset": "初期化",
+    "HTTP Settings": "HTTP 設定",
+    "Validate (Scan)": "検証（スキャン）",
+    "Save HTTP Settings": "HTTP 設定を保存",
+    "qB Settings": "qB 設定",
+    "qB Monitoring": "qB 監視",
+    "Save qB Settings": "qB 設定を保存",
+    "One-click Optimize": "ワンクリック最適化",
+    "Fix qB Monitor Permissions": "qB監視権限を修復",
+    "Restart qB Service": "qB サービス再起動",
+    "Quit qB": "qB 終了",
+    "Auth Mode": "認証方式",
+    "Connection Preview": "接続プレビュー",
+    "Save Terminal Settings": "Terminal 設定を保存",
+    "Copy SSH Command": "SSH コマンドをコピー",
+    "Browser SSH Terminal (xterm.js)": "ブラウザ内 SSH ターミナル（xterm.js）",
+    "Target:": "接続先：",
+    "Loading...": "読み込み中...",
+    "Connect": "接続",
+    "Disconnect": "切断",
+    "Clear": "クリア",
+    "Ready": "準備完了",
+    "External terminal link:": "外部ターミナル直リンク：",
+    "Module disabled": "モジュールは無効です",
+    "No active HTTP transfer tasks.": "アクティブな HTTP 転送はありません。",
+    "Simplified Chinese": "簡体字中国語",
+    "Traditional Chinese": "繁体字中国語",
+    "German": "ドイツ語",
+    "French": "フランス語",
+    "Japanese": "日本語",
+    "Controls whether the ShareClip tab is shown on the homepage.": "ホーム画面の ShareClip タブ表示を制御します。",
+    "Restart Service": "サービス再起動",
+    "Service Port": "サービスポート",
+    "Default is 1288. Restart the service after saving HTTP settings to switch listening port.": "既定は 1288。HTTP 設定保存後、ポート切替にはサービス再起動が必要です。",
+    "Current running port: 1288": "現在の稼働ポート: 1288",
+    "Restart service now? Port and related changes take effect after restart.": "サービスを再起動しますか？ポートなどの変更は再起動後に有効になります。",
+    "Sending restart command...": "再起動コマンド送信中...",
+    "Restart task was not queued. Please try again shortly.": "再起動タスクをキューに入れられませんでした。しばらくして再試行してください。",
+    "Restart command sent. Port and related changes will take effect after restart.": "再起動コマンドを送信しました。ポートなどの変更は再起動後に有効になります。",
+    "Unknown": "不明",
+    "Restart service now? This will interrupt all current upload connections.": "サービスを再起動しますか？現在のアップロード接続はすべて中断されます。",
+    "Restart command sent. Current upload connections will be interrupted.": "再起動コマンドを送信しました。現在のアップロード接続は中断されます。",
+    "Restart command sent. Service will restart shortly.": "再起動コマンドを送信しました。サービスはまもなく再起動します。",
+    "Shows the qB status card and qB control entry points on the homepage.": "ホームページに qB 状態カードと qB 制御入口を表示します。",
+    "Shows the DDNS status card on the homepage and keeps the DDNS settings entry in Config.": "ホームページに DDNS 状態カードを表示し、Config 内の DDNS 設定入口を保持します。",
+    "Private key path (key mode)": "秘密鍵パス（key モード）",
+    "Uses this path when 'Config-dir key filename' is empty.": "「設定ディレクトリ key ファイル名」が未入力のときにこのパスを使用します。",
+    "DDNS Settings": "DDNS 設定",
+    "Master Switch": "マスター切替",
+    "DNS Provider": "DNS プロバイダ",
+    "Public IP Detection": "公開 IP 検出",
+    "API Token (required)": "APIトークン（必須）",
+    "Zone ID (optional)": "Zone ID（任意）",
+    "Record ID (optional)": "Record ID（任意）",
+    "Save Configuration": "設定を保存",
+    "Saving...": "保存中...",
+    "Configuration saved": "設定を保存しました",
+    "Configuration written.": "設定を書き込みました。",
+    "Load failed:": "読み込み失敗:",
+    "Request failed": "リクエスト失敗",
+    "Built-in DDNS": "内蔵DDNS",
+    "DDNS Service": "DDNS サービス",
+    "Sync now": "今すぐ同期",
+    "CONFIG": "設定",
+    "Stop": "停止",
+    "Start": "起動",
+    "Running": "実行中",
+    "Stopped": "停止中",
+    "General Settings (module toggles) / HTTP / qB / Terminal / DDNS": "総合設定（モジュール切替）/ HTTP / qB / Terminal / DDNS",
+    "HTTP Module": "HTTP モジュール",
+    "qB Module": "qB モジュール",
+    "DDNS Module": "DDNS モジュール",
+    "ShareClip Module": "ShareClip モジュール",
+    "Built-in DDNS for multiple providers; also supports switching to": "複数プロバイダー対応の内蔵 DDNS。次への切替にも対応：",
+    "← Back to AfterClaw": "← AfterClaw に戻る",
+    "General Settings (Module Toggles)": "総合設定（モジュール切替）",
+    "Controls the homepage 'Current HTTP Service' card and HTTP monitoring area. Disabling it forcibly interrupts one connection and turns uploads off.": "ホームページの「現在の HTTP サービス」カードと HTTP 監視エリアを制御します。無効化すると1つの接続を強制切断し、アップロードを停止します。",
+    "Set the homepage header background here. No theme panel stays on homepage.": "ここでホームページのヘッダー背景を設定します。ホームページにテーマパネルは常時表示されません。",
+    "Current Background: Default": "現在の背景: デフォルト",
+    "Supports PNG/JPG/WEBP/GIF/AVIF, max 12MB.": "PNG/JPG/WEBP/GIF/AVIF をサポート、最大 12MB。",
+    "Restart": "再起動",
+    "hows the qB status card and qB control entry points on the homepage.": "ホームページに qB 状態カードと qB 制御入口を表示します。",
+    "Current HTTP Root:": "現在の HTTP ルート：",
+    "HTTP Root Directory (any path under /)": "HTTP ルートディレクトリ（/ 配下の任意パス）",
+    "Enter an absolute path, for example:": "絶対パスを入力してください。例：",
+    "Default Directory (relative to HTTP root)": "既定ディレクトリ（HTTP ルートからの相対パス）",
+    "The homepage Directory tab opens this directory by default.": "ホームページの Directory タブはこのディレクトリを既定で開きます。",
+    "Source IP Pools (1288 training)": "ソース IP プール（1288 トレーニング）",
+    "Maintain source pools as one IP/CIDR per line. Matched IPs take precedence over UA/Referer keywords.": "ソースプールは 1 行 1 IP/CIDR で管理します。一致した IP は UA/Referer キーワードより優先されます。",
+    "Updatable source (GitHub/URL)": "更新可能ソース（GitHub/URL）",
+    "Directory Browser (target server)": "ディレクトリブラウザ（対象サーバー）",
+    "Click a subdirectory below to set it as default quickly.": "下のサブディレクトリをクリックすると、すばやく既定に設定できます。",
+    "Current source:": "現在のソース：",
+    "Supports ": "対応：",
+    ", for example: ": "（例：",
+    "Click a subdirectory below to set it as default quickly.Supports github:owner/repo/path, for example: github:EinProfispieler/afterclaw/data/vendor-ip-pools。": "下のサブディレクトリをクリックすると、すばやく既定に設定できます。github:owner/repo/path に対応（例：github:EinProfispieler/afterclaw/data/vendor-ip-pools）。",
+    "启用主页 Terminal 图标": "ホームページに Terminal アイコンを表示",
+    "配置目录 Key 文件名（可选）": "設定ディレクトリの key ファイル名（任意）",
+    "配置目录：": "設定ディレクトリ：",
+    "选择并上传 key": "key を選択してアップロード",
+    "刷新 key 列表": "key リストを更新",
+    "可从当前设备选择私钥文件并上传到配置目录。": "この端末から秘密鍵ファイルを選択し、設定ディレクトリへアップロードできます。",
+    "网页终端入口：": "Web ターミナル入口：",
+    "打开 /terminal": "/terminal を開く",
+    "推荐使用 key 模式；确保目标主机已授权你的公钥。": "key モードを推奨します。対象ホストで公開鍵が許可されていることを確認してください。",
+    "使用配置目录 key：": "設定ディレクトリ key を使用：",
+    "密码模式不会保存密码，点击后在终端中手工输入。": "パスワードモードではパスワードを保存しません。クリック後にターミナルで手動入力してください。",
+    "请先填写 Host/User 等连接信息": "先に Host/User などの接続情報を入力してください。",
+    "启用 Terminal 时 Host 不能为空": "Terminal を有効にする場合、Host は必須です。",
+    "Terminal 配置已保存": "Terminal 設定を保存しました",
+    "SSH 命令已复制": "SSH コマンドをコピーしました",
+    "复制失败，请手工复制预览命令": "コピーに失敗しました。プレビューコマンドを手動でコピーしてください。",
+    "正在上传 key 文件...": "key ファイルをアップロード中...",
+    "key 文件已上传：": "key ファイルをアップロードしました：",
+    "key 文件过大（最大 1MB）": "key ファイルが大きすぎます（最大 1MB）",
+    "无法读取 key 文件名": "key ファイル名を読み取れません",
+    "key 列表已刷新": "key リストを更新しました",
+    "Enable Terminal icon on homepage": "ホームページに Terminal アイコンを表示",
+    "Config-dir key filename (optional)": "設定ディレクトリの key ファイル名（任意）",
+    "Config directory:": "設定ディレクトリ：",
+    "Select and Upload key": "key を選択してアップロード",
+    "Refresh key list": "key リストを更新",
+    "You can select a private key file from this device and upload it to the config directory.": "この端末から秘密鍵ファイルを選択し、設定ディレクトリへアップロードできます。",
+    "Web terminal entry:": "Web ターミナル入口：",
+    "Open /terminal": "/terminal を開く",
+    "key（推荐）": "key（推奨）",
+    "password（不保存密码）": "password（保存しない）",
+    "key (recommended)": "key（推奨）",
+    "password (not stored)": "password（保存しない）"
   },
   "patterns": [
+    {
+      "re": "^文件 ([0-9]+) · 目录 ([0-9]+) · 大小 (.+)$",
+      "to": "ファイル $1 · ディレクトリ $2 · サイズ $3"
+    },
     {
       "re": "^活跃 (\\d+) 个 · 最近完成 (\\d+) 个 · 总完成度 ([0-9.]+)%$",
       "to": "アクティブ $1 ・ 最近完了 $2 ・ 全体進捗 $3%"
@@ -171,6 +428,154 @@
     {
       "re": "^综合配置已保存：(.*)$",
       "to": "総合設定を保存しました: $1"
+    },
+    {
+      "re": "^CPU负载\\(1m\\):\\s*([0-9.]+)$",
+      "to": "CPU負荷 (1m): $1"
+    },
+    {
+      "re": "^内存: (.+) \\| 磁盘: (.+) \\| 运行: (.+)$",
+      "to": "メモリ: $1 | ディスク: $2 | 稼働時間: $3"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "稼働中 | $1 | ↓ $2 · ↑ $3 | シード $4 · ダウンロード $5 · 稼働 $6 · 合計 $7 · 接続 $8 · DHT $9"
+    },
+    {
+      "re": "^运行中 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "稼働中 | $1 | ↓ $2 · ↑ $3 | シード $4 · ダウンロード $5 · 稼働 $6 · 合計 $7 · 接続 $8"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "停止中 | $1 | ↓ $2 · ↑ $3 | シード $4 · ダウンロード $5 · 稼働 $6 · 合計 $7 · 接続 $8 · DHT $9"
+    },
+    {
+      "re": "^未运行 \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "停止中 | $1 | ↓ $2 · ↑ $3 | シード $4 · ダウンロード $5 · 稼働 $6 · 合計 $7 · 接続 $8"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "稼働中 | 内蔵DDNS | $1 · v4 $2 / v6 $3 ($4秒前)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "稼働中 | 内蔵DDNS | $1 · v4 $2 ($3秒前)"
+    },
+    {
+      "re": "^运行中 \\| 内置 DDNS \\| (.+)$",
+      "to": "稼働中 | 内蔵DDNS | $1"
+    },
+    {
+      "re": "^未运行 \\| 内置 DDNS \\| (.+)$",
+      "to": "停止中 | 内蔵DDNS | $1"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+) / v6 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 / v6 $3 ($4秒前)"
+    },
+    {
+      "re": "^([A-Za-z0-9._-]+) · v4 (.+)（([0-9]+)s 前）$",
+      "to": "$1 · v4 $2 ($3秒前)"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+)（已截断） \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "パス: $1 | 権限($2) | サブディレクトリ $3 · ファイル $4 (省略) | 使用可能 $5 / 合計 $6 | サンプル サブディレクトリ: $7"
+    },
+    {
+      "re": "^路径：([^|]+) \\| 权限\\(([^)]+)\\) \\| 子目录 ([0-9]+) · 文件 ([0-9]+) \\| 可用 ([^|]+) / 总 ([^|]+) \\| 示例子目录：(.+)$",
+      "to": "パス: $1 | 権限($2) | サブディレクトリ $3 · ファイル $4 | 使用可能 $5 / 合計 $6 | サンプル サブディレクトリ: $7"
+    },
+    {
+      "re": "^运行中 \\| (.+)$",
+      "to": "稼働中 | $1"
+    },
+    {
+      "re": "^未运行 \\| (.+)$",
+      "to": "停止中 | $1"
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 当前保存值与运行端口一致。$",
+      "to": "現在の稼働ポート: $1。保存値は稼働ポートと一致しています。"
+    },
+    {
+      "re": "^当前运行端口：([0-9]+)。 保存后需重启程序，重启后切换到：([0-9]+)。$",
+      "to": "現在の稼働ポート: $1。保存後に再起動すると $2 に切り替わります。"
+    },
+    {
+      "re": "^HTTP 配置已保存\\s+程序端口将在重启后切换为\\s*([0-9]+)。$",
+      "to": "HTTP 設定を保存しました。サービスポートは再起動後に $1 へ切り替わります。"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+) · DHT ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | シード $3 · ダウンロード $4 · 稼働 $5 · 合計 $6 · 接続 $7 · DHT $8"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+) · 连接 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | シード $3 · ダウンロード $4 · 稼働 $5 · 合計 $6 · 接続 $7"
+    },
+    {
+      "re": "^↓ (.+) · ↑ (.+) \\| 做种 ([0-9]+) · 下载 ([0-9]+) · 活跃 ([0-9]+) · 总计 ([0-9]+)$",
+      "to": "↓ $1 · ↑ $2 | シード $3 · ダウンロード $4 · 稼働 $5 · 合計 $6"
+    },
+    {
+      "re": "^Total\\s*([0-9]+)\\s*items$",
+      "to": "合計 $1 件"
+    },
+    {
+      "re": "^Delete failed:\\s*(.+)$",
+      "to": "削除に失敗しました: $1"
+    },
+    {
+      "re": "^Send failed:\\s*(.+)$",
+      "to": "送信失敗: $1"
+    },
+    {
+      "re": "^Clipboard read failed:\\s*(.+)$",
+      "to": "クリップボード読み取り失敗: $1"
+    },
+    {
+      "re": "^Files ([0-9]+) · Dirs ([0-9]+) · Size (.+)$",
+      "to": "ファイル $1 · ディレクトリ $2 · サイズ $3"
+    },
+    {
+      "re": "^Path: ([^|]+) \\| Permissions\\(([^)]+)\\) \\| Subdirs ([0-9]+) · Files ([0-9]+) \\(truncated\\) \\| Available ([^|]+) / Total ([^|]+) \\| Sample subdirs: (.+)$",
+      "to": "パス: $1 | 権限($2) | サブディレクトリ $3 · ファイル $4（省略） | 空き $5 / 合計 $6 | 例: $7"
+    },
+    {
+      "re": "^Path: ([^|]+) \\| Permissions\\(([^)]+)\\) \\| Subdirs ([0-9]+) · Files ([0-9]+) \\| Available ([^|]+) / Total ([^|]+) \\| Sample subdirs: (.+)$",
+      "to": "パス: $1 | 権限($2) | サブディレクトリ $3 · ファイル $4 | 空き $5 / 合計 $6 | 例: $7"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+) · v4 (.+) / v6 (.+) \\(([0-9]+)s ago\\)$",
+      "to": "実行中 | 内蔵DDNS | $1 · v4 $2 / v6 $3（$4秒前）"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+) · v4 (.+) \\(([0-9]+)s ago\\)$",
+      "to": "実行中 | 内蔵DDNS | $1 · v4 $2（$3秒前）"
+    },
+    {
+      "re": "^Running \\| Built-in DDNS \\| (.+)$",
+      "to": "実行中 | 内蔵DDNS | $1"
+    },
+    {
+      "re": "^Stopped \\| Built-in DDNS \\| (.+)$",
+      "to": "停止中 | 内蔵DDNS | $1"
+    },
+    {
+      "re": "^Running \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| Seeding ([0-9]+) · Downloading ([0-9]+) · Active ([0-9]+) · Total ([0-9]+) · Connections ([0-9]+) · DHT ([0-9]+)$",
+      "to": "実行中 | $1 | ↓ $2 · ↑ $3 | シード $4 · ダウンロード $5 · 稼働 $6 · 合計 $7 · 接続 $8 · DHT $9"
+    },
+    {
+      "re": "^Running \\| (.+) \\| ↓ (.+) · ↑ (.+) \\| Seeding ([0-9]+) · Downloading ([0-9]+) · Active ([0-9]+) · Total ([0-9]+) · Connections ([0-9]+)$",
+      "to": "実行中 | $1 | ↓ $2 · ↑ $3 | シード $4 · ダウンロード $5 · 稼働 $6 · 合計 $7 · 接続 $8"
+    },
+    {
+      "re": "^Current source:\\s*(.+)$",
+      "to": "現在のソース：$1"
+    },
+    {
+      "re": "^当前来源：\\s*(.+)$",
+      "to": "現在のソース：$1"
     }
   ]
 }
