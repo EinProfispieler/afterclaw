@@ -150,7 +150,55 @@ APP_VERSION_TEXT = (
     if APP_VERSION and APP_VERSION.lower() != "unknown"
     else str(APP_VERSION or "unknown")
 )
-APP_BRANCH = str(FCC_APP_BRANCH or "").strip() or "stable"
+
+
+def _normalize_upgrade_branch(value, default: str = "main") -> str:
+    raw = str(value or "").strip().lower()
+    if raw == "stable":
+        raw = "main"
+    if raw not in ("main", "nightly"):
+        raw = str(default or "main").strip().lower()
+        if raw == "stable":
+            raw = "main"
+    if raw not in ("main", "nightly"):
+        raw = "main"
+    return raw
+
+
+APP_BRANCH = _normalize_upgrade_branch(FCC_APP_BRANCH or "", "main")
+UPGRADE_RELEASE_CACHE_TTL = 30.0
+UPGRADE_RELEASE_CACHE_LOCK = threading.Lock()
+UPGRADE_RELEASE_CACHE: dict[tuple[str, str], dict] = {}
+
+
+def _version_aliases(value) -> set[str]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return set()
+    if raw.startswith("v"):
+        raw = raw[1:]
+    aliases = {raw}
+    if raw.endswith(".dev0"):
+        base = raw[: -len(".dev0")]
+        aliases.add(base + "-nightly")
+        aliases.add(base + ".nightly")
+    if raw.endswith("-nightly"):
+        base = raw[: -len("-nightly")]
+        aliases.add(base + ".dev0")
+        aliases.add(base + ".nightly")
+    if raw.endswith(".nightly"):
+        base = raw[: -len(".nightly")]
+        aliases.add(base + ".dev0")
+        aliases.add(base + "-nightly")
+    return {x for x in aliases if x}
+
+
+def _is_same_version(current_version: str, target_tag: str) -> bool:
+    a = _version_aliases(current_version)
+    b = _version_aliases(target_tag)
+    if not a or not b:
+        return False
+    return bool(a.intersection(b))
 
 
 def _page_title_with_version(title: str) -> str:
@@ -247,9 +295,16 @@ def _default_upgrade_status() -> dict:
         "running": False,
         "state": "idle",
         "current_version": APP_VERSION_TEXT,
+        "current_branch": APP_BRANCH,
         "repo": DEFAULT_UPGRADE_GITHUB_REPO,
+        "requested_branch": "main",
         "requested_tag": "",
         "target_tag": "",
+        "latest_tag": "",
+        "latest_release_url": "",
+        "up_to_date": False,
+        "upgrade_available": True,
+        "progress_pct": 0.0,
         "release_url": "",
         "message": "",
         "error": "",
@@ -276,8 +331,19 @@ def _read_upgrade_status(app_root: Path = _APP_ROOT_DIR) -> dict:
         base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+    base["current_branch"] = _normalize_upgrade_branch(base.get("current_branch"), APP_BRANCH)
+    base["requested_branch"] = _normalize_upgrade_branch(base.get("requested_branch"), "main")
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
+    base["latest_tag"] = str(base.get("latest_tag", "") or "").strip()
+    base["latest_release_url"] = str(base.get("latest_release_url", "") or "").strip()
+    base["up_to_date"] = bool(base.get("up_to_date"))
+    base["upgrade_available"] = bool(base.get("upgrade_available", not base["up_to_date"]))
+    try:
+        base["progress_pct"] = float(base.get("progress_pct", 0.0) or 0.0)
+    except Exception:
+        base["progress_pct"] = 0.0
+    base["progress_pct"] = max(0.0, min(100.0, base["progress_pct"]))
     base["running"] = bool(base.get("running"))
     base["state"] = str(base.get("state", "idle") or "idle").strip() or "idle"
     return base
@@ -291,8 +357,19 @@ def _write_upgrade_status(status: dict, app_root: Path = _APP_ROOT_DIR) -> dict:
         base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+    base["current_branch"] = _normalize_upgrade_branch(base.get("current_branch"), APP_BRANCH)
+    base["requested_branch"] = _normalize_upgrade_branch(base.get("requested_branch"), "main")
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
+    base["latest_tag"] = str(base.get("latest_tag", "") or "").strip()
+    base["latest_release_url"] = str(base.get("latest_release_url", "") or "").strip()
+    base["up_to_date"] = bool(base.get("up_to_date"))
+    base["upgrade_available"] = bool(base.get("upgrade_available", not base["up_to_date"]))
+    try:
+        base["progress_pct"] = float(base.get("progress_pct", 0.0) or 0.0)
+    except Exception:
+        base["progress_pct"] = 0.0
+    base["progress_pct"] = max(0.0, min(100.0, base["progress_pct"]))
     base["running"] = bool(base.get("running"))
     base["state"] = str(base.get("state", "idle") or "idle").strip() or "idle"
     base["updated_at"] = _utc_now_iso()
@@ -736,13 +813,11 @@ def _http_download_file(
     return int(total)
 
 
-def _github_release_payload(repo: str, tag: str = "", branch: str = "stable") -> dict:
+def _github_release_payload(repo: str, tag: str = "", branch: str = "main") -> dict:
     safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
     safe_tag = _normalize_upgrade_tag(tag)
     owner, name = safe_repo.split("/", 1)
-    safe_branch = str(branch or "stable").strip().lower()
-    if safe_branch not in ("stable", "nightly"):
-        safe_branch = "stable"
+    safe_branch = _normalize_upgrade_branch(branch, "main")
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "afterclaw-updater/1.0"}
     if safe_tag:
         api_url = (
@@ -782,7 +857,42 @@ def _github_release_payload(repo: str, tag: str = "", branch: str = "stable") ->
             is_pre = bool(rel.get("prerelease"))
             if is_pre or "nightly" in tag_name:
                 return rel
-        raise ValueError("仓库暂无可用 nightly Release")
+        # 某些仓库不会发布 prerelease/nightly tag，回退到 nightly 分支 HEAD 打包。
+        branch_api_url = (
+            f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
+            "/branches/nightly"
+        )
+        try:
+            branch_data = _http_fetch_json(
+                branch_api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers
+            )
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise ValueError("仓库暂无可用 nightly Release，且未找到 nightly 分支") from exc
+            raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
+        except Exception as exc:
+            raise RuntimeError(f"读取 nightly 分支信息失败：{exc}") from exc
+        if not isinstance(branch_data, dict):
+            raise RuntimeError("GitHub nightly 分支返回格式异常")
+        commit = branch_data.get("commit") if isinstance(branch_data.get("commit"), dict) else {}
+        sha = str(commit.get("sha") or "").strip()
+        short_sha = sha[:8] if sha else "latest"
+        html_url = str(commit.get("html_url") or "").strip() or (
+            f"https://github.com/{safe_repo}/tree/nightly"
+        )
+        return {
+            "tag_name": f"nightly-{short_sha}",
+            "name": f"nightly@{short_sha}",
+            "prerelease": True,
+            "draft": False,
+            "html_url": html_url,
+            "tarball_url": (
+                f"https://api.github.com/repos/{quote(owner)}/{quote(name)}/tarball/nightly"
+            ),
+            "_source": "nightly-branch",
+        }
     api_url = (
         f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
         "/releases/latest"
@@ -800,6 +910,22 @@ def _github_release_payload(repo: str, tag: str = "", branch: str = "stable") ->
     if not isinstance(data, dict):
         raise RuntimeError("GitHub Release 返回格式异常")
     return data
+
+
+def _latest_release_for_branch(repo: str, branch: str, force_refresh: bool = False) -> dict:
+    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
+    safe_branch = _normalize_upgrade_branch(branch, "main")
+    cache_key = (safe_repo, safe_branch)
+    now = time.time()
+    if not force_refresh:
+        with UPGRADE_RELEASE_CACHE_LOCK:
+            cached = UPGRADE_RELEASE_CACHE.get(cache_key)
+            if cached and (now - float(cached.get("ts", 0.0) or 0.0) <= UPGRADE_RELEASE_CACHE_TTL):
+                return dict(cached.get("payload") or {})
+    payload = _github_release_payload(safe_repo, "", safe_branch)
+    with UPGRADE_RELEASE_CACHE_LOCK:
+        UPGRADE_RELEASE_CACHE[cache_key] = {"ts": now, "payload": dict(payload)}
+    return payload
 
 
 def _parse_github_source_spec(source: str) -> dict:
@@ -2509,6 +2635,10 @@ def build_frontend_html() -> str:
     }
 
     function renderTransfers(data) {
+      const prevScrollTop = xferList ? xferList.scrollTop : 0;
+      const prevScrollHeight = xferList ? xferList.scrollHeight : 0;
+      const prevClientHeight = xferList ? xferList.clientHeight : 0;
+      const stickToBottom = prevScrollHeight > 0 && (prevScrollHeight - prevClientHeight - prevScrollTop) <= 2;
       const allItems = Array.isArray(data.items) ? data.items : [];
       const items = sortTransfers(allItems.filter((it) => !it.done));
       const count = Number(data.count || items.length || 0);
@@ -2521,6 +2651,7 @@ def build_frontend_html() -> str:
         empty.className = "xfer-item muted";
         empty.textContent = "当前没有活跃 HTTP 传输任务。";
         xferList.appendChild(empty);
+        xferList.scrollTop = 0;
         return;
       }
       for (const it of items) {
@@ -2547,6 +2678,12 @@ def build_frontend_html() -> str:
         row.appendChild(main);
         row.appendChild(meta);
         xferList.appendChild(row);
+      }
+      if (stickToBottom) {
+        xferList.scrollTop = xferList.scrollHeight;
+      } else {
+        const maxTop = Math.max(0, xferList.scrollHeight - xferList.clientHeight);
+        xferList.scrollTop = Math.max(0, Math.min(prevScrollTop, maxTop));
       }
     }
 
@@ -3010,6 +3147,12 @@ def build_ddns_settings_html() -> str:
 
 
 def build_config_html() -> str:
+    nightly_upgrade_extra_actions = ""
+    if APP_BRANCH == "nightly":
+        nightly_upgrade_extra_actions = """
+          <button type="button" id="demoUpgradeProgressBtn" class="secondary">测试进度条展示</button>
+          <button type="button" id="openStable1288Btn" class="secondary">切换到1288正式版</button>
+"""
     html = """<!doctype html>
 <html lang="en">
 <head>
@@ -3197,6 +3340,75 @@ def build_config_html() -> str:
     }
     #cfgThemeStatus.err { color: var(--danger); font-weight: 600; }
     #cfgThemeMeta { margin: 0; }
+    .upgrade-nightly-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+    .upgrade-nightly-row .inline-check {
+      margin: 0;
+      padding: 0;
+      white-space: nowrap;
+    }
+    .upgrade-progress-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: color-mix(in srgb, #030712 74%, transparent);
+      backdrop-filter: blur(4px);
+      z-index: 9999;
+      padding: 14px;
+    }
+    .upgrade-progress-modal.active { display: flex; }
+    .upgrade-progress-card {
+      width: min(560px, 100%);
+      border: 1px solid var(--border);
+      background: var(--surface-elevated);
+      border-radius: 14px;
+      box-shadow: 0 18px 40px rgba(2, 6, 23, 0.38);
+      padding: 16px;
+    }
+    .upgrade-progress-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .upgrade-progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--surface-soft) 90%, transparent);
+      border: 1px solid var(--border);
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+    .upgrade-progress-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--hero-tone, var(--accent)) 76%, #93c5fd 24%) 0%,
+        color-mix(in srgb, var(--hero-tone, var(--accent)) 94%, #dbeafe 6%) 100%
+      );
+      background-size: 220% 100%;
+      animation: upgradePulse 1.2s linear infinite;
+      transition: width 0.35s ease;
+    }
+    @keyframes upgradePulse {
+      from { background-position: 0% 0%; }
+      to { background-position: 220% 0%; }
+    }
+    #upgradeProgressText.err {
+      color: var(--danger);
+      font-weight: 600;
+    }
     @media (max-width: 900px) {
       .cfg-tabs-row {
         grid-template-columns: 1fr;
@@ -3293,34 +3505,6 @@ def build_config_html() -> str:
         <p id="generalStatus" class="cfg-status"></p>
       </div>
       <div class="card">
-        <span class="card-title">自动升级（GitHub Release）</span>
-        <p class="cfg-help">从 GitHub 拉取发布包并执行本地 <code>install.sh</code>。升级过程中服务可能重启，页面短暂断开属于正常现象。</p>
-        <p class="cfg-help" style="margin-top:6px;">当前服务器版本：<code id="upgradeCurrentVersion">-</code></p>
-        <div class="cfg-grid" style="margin-top:12px;">
-          <label class="cfg-item">
-            <div class="title">仓库（owner/repo）</div>
-            <input id="upgradeRepoInput" placeholder="例如：EinProfispieler/afterclaw" />
-          </label>
-          <label class="cfg-item">
-            <div class="title">升级分支</div>
-            <select id="upgradeBranchSelect">
-              <option value="stable">stable（稳定版）</option>
-              <option value="nightly">nightly（开发版）</option>
-            </select>
-          </label>
-          <label class="cfg-item">
-            <div class="title">目标 Tag（可选）</div>
-            <input id="upgradeTagInput" placeholder="留空则升级到所选分支的 latest release" />
-          </label>
-        </div>
-        <div class="cfg-actions">
-          <button type="button" id="runUpgradeBtn">执行自动升级</button>
-          <button type="button" id="refreshUpgradeStatusBtn" class="secondary">刷新升级状态</button>
-        </div>
-        <p id="upgradeStatus" class="cfg-status"></p>
-        <p id="upgradeMeta" class="cfg-help"></p>
-      </div>
-      <div class="card">
         <span class="card-title">
           <svg class="brush-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 4.2l5.6 5.6-9.8 9.8-6.7 1 1-6.7 9.9-9.7z"></path><path d="M12.1 6.3l5.6 5.6"></path></svg>
           主题背景
@@ -3343,6 +3527,25 @@ def build_config_html() -> str:
           <p id="cfgThemeMeta" class="cfg-help">当前背景：默认</p>
           <p id="cfgThemeStatus" class="cfg-help">支持 PNG/JPG/WEBP/GIF/AVIF，最大 12MB。</p>
         </div>
+      </div>
+      <div class="card">
+        <span class="card-title">自动升级（GitHub Release）</span>
+        <p class="cfg-help">从 GitHub 拉取发布包并执行本地 <code>install.sh</code>。升级时会显示进度条，过程中服务可能重启。</p>
+        <p class="cfg-help" style="margin-top:6px;">自动对比远端版本；若当前版本已是最新，将禁止执行升级。</p>
+        <p class="cfg-help" style="margin-top:6px;">当前服务器版本：<code id="upgradeCurrentVersion">-</code> ｜ 远端目标版本：<code id="upgradeRemoteVersion">-</code></p>
+        <div class="upgrade-nightly-row">
+          <label class="inline-check">
+            <input type="checkbox" id="upgradeNightlyOnly" />
+            <span>升级Nightly版</span>
+          </label>
+        </div>
+        <div class="cfg-actions">
+          <button type="button" id="checkUpgradeVersionBtn" class="secondary">检测版本</button>
+          <button type="button" id="runUpgradeBtn">执行自动升级</button>
+__NIGHTLY_UPGRADE_ACTIONS__
+        </div>
+        <p id="upgradeStatus" class="cfg-status"></p>
+        <p id="upgradeMeta" class="cfg-help"></p>
       </div>
     </section>
 
@@ -3511,6 +3714,21 @@ def build_config_html() -> str:
       </div>
     </section>
   </div>
+  <div id="upgradeProgressModal" class="upgrade-progress-modal" aria-hidden="true">
+    <div class="upgrade-progress-card">
+      <div class="upgrade-progress-head">
+        <strong id="upgradeProgressTitle">升级进度</strong>
+        <span id="upgradeProgressPercent">0%</span>
+      </div>
+      <div class="upgrade-progress-track">
+        <div id="upgradeProgressBar" class="upgrade-progress-fill"></div>
+      </div>
+      <p id="upgradeProgressText" class="cfg-help">准备中...</p>
+      <div class="cfg-actions" style="margin-top:10px;">
+        <button type="button" id="closeUpgradeProgressBtn" class="secondary">隐藏窗口</button>
+      </div>
+    </div>
+  </div>
   <div id="toastContainer"></div>
 
   <script>
@@ -3548,8 +3766,27 @@ def build_config_html() -> str:
     };
     var runtimeWebPort = 1288;
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
-    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", current_branch: "", repo: "EinProfispieler/afterclaw", requested_tag: "", target_tag: "", release_url: "", message: "", error: "" };
+    var upgradeState = {
+      supported: false,
+      running: false,
+      state: "idle",
+      current_version: "",
+      current_branch: "main",
+      requested_branch: "main",
+      selected_branch: "main",
+      latest_tag: "",
+      latest_release_url: "",
+      up_to_date: false,
+      upgrade_available: true,
+      progress_pct: 0,
+      release_url: "",
+      message: "",
+      error: "",
+      support_reason: ""
+    };
     var upgradePollTimer = 0;
+    var upgradeDemoTimer = 0;
+    var upgradeProgressHiddenByUser = false;
 
     function byId(id){ return document.getElementById(id); }
     function trRaw(text){
@@ -3788,17 +4025,64 @@ def build_config_html() -> str:
       }
       hint.textContent = msg;
     }
-    function normalizeUpgradeRepoInput(raw){
-      var v = String(raw || "").trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/g, "");
+    function normalizeUpgradeBranchInput(raw){
+      var v = String(raw || "").trim().toLowerCase();
+      if (v === "stable") v = "main";
+      if (v !== "main" && v !== "nightly") v = "main";
       return v;
     }
-    function normalizeUpgradeTagInput(raw){
-      return String(raw || "").trim();
+    function selectedUpgradeBranch(){
+      return (byId("upgradeNightlyOnly") && byId("upgradeNightlyOnly").checked) ? "nightly" : "main";
+    }
+    function stableConfigUrl1288(){
+      try {
+        var u = new URL(window.location.href);
+        u.port = "1288";
+        u.pathname = "/config";
+        u.hash = "#general";
+        return u.toString();
+      } catch (e) {
+        var protocol = window.location.protocol || "http:";
+        var host = window.location.hostname || "127.0.0.1";
+        return protocol + "//" + host + ":1288/config#general";
+      }
     }
     function stopUpgradePolling(){
       if (upgradePollTimer) {
         clearTimeout(upgradePollTimer);
         upgradePollTimer = 0;
+      }
+    }
+    function stopUpgradeDemo(){
+      if (upgradeDemoTimer) {
+        clearInterval(upgradeDemoTimer);
+        upgradeDemoTimer = 0;
+      }
+    }
+    function openUpgradeProgress(title){
+      var modal = byId("upgradeProgressModal");
+      if (!modal) return;
+      modal.classList.add("active");
+      modal.setAttribute("aria-hidden", "false");
+      if (byId("upgradeProgressTitle")) byId("upgradeProgressTitle").textContent = String(title || "升级进度");
+    }
+    function hideUpgradeProgress(){
+      var modal = byId("upgradeProgressModal");
+      if (!modal) return;
+      modal.classList.remove("active");
+      modal.setAttribute("aria-hidden", "true");
+    }
+    function setUpgradeProgress(pct, text, isErr){
+      var v = Number(pct);
+      if (!Number.isFinite(v)) v = 0;
+      if (v < 0) v = 0;
+      if (v > 100) v = 100;
+      if (byId("upgradeProgressBar")) byId("upgradeProgressBar").style.width = v + "%";
+      if (byId("upgradeProgressPercent")) byId("upgradeProgressPercent").textContent = String(Math.round(v)) + "%";
+      var textEl = byId("upgradeProgressText");
+      if (textEl) {
+        textEl.textContent = String(text || "");
+        textEl.classList.toggle("err", !!isErr);
       }
     }
     function renderUpgradeStatus(status){
@@ -3808,27 +4092,23 @@ def build_config_html() -> str:
         running: !!s.running,
         state: String(s.state || (s.running ? "running" : "idle")),
         current_version: String(s.current_version || ""),
-        current_branch: String(s.current_branch || "stable"),
-        repo: String(s.repo || "EinProfispieler/afterclaw"),
-        requested_tag: String(s.requested_tag || ""),
-        target_tag: String(s.target_tag || ""),
+        current_branch: normalizeUpgradeBranchInput(String(s.current_branch || "main")),
+        requested_branch: normalizeUpgradeBranchInput(String(s.requested_branch || "main")),
+        selected_branch: normalizeUpgradeBranchInput(String(s.selected_branch || s.requested_branch || "main")),
+        latest_tag: String(s.latest_tag || ""),
+        latest_release_url: String(s.latest_release_url || ""),
+        up_to_date: !!s.up_to_date,
+        upgrade_available: !!s.upgrade_available,
+        progress_pct: Number(s.progress_pct || 0),
         release_url: String(s.release_url || ""),
         message: String(s.message || ""),
         error: String(s.error || ""),
         support_reason: String(s.support_reason || "")
       };
-      if (byId("upgradeRepoInput")) {
-        if (!String(byId("upgradeRepoInput").value || "").trim()) {
-          byId("upgradeRepoInput").value = upgradeState.repo;
-        }
-      }
-      if (byId("upgradeBranchSelect")) {
-        byId("upgradeBranchSelect").value = upgradeState.current_branch;
-      }
-      if (byId("upgradeTagInput")) {
-        var preferredTag = upgradeState.requested_tag || upgradeState.target_tag || "";
-        if (!String(byId("upgradeTagInput").value || "").trim() && preferredTag) {
-          byId("upgradeTagInput").value = preferredTag;
+      if (byId("upgradeNightlyOnly")) {
+        var branchHint = upgradeState.selected_branch || selectedUpgradeBranch();
+        if (!byId("upgradeNightlyOnly").dataset.userTouched) {
+          byId("upgradeNightlyOnly").checked = (branchHint === "nightly");
         }
       }
       var statusText = "";
@@ -3838,13 +4118,15 @@ def build_config_html() -> str:
         isErr = true;
       } else if (upgradeState.running) {
         statusText = "升级进行中";
-        if (upgradeState.target_tag) statusText += "：" + upgradeState.target_tag;
+        if (upgradeState.latest_tag) statusText += "：" + upgradeState.latest_tag;
         if (upgradeState.message) statusText += " · " + upgradeState.message;
       } else if (upgradeState.state === "success") {
-        statusText = upgradeState.message || ("升级完成：" + (upgradeState.target_tag || "latest"));
+        statusText = upgradeState.message || ("升级完成：" + (upgradeState.latest_tag || "latest"));
       } else if (upgradeState.state === "error") {
         statusText = upgradeState.error ? ("升级失败：" + upgradeState.error) : "升级失败";
         isErr = true;
+      } else if (upgradeState.up_to_date) {
+        statusText = "当前版本已是最新，无需升级";
       } else {
         statusText = upgradeState.message || "等待执行升级";
       }
@@ -3856,30 +4138,36 @@ def build_config_html() -> str:
       if (byId("upgradeCurrentVersion")) {
         byId("upgradeCurrentVersion").textContent = upgradeState.current_version || "-";
       }
+      if (byId("upgradeRemoteVersion")) {
+        byId("upgradeRemoteVersion").textContent = upgradeState.latest_tag || "-";
+      }
       var meta = [];
       if (upgradeState.current_version) meta.push("当前服务器版本：" + upgradeState.current_version);
       if (upgradeState.current_branch) meta.push("当前分支：" + upgradeState.current_branch);
-      if (upgradeState.repo) meta.push("仓库：" + upgradeState.repo);
-      if (upgradeState.requested_tag) meta.push("请求 Tag：" + upgradeState.requested_tag);
-      if (upgradeState.target_tag) meta.push("目标版本：" + upgradeState.target_tag);
+      if (upgradeState.selected_branch) meta.push("目标分支：" + upgradeState.selected_branch);
       if (s.started_at) meta.push("开始：" + String(s.started_at));
       if (s.finished_at) meta.push("结束：" + String(s.finished_at));
-      if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
+      if (upgradeState.latest_release_url) meta.push("Release：" + upgradeState.latest_release_url);
+      else if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
       if (byId("upgradeMeta")) byId("upgradeMeta").textContent = meta.join(" | ");
-      var branchSelect = byId("upgradeBranchSelect");
-      var selectedBranch = branchSelect ? String(branchSelect.value || "stable") : "stable";
-      var tagInput = byId("upgradeTagInput");
-      var tagValue = tagInput ? String(tagInput.value || "").trim() : "";
-      var branchMatchesCurrent = (selectedBranch === upgradeState.current_branch) && !tagValue;
+      var canRun = (!!upgradeState.supported) && (!upgradeState.running) && (!!upgradeState.upgrade_available) && (!upgradeState.up_to_date);
       if (byId("runUpgradeBtn")) {
-        byId("runUpgradeBtn").disabled = (!upgradeState.supported) || !!upgradeState.running || branchMatchesCurrent;
+        byId("runUpgradeBtn").disabled = !canRun;
       }
-      if (byId("refreshUpgradeStatusBtn")) {
-        byId("refreshUpgradeStatusBtn").disabled = false;
+      if (upgradeState.running) {
+        if (!upgradeProgressHiddenByUser) openUpgradeProgress("升级进度");
+        setUpgradeProgress(upgradeState.progress_pct || 0, upgradeState.message || statusText, false);
+      } else if (upgradeState.state === "error") {
+        if (!upgradeProgressHiddenByUser) openUpgradeProgress("升级失败");
+        setUpgradeProgress(upgradeState.progress_pct || 0, upgradeState.error || statusText, true);
+      } else if (upgradeState.state === "success") {
+        if (!upgradeProgressHiddenByUser) openUpgradeProgress("升级完成");
+        setUpgradeProgress(100, upgradeState.message || statusText, false);
       }
     }
     async function loadUpgradeStatus(silent){
-      var d = await apiJson("/api/upgrade/status");
+      var branch = selectedUpgradeBranch();
+      var d = await apiJson("/api/upgrade/status?branch=" + encodeURIComponent(branch));
       renderUpgradeStatus(d || {});
       if (!silent && upgradeState.running) {
         setStatus("upgradeStatus", "升级任务进行中，请勿关闭页面。");
@@ -3888,34 +4176,35 @@ def build_config_html() -> str:
         stopUpgradePolling();
         upgradePollTimer = setTimeout(function(){
           loadUpgradeStatus(true).catch(function(){});
-        }, 2000);
+        }, 1200);
       } else {
         stopUpgradePolling();
       }
       return d || {};
     }
     async function runAutoUpgrade(){
-      var repo = normalizeUpgradeRepoInput(byId("upgradeRepoInput") ? byId("upgradeRepoInput").value : "");
-      var tag = normalizeUpgradeTagInput(byId("upgradeTagInput") ? byId("upgradeTagInput").value : "");
-      var branch = byId("upgradeBranchSelect") ? String(byId("upgradeBranchSelect").value || "stable") : "stable";
-      if (!repo) {
-        throw new Error("请先填写仓库 owner/repo");
+      var branch = selectedUpgradeBranch();
+      if (upgradeState.up_to_date) {
+        throw new Error("当前版本已是最新，无需升级");
       }
-      var hintTag = tag ? ("Tag " + tag) : (branch + " latest release");
-      if (!window.confirm("确认执行自动升级？将从 " + repo + " 拉取 " + hintTag + " 并执行 install.sh（过程中服务可能重启）。")) {
+      if (!window.confirm("确认执行自动升级？将拉取 " + branch + " 最新版本并执行 install.sh（过程中服务可能重启）。")) {
         return null;
       }
+      stopUpgradeDemo();
+      upgradeProgressHiddenByUser = false;
+      openUpgradeProgress("升级进度");
+      setUpgradeProgress(3, "升级任务启动中...", false);
       setStatus("upgradeStatus", "正在提交升级任务...");
       var d = await apiJson("/api/upgrade/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repo, tag: tag, branch: branch })
+        body: JSON.stringify({ branch: branch })
       });
       renderUpgradeStatus((d && d.status) || {});
       if (d && d.queued) {
         setStatus("upgradeStatus", "升级任务已入队，正在执行。");
       } else {
-        setStatus("upgradeStatus", "已有升级任务在执行或当前环境不支持自动升级。", true);
+        setStatus("upgradeStatus", (d && d.status && d.status.message) || "当前无需升级或已有任务在执行。", true);
       }
       if (upgradeState.running) {
         stopUpgradePolling();
@@ -3924,6 +4213,23 @@ def build_config_html() -> str:
         }, 1200);
       }
       return d;
+    }
+    function runUpgradeProgressDemo(){
+      stopUpgradeDemo();
+      upgradeProgressHiddenByUser = false;
+      openUpgradeProgress("升级进度演示");
+      var p = 0;
+      setUpgradeProgress(p, "演示阶段：正在校验版本", false);
+      upgradeDemoTimer = setInterval(function(){
+        p += 5;
+        if (p < 35) setUpgradeProgress(p, "演示阶段：正在下载升级包", false);
+        else if (p < 70) setUpgradeProgress(p, "演示阶段：正在解压升级包", false);
+        else if (p < 100) setUpgradeProgress(p, "演示阶段：正在执行 install.sh", false);
+        else {
+          setUpgradeProgress(100, "演示完成：进度条展示正常", false);
+          stopUpgradeDemo();
+        }
+      }, 140);
     }
     function shellQuote(s){
       var v = String(s || "");
@@ -4452,6 +4758,24 @@ def build_config_html() -> str:
       }
     });
 
+    if (byId("checkUpgradeVersionBtn")) {
+      byId("checkUpgradeVersionBtn").addEventListener("click", async function(){
+        try {
+          setStatus("upgradeStatus", "正在检测远端版本...");
+          await loadUpgradeStatus(false);
+          if (!upgradeState.running) {
+            setStatus(
+              "upgradeStatus",
+              upgradeState.up_to_date
+                ? "当前版本已是最新，无需升级"
+                : (upgradeState.message || "版本检测完成")
+            );
+          }
+        } catch (err) {
+          setStatus("upgradeStatus", "检测失败：" + err.message, true);
+        }
+      });
+    }
     if (byId("runUpgradeBtn")) {
       byId("runUpgradeBtn").addEventListener("click", async function(){
         try {
@@ -4461,31 +4785,29 @@ def build_config_html() -> str:
         }
       });
     }
-    if (byId("refreshUpgradeStatusBtn")) {
-      byId("refreshUpgradeStatusBtn").addEventListener("click", async function(){
-        try {
-          await loadUpgradeStatus(false);
-        } catch (err) {
-          setStatus("upgradeStatus", "刷新失败：" + err.message, true);
-        }
+    if (byId("demoUpgradeProgressBtn")) {
+      byId("demoUpgradeProgressBtn").addEventListener("click", function(){
+        runUpgradeProgressDemo();
       });
     }
-    if (byId("upgradeRepoInput")) {
-      byId("upgradeRepoInput").addEventListener("blur", function(){
-        this.value = normalizeUpgradeRepoInput(this.value);
+    if (byId("openStable1288Btn")) {
+      byId("openStable1288Btn").setAttribute("title", stableConfigUrl1288());
+      byId("openStable1288Btn").addEventListener("click", function(){
+        window.location.href = stableConfigUrl1288();
       });
     }
-    if (byId("upgradeTagInput")) {
-      byId("upgradeTagInput").addEventListener("blur", function(){
-        this.value = normalizeUpgradeTagInput(this.value);
-      });
-      byId("upgradeTagInput").addEventListener("input", function(){
-        renderUpgradeStatus(upgradeState);
+    if (byId("upgradeNightlyOnly")) {
+      byId("upgradeNightlyOnly").addEventListener("change", function(){
+        this.dataset.userTouched = "1";
+        loadUpgradeStatus(true).catch(function(err){
+          setStatus("upgradeStatus", "加载升级状态失败：" + err.message, true);
+        });
       });
     }
-    if (byId("upgradeBranchSelect")) {
-      byId("upgradeBranchSelect").addEventListener("change", function(){
-        renderUpgradeStatus(upgradeState);
+    if (byId("closeUpgradeProgressBtn")) {
+      byId("closeUpgradeProgressBtn").addEventListener("click", function(){
+        upgradeProgressHiddenByUser = true;
+        hideUpgradeProgress();
       });
     }
 
@@ -5050,6 +5372,7 @@ def build_config_html() -> str:
 </body>
 </html>
 """
+    html = html.replace("__NIGHTLY_UPGRADE_ACTIONS__", nightly_upgrade_extra_actions)
     return _inject_page_title(html, "Config")
 
 
@@ -7326,7 +7649,7 @@ class AppHandler(BaseHTTPRequestHandler):
         return True, ""
 
     @classmethod
-    def _upgrade_status_payload(cls) -> dict:
+    def _upgrade_status_payload(cls, branch_raw="main") -> dict:
         status = _read_upgrade_status(_APP_ROOT_DIR)
         ok, reason = cls._upgrade_supported()
         with cls.upgrade_lock:
@@ -7344,16 +7667,49 @@ class AppHandler(BaseHTTPRequestHandler):
         status["support_reason"] = str(reason or "")
         status["current_version"] = APP_VERSION_TEXT
         status["current_branch"] = APP_BRANCH
+        status["progress_pct"] = float(status.get("progress_pct", 0.0) or 0.0)
         try:
             status["repo"] = _normalize_upgrade_repo(
                 status.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO
             )
         except Exception:
             status["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+        selected_branch = _normalize_upgrade_branch(
+            branch_raw or status.get("requested_branch") or "main",
+            "main",
+        )
+        status["selected_branch"] = selected_branch
+        if (not running) and ok:
+            try:
+                release = _latest_release_for_branch(
+                    status["repo"], selected_branch, force_refresh=False
+                )
+                latest_tag = str(release.get("tag_name") or "").strip()
+                latest_url = str(release.get("html_url") or "").strip()
+                up_to_date = _is_same_version(APP_VERSION_TEXT, latest_tag)
+                status["latest_tag"] = latest_tag
+                status["latest_release_url"] = latest_url
+                status["up_to_date"] = bool(up_to_date)
+                status["upgrade_available"] = not bool(up_to_date)
+                if status.get("state") == "idle":
+                    status["message"] = (
+                        "当前版本已是最新，无需升级"
+                        if up_to_date
+                        else (f"可升级到：{latest_tag}" if latest_tag else "检测到可升级版本")
+                    )
+            except Exception as exc:
+                status["latest_tag"] = ""
+                status["latest_release_url"] = ""
+                status["up_to_date"] = False
+                status["upgrade_available"] = False
+                if status.get("state") == "idle":
+                    status["message"] = f"远端版本检查失败：{exc}"
+        elif running:
+            status["upgrade_available"] = True
         return status
 
     @classmethod
-    def _schedule_upgrade(cls, repo_raw, tag_raw, branch_raw="stable"):
+    def _schedule_upgrade(cls, repo_raw, branch_raw="main"):
         ok, reason = cls._upgrade_supported()
         if not ok:
             status = _write_upgrade_status(
@@ -7369,10 +7725,71 @@ class AppHandler(BaseHTTPRequestHandler):
             status["support_reason"] = str(reason or "")
             return False, status
         repo = _normalize_upgrade_repo(repo_raw, DEFAULT_UPGRADE_GITHUB_REPO)
-        tag = _normalize_upgrade_tag(tag_raw)
-        branch = str(branch_raw or "stable").strip().lower()
-        if branch not in ("stable", "nightly"):
-            branch = "stable"
+        branch = _normalize_upgrade_branch(branch_raw, "main")
+        try:
+            release = _latest_release_for_branch(repo, branch, force_refresh=True)
+        except Exception as exc:
+            status = _write_upgrade_status(
+                {
+                    "supported": True,
+                    "running": False,
+                    "state": "error",
+                    "repo": repo,
+                    "requested_branch": branch,
+                    "message": "远端版本检查失败",
+                    "error": str(exc),
+                    "progress_pct": 0.0,
+                },
+                _APP_ROOT_DIR,
+            )
+            status["support_reason"] = ""
+            return False, status
+        target_tag = str(release.get("tag_name") or "").strip()
+        release_url = str(release.get("html_url") or "").strip()
+        tarball_url = str(release.get("tarball_url") or "").strip()
+        if not target_tag:
+            target_tag = "latest"
+        if _is_same_version(APP_VERSION_TEXT, target_tag):
+            status = _write_upgrade_status(
+                {
+                    "supported": True,
+                    "running": False,
+                    "state": "idle",
+                    "repo": repo,
+                    "requested_branch": branch,
+                    "target_tag": target_tag,
+                    "latest_tag": target_tag,
+                    "latest_release_url": release_url,
+                    "up_to_date": True,
+                    "upgrade_available": False,
+                    "message": "当前版本已是最新，无需升级",
+                    "error": "",
+                    "progress_pct": 100.0,
+                    "finished_at": _utc_now_iso(),
+                },
+                _APP_ROOT_DIR,
+            )
+            status["support_reason"] = ""
+            return False, status
+        if not tarball_url:
+            status = _write_upgrade_status(
+                {
+                    "supported": True,
+                    "running": False,
+                    "state": "error",
+                    "repo": repo,
+                    "requested_branch": branch,
+                    "target_tag": target_tag,
+                    "latest_tag": target_tag,
+                    "latest_release_url": release_url,
+                    "message": "自动升级失败",
+                    "error": "Release 缺少 tarball 下载地址",
+                    "progress_pct": 0.0,
+                },
+                _APP_ROOT_DIR,
+            )
+            status["support_reason"] = ""
+            return False, status
         with cls.upgrade_lock:
             if cls.upgrade_running:
                 status = _read_upgrade_status(_APP_ROOT_DIR)
@@ -7385,11 +7802,17 @@ class AppHandler(BaseHTTPRequestHandler):
                     "running": True,
                     "state": "running",
                     "repo": repo,
-                    "requested_tag": tag,
+                    "requested_branch": branch,
+                    "requested_tag": "",
                     "target_tag": "",
+                    "latest_tag": target_tag,
+                    "latest_release_url": release_url,
+                    "up_to_date": False,
+                    "upgrade_available": True,
                     "release_url": "",
-                    "message": "升级任务已启动，正在拉取 Release 信息",
+                    "message": "升级任务已启动，正在下载升级包",
                     "error": "",
+                    "progress_pct": 5.0,
                     "started_at": _utc_now_iso(),
                     "finished_at": "",
                 },
@@ -7399,26 +7822,21 @@ class AppHandler(BaseHTTPRequestHandler):
         def _worker():
             temp_dir = None
             try:
-                release = _github_release_payload(repo, tag, branch)
-                target_tag = str(release.get("tag_name") or "").strip()
-                tarball_url = str(release.get("tarball_url") or "").strip()
-                release_url = str(release.get("html_url") or "").strip()
-                if not target_tag:
-                    target_tag = tag or "latest"
-                if not tarball_url:
-                    raise RuntimeError("Release 缺少 tarball 下载地址")
-
                 status_now = _read_upgrade_status(_APP_ROOT_DIR)
                 status_now.update(
                     {
                         "running": True,
                         "state": "running",
                         "repo": repo,
-                        "requested_tag": tag,
+                        "requested_branch": branch,
+                        "requested_tag": "",
                         "target_tag": target_tag,
                         "release_url": release_url,
-                        "message": f"已获取 Release {target_tag}，开始下载",
+                        "latest_tag": target_tag,
+                        "latest_release_url": release_url,
+                        "message": f"正在下载升级包：{target_tag}",
                         "error": "",
+                        "progress_pct": 20.0,
                     }
                 )
                 _write_upgrade_status(status_now, _APP_ROOT_DIR)
@@ -7437,6 +7855,17 @@ class AppHandler(BaseHTTPRequestHandler):
 
                 src_root = temp_dir / "src"
                 src_root.mkdir(parents=True, exist_ok=True)
+                status_now = _read_upgrade_status(_APP_ROOT_DIR)
+                status_now.update(
+                    {
+                        "running": True,
+                        "state": "running",
+                        "message": f"下载完成，正在解压：{target_tag}",
+                        "error": "",
+                        "progress_pct": 45.0,
+                    }
+                )
+                _write_upgrade_status(status_now, _APP_ROOT_DIR)
                 with tarfile.open(archive_path, "r:gz") as tf:
                     tf.extractall(path=src_root)
                 children = [p for p in src_root.iterdir() if p.is_dir()]
@@ -7452,8 +7881,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     {
                         "running": True,
                         "state": "running",
-                        "message": f"已下载 {target_tag}，执行安装脚本中",
+                        "message": f"已解压 {target_tag}，执行 install.sh 中",
                         "error": "",
+                        "progress_pct": 70.0,
                     }
                 )
                 _write_upgrade_status(status_now, _APP_ROOT_DIR)
@@ -7488,11 +7918,17 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": False,
                         "state": "success",
                         "repo": repo,
-                        "requested_tag": tag,
+                        "requested_branch": branch,
+                        "requested_tag": "",
                         "target_tag": target_tag,
+                        "latest_tag": target_tag,
+                        "latest_release_url": release_url,
+                        "up_to_date": True,
+                        "upgrade_available": False,
                         "release_url": release_url,
                         "message": f"升级完成：{target_tag}",
                         "error": "",
+                        "progress_pct": 100.0,
                         "finished_at": _utc_now_iso(),
                     },
                     _APP_ROOT_DIR,
@@ -7504,9 +7940,11 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": False,
                         "state": "error",
                         "repo": repo,
-                        "requested_tag": tag,
+                        "requested_branch": branch,
+                        "requested_tag": "",
                         "message": "自动升级失败",
                         "error": str(exc),
+                        "progress_pct": max(5.0, float(status_now.get("progress_pct", 0.0) or 0.0)),
                         "finished_at": _utc_now_iso(),
                     }
                 )
@@ -8128,7 +8566,13 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/upgrade/status":
             if not self._require_lan():
                 return
-            self._send_json(self._upgrade_status_payload())
+            branch_hint = ""
+            try:
+                q = parse_qs(parsed.query or "")
+                branch_hint = str((q.get("branch") or [""])[0] or "")
+            except Exception:
+                branch_hint = ""
+            self._send_json(self._upgrade_status_payload(branch_hint))
             return
 
         if parsed.path == "/api/ddns/config":
@@ -8866,7 +9310,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             try:
                 queued, status = self._schedule_upgrade(
-                    body.get("repo"), body.get("tag"), body.get("branch")
+                    body.get("repo"), body.get("branch")
                 )
             except ValueError as exc:
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
