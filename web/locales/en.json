@@ -453,7 +453,25 @@
     "Clipboard read failed:": "Clipboard read failed:",
     "No usable content in clipboard": "No usable content in clipboard",
     "Clipboard read API is not supported by this browser": "Clipboard read API is not supported by this browser",
-    "ID can only contain letters/numbers/_/- with length 1-64": "ID can only contain letters/numbers/_/- with length 1-64"
+    "ID can only contain letters/numbers/_/- with length 1-64": "ID can only contain letters/numbers/_/- with length 1-64",
+    "自动升级（GitHub Release）": "Auto Upgrade (GitHub Release)",
+    "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.",
+    "仓库（owner/repo）": "Repository (owner/repo)",
+    "升级分支": "Upgrade Branch",
+    "stable（稳定版）": "stable (Stable)",
+    "nightly（开发版）": "nightly (Development)",
+    "目标 Tag（可选）": "Target Tag (optional)",
+    "执行自动升级": "Run Auto Upgrade",
+    "刷新升级状态": "Refresh Upgrade Status",
+    "自动升级不可用": "Auto upgrade unavailable",
+    "升级进行中": "Upgrade in progress",
+    "升级失败": "Upgrade failed",
+    "等待执行升级": "Waiting to run upgrade",
+    "正在提交升级任务...": "Submitting upgrade task...",
+    "升级任务已入队，正在执行。": "Upgrade task queued, running now.",
+    "已有升级任务在执行或当前环境不支持自动升级。": "An upgrade task is already running or auto upgrade is not supported.",
+    "升级任务进行中，请勿关闭页面。": "Upgrade in progress, please do not close this page.",
+    "请先填写仓库 owner/repo": "Please enter repository owner/repo first"
   },
   "patterns": [
     {
@@ -787,6 +805,58 @@
     {
       "re": "^Total\\s*([0-9]+)\\s*items$",
       "to": "Total $1 items"
+    },
+    {
+      "re": "^升级完成：(.+)$",
+      "to": "Upgrade complete: $1"
+    },
+    {
+      "re": "^升级失败：(.+)$",
+      "to": "Upgrade failed: $1"
+    },
+    {
+      "re": "^自动升级不可用：(.+)$",
+      "to": "Auto upgrade unavailable: $1"
+    },
+    {
+      "re": "^当前服务器版本：(.+)$",
+      "to": "Server version: $1"
+    },
+    {
+      "re": "^当前分支：(.+)$",
+      "to": "Branch: $1"
+    },
+    {
+      "re": "^仓库：(.+)$",
+      "to": "Repository: $1"
+    },
+    {
+      "re": "^请求 Tag：(.+)$",
+      "to": "Requested Tag: $1"
+    },
+    {
+      "re": "^目标版本：(.+)$",
+      "to": "Target version: $1"
+    },
+    {
+      "re": "^开始：(.+)$",
+      "to": "Started: $1"
+    },
+    {
+      "re": "^结束：(.+)$",
+      "to": "Finished: $1"
+    },
+    {
+      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "to": "Confirm auto upgrade? Will fetch $2 from $1 and run install.sh (service may restart)."
+    },
+    {
+      "re": "^留空则升级到所选分支的 latest release$",
+      "to": "Leave empty to upgrade to the latest release of selected branch"
+    },
+    {
+      "re": "^例如：(.+)$",
+      "to": "e.g. $1"
     }
   ]
 }

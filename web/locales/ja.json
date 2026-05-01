@@ -346,7 +346,43 @@
     "key（推荐）": "key（推奨）",
     "password（不保存密码）": "password（保存しない）",
     "key (recommended)": "key（推奨）",
-    "password (not stored)": "password（保存しない）"
+    "password (not stored)": "password（保存しない）",
+    "自动升级（GitHub Release）": "自動アップグレード（GitHub Release）",
+    "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "GitHub からリリースを取得し、ローカルの install.sh を実行します。アップグレード中にサービスが再起動する場合があります。一時的な切断は正常です。",
+    "仓库（owner/repo）": "リポジトリ（owner/repo）",
+    "升级分支": "アップグレードブランチ",
+    "stable（稳定版）": "stable（安定版）",
+    "nightly（开发版）": "nightly（開発版）",
+    "目标 Tag（可选）": "ターゲット Tag（任意）",
+    "执行自动升级": "自動アップグレードを実行",
+    "刷新升级状态": "アップグレード状態を更新",
+    "自动升级不可用": "自動アップグレード利用不可",
+    "升级进行中": "アップグレード中",
+    "升级失败": "アップグレード失敗",
+    "等待执行升级": "アップグレード待機中",
+    "正在提交升级任务...": "アップグレードタスクを送信中...",
+    "升级任务已入队，正在执行。": "アップグレードタスクがキューに入り、実行中です。",
+    "已有升级任务在执行或当前环境不支持自动升级。": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
+    "升级任务进行中，请勿关闭页面。": "アップグレード中です。このページを閉じないでください。",
+    "请先填写仓库 owner/repo": "リポジトリ owner/repo を入力してください",
+    "Auto Upgrade (GitHub Release)": "自動アップグレード（GitHub Release）",
+    "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "GitHub からリリースを取得し、ローカルの install.sh を実行します。アップグレード中にサービスが再起動する場合があります。一時的な切断は正常です。",
+    "Repository (owner/repo)": "リポジトリ（owner/repo）",
+    "Upgrade Branch": "アップグレードブランチ",
+    "stable (Stable)": "stable（安定版）",
+    "nightly (Development)": "nightly（開発版）",
+    "Target Tag (optional)": "ターゲット Tag（任意）",
+    "Run Auto Upgrade": "自動アップグレードを実行",
+    "Refresh Upgrade Status": "アップグレード状態を更新",
+    "Auto upgrade unavailable": "自動アップグレード利用不可",
+    "Upgrade in progress": "アップグレード中",
+    "Upgrade failed": "アップグレード失敗",
+    "Waiting to run upgrade": "アップグレード待機中",
+    "Submitting upgrade task...": "アップグレードタスクを送信中...",
+    "Upgrade task queued, running now.": "アップグレードタスクがキューに入り、実行中です。",
+    "An upgrade task is already running or auto upgrade is not supported.": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
+    "Upgrade in progress, please do not close this page.": "アップグレード中です。このページを閉じないでください。",
+    "Please enter repository owner/repo first": "リポジトリ owner/repo を入力してください"
   },
   "patterns": [
     {
@@ -576,6 +612,110 @@
     {
       "re": "^当前来源：\\s*(.+)$",
       "to": "現在のソース：$1"
+    },
+    {
+      "re": "^升级完成：(.+)$",
+      "to": "アップグレード完了：$1"
+    },
+    {
+      "re": "^升级失败：(.+)$",
+      "to": "アップグレード失敗：$1"
+    },
+    {
+      "re": "^自动升级不可用：(.+)$",
+      "to": "自動アップグレード利用不可：$1"
+    },
+    {
+      "re": "^当前服务器版本：(.+)$",
+      "to": "サーバーバージョン：$1"
+    },
+    {
+      "re": "^当前分支：(.+)$",
+      "to": "ブランチ：$1"
+    },
+    {
+      "re": "^仓库：(.+)$",
+      "to": "リポジトリ：$1"
+    },
+    {
+      "re": "^请求 Tag：(.+)$",
+      "to": "リクエスト Tag：$1"
+    },
+    {
+      "re": "^目标版本：(.+)$",
+      "to": "ターゲットバージョン：$1"
+    },
+    {
+      "re": "^开始：(.+)$",
+      "to": "開始：$1"
+    },
+    {
+      "re": "^结束：(.+)$",
+      "to": "終了：$1"
+    },
+    {
+      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "to": "自動アップグレードを実行しますか？$1 から $2 を取得し install.sh を実行します（サービスが再起動する場合があります）。"
+    },
+    {
+      "re": "^留空则升级到所选分支的 latest release$",
+      "to": "空欄にすると選択したブランチの最新リリースにアップグレードします"
+    },
+    {
+      "re": "^例如：(.+)$",
+      "to": "例：$1"
+    },
+    {
+      "re": "^Upgrade complete: (.+)$",
+      "to": "アップグレード完了：$1"
+    },
+    {
+      "re": "^Upgrade failed: (.+)$",
+      "to": "アップグレード失敗：$1"
+    },
+    {
+      "re": "^Auto upgrade unavailable: (.+)$",
+      "to": "自動アップグレード利用不可：$1"
+    },
+    {
+      "re": "^Server version: (.+)$",
+      "to": "サーバーバージョン：$1"
+    },
+    {
+      "re": "^Branch: (.+)$",
+      "to": "ブランチ：$1"
+    },
+    {
+      "re": "^Repository: (.+)$",
+      "to": "リポジトリ：$1"
+    },
+    {
+      "re": "^Requested Tag: (.+)$",
+      "to": "リクエスト Tag：$1"
+    },
+    {
+      "re": "^Target version: (.+)$",
+      "to": "ターゲットバージョン：$1"
+    },
+    {
+      "re": "^Started: (.+)$",
+      "to": "開始：$1"
+    },
+    {
+      "re": "^Finished: (.+)$",
+      "to": "終了：$1"
+    },
+    {
+      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "to": "自動アップグレードを実行しますか？$2 から $1 を取得し install.sh を実行します（サービスが再起動する場合があります）。"
+    },
+    {
+      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "to": "空欄にすると選択したブランチの最新リリースにアップグレードします"
+    },
+    {
+      "re": "^e\\.g\\. (.+)$",
+      "to": "例：$1"
     }
   ]
 }
