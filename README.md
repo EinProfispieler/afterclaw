@@ -149,3 +149,17 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - 部署与迁移：`DEPLOY.md`
 
 </details>
+
+## Nightly Workflow / Nightly 开发规则
+
+- Follow the Nightly-first policy documented in [NIGHTLY.md](NIGHTLY.md).
+- 新功能先在 `nightly` 开发与验证，确认满意后再推进到 `main`。
+- Nightly-only features: `测试进度条展示` and `切换到1288正式版`.
+- Any promotion from `nightly` to `main` must remove the two nightly-only features.
+
+## Versioning / 版本命名规则
+
+- **Stable (`main`)** uses strict SemVer release tags: `MAJOR.MINOR.PATCH` (example: `0.9.6`).
+- **Nightly (`nightly`)** uses PEP 440 development versions: `MAJOR.MINOR.NEXT_PATCH.devYYYYMMDD` (example: `0.9.7.dev20260501`).
+- `.dev0` is reserved for local bootstrap only and must not be used as a published stable version.
+- Promotion rule: nightly verifies first; stable version is updated only when explicitly approved.
