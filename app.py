@@ -29,6 +29,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import ddns
 from fcc import __version__ as FCC_APP_VERSION
+from fcc import __branch__ as FCC_APP_BRANCH
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
 
@@ -149,6 +150,7 @@ APP_VERSION_TEXT = (
     if APP_VERSION and APP_VERSION.lower() != "unknown"
     else str(APP_VERSION or "unknown")
 )
+APP_BRANCH = str(FCC_APP_BRANCH or "").strip() or "stable"
 
 
 def _page_title_with_version(title: str) -> str:
@@ -734,27 +736,61 @@ def _http_download_file(
     return int(total)
 
 
-def _github_release_payload(repo: str, tag: str = "") -> dict:
+def _github_release_payload(repo: str, tag: str = "", branch: str = "stable") -> dict:
     safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
     safe_tag = _normalize_upgrade_tag(tag)
     owner, name = safe_repo.split("/", 1)
+    safe_branch = str(branch or "stable").strip().lower()
+    if safe_branch not in ("stable", "nightly"):
+        safe_branch = "stable"
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "afterclaw-updater/1.0"}
     if safe_tag:
         api_url = (
             f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
             f"/releases/tags/{quote(safe_tag)}"
         )
-    else:
+        try:
+            data = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise ValueError(f"未找到发布版本：{safe_tag}") from exc
+            raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
+        except Exception as exc:
+            raise RuntimeError(f"读取 GitHub Release 失败：{exc}") from exc
+        if not isinstance(data, dict):
+            raise RuntimeError("GitHub Release 返回格式异常")
+        return data
+    if safe_branch == "nightly":
         api_url = (
             f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
-            "/releases/latest"
+            "/releases?per_page=30"
         )
-    headers = {"Accept": "application/vnd.github+json", "User-Agent": "afterclaw-updater/1.0"}
+        try:
+            releases = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
+        except Exception as exc:
+            raise RuntimeError(f"读取 GitHub Release 失败：{exc}") from exc
+        if not isinstance(releases, list):
+            raise RuntimeError("GitHub Release 返回格式异常")
+        for rel in releases:
+            tag_name = str(rel.get("tag_name") or "").lower()
+            is_pre = bool(rel.get("prerelease"))
+            if is_pre or "nightly" in tag_name:
+                return rel
+        raise ValueError("仓库暂无可用 nightly Release")
+    api_url = (
+        f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
+        "/releases/latest"
+    )
     try:
         data = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            if safe_tag:
-                raise ValueError(f"未找到发布版本：{safe_tag}") from exc
             raise ValueError("仓库暂无可用 Release") from exc
         raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
     except urllib.error.URLError as exc:
@@ -1582,9 +1618,9 @@ def build_frontend_html() -> str:
       <a href="/config" class="gear-btn" title="Config" aria-label="Config">&#9881;</a>
       <button type="button" id="themeToggleBtn" class="secondary">浅色模式</button>
       <select id="langSelect" class="lang-select" title="Language">
+        <option value="en">English</option>
         <option value="zh-CN">简体中文</option>
         <option value="zh-TW">繁體中文</option>
-        <option value="en">English</option>
         <option value="de">Deutsch</option>
         <option value="fr">Français</option>
         <option value="ja">日本語</option>
@@ -3203,9 +3239,9 @@ def build_config_html() -> str:
         <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect><path d="M7.5 10.5 L10 12.5 L7.5 14.5"></path><line x1="11.5" y1="14.5" x2="15.8" y2="14.5"></line><line x1="9" y1="19.5" x2="15" y2="19.5"></line></svg></a>
         <button type="button" id="themeToggleBtn" class="secondary">主题</button>
         <select id="langSelect" class="lang-select" title="Language">
+          <option value="en">English</option>
           <option value="zh-CN">简体中文</option>
           <option value="zh-TW">繁體中文</option>
-          <option value="en">English</option>
           <option value="de">Deutsch</option>
           <option value="fr">Français</option>
           <option value="ja">日本語</option>
@@ -3266,8 +3302,15 @@ def build_config_html() -> str:
             <input id="upgradeRepoInput" placeholder="例如：EinProfispieler/afterclaw" />
           </label>
           <label class="cfg-item">
+            <div class="title">升级分支</div>
+            <select id="upgradeBranchSelect">
+              <option value="stable">stable（稳定版）</option>
+              <option value="nightly">nightly（开发版）</option>
+            </select>
+          </label>
+          <label class="cfg-item">
             <div class="title">目标 Tag（可选）</div>
-            <input id="upgradeTagInput" placeholder="留空则升级到 latest release" />
+            <input id="upgradeTagInput" placeholder="留空则升级到所选分支的 latest release" />
           </label>
         </div>
         <div class="cfg-actions">
@@ -3505,7 +3548,7 @@ def build_config_html() -> str:
     };
     var runtimeWebPort = 1288;
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
-    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", repo: "EinProfispieler/afterclaw", requested_tag: "", target_tag: "", release_url: "", message: "", error: "" };
+    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", current_branch: "", repo: "EinProfispieler/afterclaw", requested_tag: "", target_tag: "", release_url: "", message: "", error: "" };
     var upgradePollTimer = 0;
 
     function byId(id){ return document.getElementById(id); }
@@ -3765,6 +3808,7 @@ def build_config_html() -> str:
         running: !!s.running,
         state: String(s.state || (s.running ? "running" : "idle")),
         current_version: String(s.current_version || ""),
+        current_branch: String(s.current_branch || "stable"),
         repo: String(s.repo || "EinProfispieler/afterclaw"),
         requested_tag: String(s.requested_tag || ""),
         target_tag: String(s.target_tag || ""),
@@ -3777,6 +3821,9 @@ def build_config_html() -> str:
         if (!String(byId("upgradeRepoInput").value || "").trim()) {
           byId("upgradeRepoInput").value = upgradeState.repo;
         }
+      }
+      if (byId("upgradeBranchSelect")) {
+        byId("upgradeBranchSelect").value = upgradeState.current_branch;
       }
       if (byId("upgradeTagInput")) {
         var preferredTag = upgradeState.requested_tag || upgradeState.target_tag || "";
@@ -3811,6 +3858,7 @@ def build_config_html() -> str:
       }
       var meta = [];
       if (upgradeState.current_version) meta.push("当前服务器版本：" + upgradeState.current_version);
+      if (upgradeState.current_branch) meta.push("当前分支：" + upgradeState.current_branch);
       if (upgradeState.repo) meta.push("仓库：" + upgradeState.repo);
       if (upgradeState.requested_tag) meta.push("请求 Tag：" + upgradeState.requested_tag);
       if (upgradeState.target_tag) meta.push("目标版本：" + upgradeState.target_tag);
@@ -3818,8 +3866,13 @@ def build_config_html() -> str:
       if (s.finished_at) meta.push("结束：" + String(s.finished_at));
       if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
       if (byId("upgradeMeta")) byId("upgradeMeta").textContent = meta.join(" | ");
+      var branchSelect = byId("upgradeBranchSelect");
+      var selectedBranch = branchSelect ? String(branchSelect.value || "stable") : "stable";
+      var tagInput = byId("upgradeTagInput");
+      var tagValue = tagInput ? String(tagInput.value || "").trim() : "";
+      var branchMatchesCurrent = (selectedBranch === upgradeState.current_branch) && !tagValue;
       if (byId("runUpgradeBtn")) {
-        byId("runUpgradeBtn").disabled = (!upgradeState.supported) || !!upgradeState.running;
+        byId("runUpgradeBtn").disabled = (!upgradeState.supported) || !!upgradeState.running || branchMatchesCurrent;
       }
       if (byId("refreshUpgradeStatusBtn")) {
         byId("refreshUpgradeStatusBtn").disabled = false;
@@ -3844,10 +3897,11 @@ def build_config_html() -> str:
     async function runAutoUpgrade(){
       var repo = normalizeUpgradeRepoInput(byId("upgradeRepoInput") ? byId("upgradeRepoInput").value : "");
       var tag = normalizeUpgradeTagInput(byId("upgradeTagInput") ? byId("upgradeTagInput").value : "");
+      var branch = byId("upgradeBranchSelect") ? String(byId("upgradeBranchSelect").value || "stable") : "stable";
       if (!repo) {
         throw new Error("请先填写仓库 owner/repo");
       }
-      var hintTag = tag ? ("Tag " + tag) : "latest release";
+      var hintTag = tag ? ("Tag " + tag) : (branch + " latest release");
       if (!window.confirm("确认执行自动升级？将从 " + repo + " 拉取 " + hintTag + " 并执行 install.sh（过程中服务可能重启）。")) {
         return null;
       }
@@ -3855,7 +3909,7 @@ def build_config_html() -> str:
       var d = await apiJson("/api/upgrade/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repo, tag: tag })
+        body: JSON.stringify({ repo: repo, tag: tag, branch: branch })
       });
       renderUpgradeStatus((d && d.status) || {});
       if (d && d.queued) {
@@ -4424,6 +4478,14 @@ def build_config_html() -> str:
     if (byId("upgradeTagInput")) {
       byId("upgradeTagInput").addEventListener("blur", function(){
         this.value = normalizeUpgradeTagInput(this.value);
+      });
+      byId("upgradeTagInput").addEventListener("input", function(){
+        renderUpgradeStatus(upgradeState);
+      });
+    }
+    if (byId("upgradeBranchSelect")) {
+      byId("upgradeBranchSelect").addEventListener("change", function(){
+        renderUpgradeStatus(upgradeState);
       });
     }
 
@@ -5056,9 +5118,9 @@ def build_terminal_html() -> str:
           <a href="/config#terminal" class="gear-btn" title="Config / Terminal" aria-label="Config / Terminal">&#9881;</a>
           <button type="button" id="themeToggleBtn" class="secondary">主题</button>
           <select id="langSelect" class="lang-select" title="Language">
+            <option value="en">English</option>
             <option value="zh-CN">简体中文</option>
             <option value="zh-TW">繁體中文</option>
-            <option value="en">English</option>
             <option value="de">Deutsch</option>
             <option value="fr">Français</option>
             <option value="ja">日本語</option>
@@ -7281,6 +7343,7 @@ class AppHandler(BaseHTTPRequestHandler):
         status["supported"] = bool(ok)
         status["support_reason"] = str(reason or "")
         status["current_version"] = APP_VERSION_TEXT
+        status["current_branch"] = APP_BRANCH
         try:
             status["repo"] = _normalize_upgrade_repo(
                 status.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO
@@ -7290,7 +7353,7 @@ class AppHandler(BaseHTTPRequestHandler):
         return status
 
     @classmethod
-    def _schedule_upgrade(cls, repo_raw, tag_raw):
+    def _schedule_upgrade(cls, repo_raw, tag_raw, branch_raw="stable"):
         ok, reason = cls._upgrade_supported()
         if not ok:
             status = _write_upgrade_status(
@@ -7307,6 +7370,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return False, status
         repo = _normalize_upgrade_repo(repo_raw, DEFAULT_UPGRADE_GITHUB_REPO)
         tag = _normalize_upgrade_tag(tag_raw)
+        branch = str(branch_raw or "stable").strip().lower()
+        if branch not in ("stable", "nightly"):
+            branch = "stable"
         with cls.upgrade_lock:
             if cls.upgrade_running:
                 status = _read_upgrade_status(_APP_ROOT_DIR)
@@ -7333,7 +7399,7 @@ class AppHandler(BaseHTTPRequestHandler):
         def _worker():
             temp_dir = None
             try:
-                release = _github_release_payload(repo, tag)
+                release = _github_release_payload(repo, tag, branch)
                 target_tag = str(release.get("tag_name") or "").strip()
                 tarball_url = str(release.get("tarball_url") or "").strip()
                 release_url = str(release.get("html_url") or "").strip()
@@ -8800,7 +8866,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             try:
                 queued, status = self._schedule_upgrade(
-                    body.get("repo"), body.get("tag")
+                    body.get("repo"), body.get("tag"), body.get("branch")
                 )
             except ValueError as exc:
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)

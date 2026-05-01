@@ -430,7 +430,25 @@
     "Default background restored": "已恢复默认背景",
     "Baidu": "百度",
     "Total 1 items": "共 1 条",
-    "Total {count} items": "共 {count} 条"
+    "Total {count} items": "共 {count} 条",
+    "Auto Upgrade (GitHub Release)": "自动升级（GitHub Release）",
+    "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。",
+    "Repository (owner/repo)": "仓库（owner/repo）",
+    "Upgrade Branch": "升级分支",
+    "stable (Stable)": "stable（稳定版）",
+    "nightly (Development)": "nightly（开发版）",
+    "Target Tag (optional)": "目标 Tag（可选）",
+    "Run Auto Upgrade": "执行自动升级",
+    "Refresh Upgrade Status": "刷新升级状态",
+    "Auto upgrade unavailable": "自动升级不可用",
+    "Upgrade in progress": "升级进行中",
+    "Upgrade failed": "升级失败",
+    "Waiting to run upgrade": "等待执行升级",
+    "Submitting upgrade task...": "正在提交升级任务...",
+    "Upgrade task queued, running now.": "升级任务已入队，正在执行。",
+    "An upgrade task is already running or auto upgrade is not supported.": "已有升级任务在执行或当前环境不支持自动升级。",
+    "Upgrade in progress, please do not close this page.": "升级任务进行中，请勿关闭页面。",
+    "Please enter repository owner/repo first": "请先填写仓库 owner/repo"
   },
   "patterns": [
     {
@@ -520,6 +538,58 @@
     {
       "re": "^Current source:\\s*(.+)$",
       "to": "当前来源：$1"
+    },
+    {
+      "re": "^Upgrade complete: (.+)$",
+      "to": "升级完成：$1"
+    },
+    {
+      "re": "^Upgrade failed: (.+)$",
+      "to": "升级失败：$1"
+    },
+    {
+      "re": "^Auto upgrade unavailable: (.+)$",
+      "to": "自动升级不可用：$1"
+    },
+    {
+      "re": "^Server version: (.+)$",
+      "to": "当前服务器版本：$1"
+    },
+    {
+      "re": "^Branch: (.+)$",
+      "to": "当前分支：$1"
+    },
+    {
+      "re": "^Repository: (.+)$",
+      "to": "仓库：$1"
+    },
+    {
+      "re": "^Requested Tag: (.+)$",
+      "to": "请求 Tag：$1"
+    },
+    {
+      "re": "^Target version: (.+)$",
+      "to": "目标版本：$1"
+    },
+    {
+      "re": "^Started: (.+)$",
+      "to": "开始：$1"
+    },
+    {
+      "re": "^Finished: (.+)$",
+      "to": "结束：$1"
+    },
+    {
+      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "to": "确认执行自动升级？将从 $2 拉取 $1 并执行 install.sh（过程中服务可能重启）。"
+    },
+    {
+      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "to": "留空则升级到所选分支的 latest release"
+    },
+    {
+      "re": "^e\\.g\\. (.+)$",
+      "to": "例如：$1"
     }
   ]
 }
