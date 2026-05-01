@@ -18,6 +18,7 @@ ddns_config.json
 .claude/
 .firecrawl/
 .superpowers/
+.worktrees/
 # Runtime files
 *.log
 shareclip/shareclip.log
