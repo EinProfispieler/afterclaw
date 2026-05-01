@@ -149,3 +149,10 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - 部署与迁移：`DEPLOY.md`
 
 </details>
+
+## Versioning / 版本命名规则
+
+- **Stable (`main`)** uses strict SemVer release tags: `MAJOR.MINOR.PATCH` (example: `0.9.6`).
+- **Nightly (`nightly`)** uses PEP 440 development versions: `MAJOR.MINOR.NEXT_PATCH.devYYYYMMDD` (example: `0.9.7.dev20260501`).
+- `.dev0` is reserved for local bootstrap only and must not be used as a published stable version.
+- Promotion rule: nightly verifies first; stable version is updated only when explicitly approved.
