@@ -346,7 +346,43 @@
     "key（推荐）": "key (recommandé)",
     "password（不保存密码）": "password (non enregistré)",
     "key (recommended)": "key (recommandé)",
-    "password (not stored)": "password (non enregistré)"
+    "password (not stored)": "password (non enregistré)",
+    "自动升级（GitHub Release）": "Mise à jour auto (GitHub Release)",
+    "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "Récupérer la version depuis GitHub et exécuter install.sh. Le service peut redémarrer pendant la mise à jour ; une brève déconnexion est normale.",
+    "仓库（owner/repo）": "Dépôt (owner/repo)",
+    "升级分支": "Branche de mise à jour",
+    "stable（稳定版）": "stable (Stable)",
+    "nightly（开发版）": "nightly (Développement)",
+    "目标 Tag（可选）": "Tag cible (optionnel)",
+    "执行自动升级": "Lancer la mise à jour auto",
+    "刷新升级状态": "Actualiser le statut",
+    "自动升级不可用": "Mise à jour auto indisponible",
+    "升级进行中": "Mise à jour en cours",
+    "升级失败": "Mise à jour échouée",
+    "等待执行升级": "En attente de mise à jour",
+    "正在提交升级任务...": "Soumission de la tâche de mise à jour...",
+    "升级任务已入队，正在执行。": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
+    "已有升级任务在执行或当前环境不支持自动升级。": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
+    "升级任务进行中，请勿关闭页面。": "Mise à jour en cours, veuillez ne pas fermer cette page.",
+    "请先填写仓库 owner/repo": "Veuillez d'abord saisir le dépôt owner/repo",
+    "Auto Upgrade (GitHub Release)": "Mise à jour auto (GitHub Release)",
+    "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "Récupérer la version depuis GitHub et exécuter install.sh. Le service peut redémarrer pendant la mise à jour ; une brève déconnexion est normale.",
+    "Repository (owner/repo)": "Dépôt (owner/repo)",
+    "Upgrade Branch": "Branche de mise à jour",
+    "stable (Stable)": "stable (Stable)",
+    "nightly (Development)": "nightly (Développement)",
+    "Target Tag (optional)": "Tag cible (optionnel)",
+    "Run Auto Upgrade": "Lancer la mise à jour auto",
+    "Refresh Upgrade Status": "Actualiser le statut",
+    "Auto upgrade unavailable": "Mise à jour auto indisponible",
+    "Upgrade in progress": "Mise à jour en cours",
+    "Upgrade failed": "Mise à jour échouée",
+    "Waiting to run upgrade": "En attente de mise à jour",
+    "Submitting upgrade task...": "Soumission de la tâche de mise à jour...",
+    "Upgrade task queued, running now.": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
+    "An upgrade task is already running or auto upgrade is not supported.": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
+    "Upgrade in progress, please do not close this page.": "Mise à jour en cours, veuillez ne pas fermer cette page.",
+    "Please enter repository owner/repo first": "Veuillez d'abord saisir le dépôt owner/repo"
   },
   "patterns": [
     {
@@ -576,6 +612,110 @@
     {
       "re": "^当前来源：\\s*(.+)$",
       "to": "Source actuelle : $1"
+    },
+    {
+      "re": "^升级完成：(.+)$",
+      "to": "Mise à jour terminée : $1"
+    },
+    {
+      "re": "^升级失败：(.+)$",
+      "to": "Mise à jour échouée : $1"
+    },
+    {
+      "re": "^自动升级不可用：(.+)$",
+      "to": "Mise à jour auto indisponible : $1"
+    },
+    {
+      "re": "^当前服务器版本：(.+)$",
+      "to": "Version du serveur : $1"
+    },
+    {
+      "re": "^当前分支：(.+)$",
+      "to": "Branche : $1"
+    },
+    {
+      "re": "^仓库：(.+)$",
+      "to": "Dépôt : $1"
+    },
+    {
+      "re": "^请求 Tag：(.+)$",
+      "to": "Tag demandé : $1"
+    },
+    {
+      "re": "^目标版本：(.+)$",
+      "to": "Version cible : $1"
+    },
+    {
+      "re": "^开始：(.+)$",
+      "to": "Début : $1"
+    },
+    {
+      "re": "^结束：(.+)$",
+      "to": "Fin : $1"
+    },
+    {
+      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "to": "Confirmer la mise à jour auto ? $2 sera récupéré depuis $1 et install.sh sera exécuté (le service peut redémarrer)."
+    },
+    {
+      "re": "^留空则升级到所选分支的 latest release$",
+      "to": "Laisser vide pour mettre à jour vers la dernière version de la branche sélectionnée"
+    },
+    {
+      "re": "^例如：(.+)$",
+      "to": "ex. $1"
+    },
+    {
+      "re": "^Upgrade complete: (.+)$",
+      "to": "Mise à jour terminée : $1"
+    },
+    {
+      "re": "^Upgrade failed: (.+)$",
+      "to": "Mise à jour échouée : $1"
+    },
+    {
+      "re": "^Auto upgrade unavailable: (.+)$",
+      "to": "Mise à jour auto indisponible : $1"
+    },
+    {
+      "re": "^Server version: (.+)$",
+      "to": "Version du serveur : $1"
+    },
+    {
+      "re": "^Branch: (.+)$",
+      "to": "Branche : $1"
+    },
+    {
+      "re": "^Repository: (.+)$",
+      "to": "Dépôt : $1"
+    },
+    {
+      "re": "^Requested Tag: (.+)$",
+      "to": "Tag demandé : $1"
+    },
+    {
+      "re": "^Target version: (.+)$",
+      "to": "Version cible : $1"
+    },
+    {
+      "re": "^Started: (.+)$",
+      "to": "Début : $1"
+    },
+    {
+      "re": "^Finished: (.+)$",
+      "to": "Fin : $1"
+    },
+    {
+      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "to": "Confirmer la mise à jour auto ? $1 sera récupéré depuis $2 et install.sh sera exécuté (le service peut redémarrer)."
+    },
+    {
+      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "to": "Laisser vide pour mettre à jour vers la dernière version de la branche sélectionnée"
+    },
+    {
+      "re": "^e\\.g\\. (.+)$",
+      "to": "ex. $1"
     }
   ]
 }

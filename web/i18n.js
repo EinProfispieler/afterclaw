@@ -4,11 +4,11 @@
   var LANG_KEY = "fc-lang";
   var DEFAULT_LANG = "en";
   var FALLBACK_LANG = "zh-CN";
-  var SUPPORTED = ["zh-CN", "zh-TW", "en", "de", "fr", "ja"];
+  var SUPPORTED = ["en", "zh-CN", "zh-TW", "de", "fr", "ja"];
   var LANG_ENDONYMS = {
+    "en": "English",
     "zh-CN": "简体中文",
     "zh-TW": "繁體中文",
-    "en": "English",
     "de": "Deutsch",
     "fr": "Français",
     "ja": "日本語"
