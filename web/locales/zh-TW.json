@@ -358,7 +358,43 @@
     "key（推荐）": "key（建議）",
     "password（不保存密码）": "password（不儲存密碼）",
     "key (recommended)": "key（建議）",
-    "password (not stored)": "password（不儲存密碼）"
+    "password (not stored)": "password（不儲存密碼）",
+    "自动升级（GitHub Release）": "自動升級（GitHub Release）",
+    "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "從 GitHub 拉取發佈包並執行本地 install.sh。升級過程中服務可能重啟，頁面短暫斷開屬於正常現象。",
+    "仓库（owner/repo）": "倉庫（owner/repo）",
+    "升级分支": "升級分支",
+    "stable（稳定版）": "stable（穩定版）",
+    "nightly（开发版）": "nightly（開發版）",
+    "目标 Tag（可选）": "目標 Tag（可選）",
+    "执行自动升级": "執行自動升級",
+    "刷新升级状态": "重新整理升級狀態",
+    "自动升级不可用": "自動升級不可用",
+    "升级进行中": "升級進行中",
+    "升级失败": "升級失敗",
+    "等待执行升级": "等待執行升級",
+    "正在提交升级任务...": "正在提交升級任務...",
+    "升级任务已入队，正在执行。": "升級任務已入隊，正在執行。",
+    "已有升级任务在执行或当前环境不支持自动升级。": "已有升級任務在執行或目前環境不支援自動升級。",
+    "升级任务进行中，请勿关闭页面。": "升級任務進行中，請勿關閉頁面。",
+    "请先填写仓库 owner/repo": "請先填寫倉庫 owner/repo",
+    "Auto Upgrade (GitHub Release)": "自動升級（GitHub Release）",
+    "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "從 GitHub 拉取發佈包並執行本地 install.sh。升級過程中服務可能重啟，頁面短暫斷開屬於正常現象。",
+    "Repository (owner/repo)": "倉庫（owner/repo）",
+    "Upgrade Branch": "升級分支",
+    "stable (Stable)": "stable（穩定版）",
+    "nightly (Development)": "nightly（開發版）",
+    "Target Tag (optional)": "目標 Tag（可選）",
+    "Run Auto Upgrade": "執行自動升級",
+    "Refresh Upgrade Status": "重新整理升級狀態",
+    "Auto upgrade unavailable": "自動升級不可用",
+    "Upgrade in progress": "升級進行中",
+    "Upgrade failed": "升級失敗",
+    "Waiting to run upgrade": "等待執行升級",
+    "Submitting upgrade task...": "正在提交升級任務...",
+    "Upgrade task queued, running now.": "升級任務已入隊，正在執行。",
+    "An upgrade task is already running or auto upgrade is not supported.": "已有升級任務在執行或目前環境不支援自動升級。",
+    "Upgrade in progress, please do not close this page.": "升級任務進行中，請勿關閉頁面。",
+    "Please enter repository owner/repo first": "請先填寫倉庫 owner/repo"
   },
   "patterns": [
     {
@@ -608,6 +644,110 @@
     {
       "re": "^当前来源：\\s*(.+)$",
       "to": "目前來源：$1"
+    },
+    {
+      "re": "^升级完成：(.+)$",
+      "to": "升級完成：$1"
+    },
+    {
+      "re": "^升级失败：(.+)$",
+      "to": "升級失敗：$1"
+    },
+    {
+      "re": "^自动升级不可用：(.+)$",
+      "to": "自動升級不可用：$1"
+    },
+    {
+      "re": "^当前服务器版本：(.+)$",
+      "to": "目前伺服器版本：$1"
+    },
+    {
+      "re": "^当前分支：(.+)$",
+      "to": "目前分支：$1"
+    },
+    {
+      "re": "^仓库：(.+)$",
+      "to": "倉庫：$1"
+    },
+    {
+      "re": "^请求 Tag：(.+)$",
+      "to": "請求 Tag：$1"
+    },
+    {
+      "re": "^目标版本：(.+)$",
+      "to": "目標版本：$1"
+    },
+    {
+      "re": "^开始：(.+)$",
+      "to": "開始：$1"
+    },
+    {
+      "re": "^结束：(.+)$",
+      "to": "結束：$1"
+    },
+    {
+      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "to": "確認執行自動升級？將從 $1 拉取 $2 並執行 install.sh（過程中服務可能重啟）。"
+    },
+    {
+      "re": "^留空则升级到所选分支的 latest release$",
+      "to": "留空則升級到所選分支的 latest release"
+    },
+    {
+      "re": "^例如：(.+)$",
+      "to": "例如：$1"
+    },
+    {
+      "re": "^Upgrade complete: (.+)$",
+      "to": "升級完成：$1"
+    },
+    {
+      "re": "^Upgrade failed: (.+)$",
+      "to": "升級失敗：$1"
+    },
+    {
+      "re": "^Auto upgrade unavailable: (.+)$",
+      "to": "自動升級不可用：$1"
+    },
+    {
+      "re": "^Server version: (.+)$",
+      "to": "目前伺服器版本：$1"
+    },
+    {
+      "re": "^Branch: (.+)$",
+      "to": "目前分支：$1"
+    },
+    {
+      "re": "^Repository: (.+)$",
+      "to": "倉庫：$1"
+    },
+    {
+      "re": "^Requested Tag: (.+)$",
+      "to": "請求 Tag：$1"
+    },
+    {
+      "re": "^Target version: (.+)$",
+      "to": "目標版本：$1"
+    },
+    {
+      "re": "^Started: (.+)$",
+      "to": "開始：$1"
+    },
+    {
+      "re": "^Finished: (.+)$",
+      "to": "結束：$1"
+    },
+    {
+      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "to": "確認執行自動升級？將從 $2 拉取 $1 並執行 install.sh（過程中服務可能重啟）。"
+    },
+    {
+      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "to": "留空則升級到所選分支的 latest release"
+    },
+    {
+      "re": "^e\\.g\\. (.+)$",
+      "to": "例如：$1"
     }
   ]
 }
