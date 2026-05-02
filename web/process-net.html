@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>网盘进程网络明细</title>
+  <script>
+    (function(){
+      try {
+        var t = localStorage.getItem("fc-theme");
+        if (!t) { t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+        document.documentElement.setAttribute("data-theme", t);
+      } catch(e){}
+    })();
+  </script>
+  <link rel="stylesheet" href="/dashboard.css" />
+  <style>
+.meta-line { margin: 6px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.mono { font-family: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.tbl-wrap { border: 1px solid var(--border); border-radius: 10px; overflow: auto; background: var(--surface-soft); }
+table { width: 100%; border-collapse: collapse; min-width: 820px; }
+th, td { border-bottom: 1px solid var(--border); padding: 8px 10px; text-align: left; font-size: 13px; vertical-align: top; }
+th { font-weight: 700; color: var(--text); background: var(--surface, var(--surface-elevated)); }
+td { color: var(--text); }
+tr:last-child td { border-bottom: 0; }
+.right { text-align: right; }
+.theme-toggle {
+  background: var(--secondary-bg);
+  color: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+.theme-toggle:hover { background: var(--secondary-bg-hover); color: var(--text); }
+
+.filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--hero-tone) 24%, var(--border) 76%);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--hero-tone) 18%, rgba(15, 23, 42, 0.08) 82%);
+}
+:root[data-theme="dark"] .filter-tabs {
+  background: rgba(30, 41, 59, 0.85);
+}
+.filter-tab {
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.filter-tab:hover { color: var(--text); background: var(--surface-hover); }
+.filter-tab.active {
+  background: var(--hero-tone);
+  color: #fff;
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--hero-tone) 45%, transparent);
+}
+.filter-tab.config-btn {
+  margin-left: auto;
+  font-size: 16px;
+  padding: 6px 12px;
+}
+
+.tab-bar-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: var(--bg-card);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  width: min(420px, calc(100vw - 40px));
+  padding: 24px;
+  animation: fadeIn 0.15s ease;
+}
+.modal-box h2 { margin: 0 0 16px; font-size: 18px; font-weight: 750; color: var(--text); }
+.config-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.config-item:hover { background: var(--surface-hover); }
+.config-item input[type="checkbox"] { width: 18px; height: 18px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+.config-item .cfg-label { font-weight: 600; font-size: 14px; color: var(--text); flex: 1; }
+.config-item .cfg-hint { font-size: 12px; color: var(--text-muted); }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-head">
+      <div class="head-row">
+        <div>
+          <h1>网盘进程网络明细</h1>
+          <p class="page-sub">按进程查看百度网盘/光鸭/阿里云盘 TCP 连接、PID 与实时上下行速度。</p>
+          <p class="meta-line">数据源：<code id="apiHost" class="mono">-</code></p>
+          <p class="meta-line">当前服务器版本：<code id="versionText" class="mono">-</code></p>
+          <p class="meta-line">采样说明：仅统计 <code>ss -tinpH</code> 能看到的 TCP 连接；若客户端走 QUIC/UDP，此页不会覆盖全部流量。</p>
+        </div>
+        <div class="head-actions">
+          <button id="themeBtn" type="button" class="theme-toggle" title="切换主题">🌓</button>
+          <button id="refreshBtn" type="button">刷新</button>
+          <button id="pauseBtn" type="button" class="secondary">暂停轮询</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <span class="card-title">来源汇总</span>
+        <div class="tbl-wrap">
+          <table id="sourceTable">
+            <thead>
+              <tr>
+                <th>来源</th>
+                <th class="right">连接数</th>
+                <th class="right">ESTAB</th>
+                <th class="right">下载 MiB/s</th>
+                <th class="right">上传 MiB/s</th>
+              </tr>
+            </thead>
+            <tbody id="sourceBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="tab-bar-wrap" id="tabBarWrap"></div>
+
+      <section class="card">
+        <span class="card-title">连接明细</span>
+        <div class="tbl-wrap">
+          <table id="detailTable">
+            <thead>
+              <tr>
+                <th>来源</th>
+                <th>进程</th>
+                <th class="right">PID</th>
+                <th>状态</th>
+                <th class="mono">本地端点</th>
+                <th class="mono">对端端点</th>
+                <th class="right">下载 MiB/s</th>
+                <th class="right">上传 MiB/s</th>
+              </tr>
+            </thead>
+            <tbody id="detailBody"></tbody>
+          </table>
+        </div>
+        <div id="statusText" class="status-bar muted">准备中...</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="configModal">
+    <div class="modal-box">
+      <h2>显示来源配置</h2>
+      <div class="config-list" id="configList"></div>
+      <div class="modal-footer">
+        <button class="secondary" id="configCancel">取消</button>
+        <button id="configSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    "use strict";
+    var API_BASE = location.origin;
+
+    var ALL_SOURCES = [
+      { key: "baidu",     label: "百度网盘",   hint: "BaiduNetdisk" },
+      { key: "ali",       label: "阿里云盘",   hint: "aDrive" },
+      { key: "guangya",   label: "光鸭网盘",   hint: "CloudDrive" },
+      { key: "dropbox",   label: "Dropbox",      hint: "Dropbox" },
+      { key: "mega",      label: "MEGA",         hint: "mega" },
+      { key: "onedrive",  label: "OneDrive",     hint: "OneDrive" },
+      { key: "gdrive",    label: "Google Drive",  hint: "Google Drive" }
+    ];
+    var CONFIG_KEY = "process-net-sources";
+    var ACTIVE_TAB_KEY = "process-net-active-tab";
+
+    var running = true;
+    var timer = 0;
+    var activeTab = "";
+    var lastItems = [];
+
+    var sourceBody = document.getElementById("sourceBody");
+    var detailBody = document.getElementById("detailBody");
+    var statusText = document.getElementById("statusText");
+    var versionText = document.getElementById("versionText");
+    var refreshBtn = document.getElementById("refreshBtn");
+    var pauseBtn = document.getElementById("pauseBtn");
+    var themeBtn = document.getElementById("themeBtn");
+    var apiHostEl = document.getElementById("apiHost");
+    var tabBarWrap = document.getElementById("tabBarWrap");
+    var configModal = document.getElementById("configModal");
+    var configList = document.getElementById("configList");
+    var configSave = document.getElementById("configSave");
+    var configCancel = document.getElementById("configCancel");
+
+    if (apiHostEl) apiHostEl.textContent = API_BASE;
+
+    function loadConfig() {
+      try {
+        var raw = localStorage.getItem(CONFIG_KEY);
+        if (raw) return JSON.parse(raw);
+      } catch(e) {}
+      var def = {};
+      for (var i = 0; i < ALL_SOURCES.length; i++) def[ALL_SOURCES[i].key] = true;
+      return def;
+    }
+    function saveConfig(cfg) {
+      try { localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg)); } catch(e) {}
+    }
+    function getEnabledSources() {
+      var cfg = loadConfig();
+      var out = [];
+      for (var i = 0; i < ALL_SOURCES.length; i++) {
+        if (cfg[ALL_SOURCES[i].key]) out.push(ALL_SOURCES[i]);
+      }
+      return out;
+    }
+
+    function loadActiveTab() {
+      try { return localStorage.getItem(ACTIVE_TAB_KEY) || ""; } catch(e) { return ""; }
+    }
+    function saveActiveTab(t) {
+      try { localStorage.setItem(ACTIVE_TAB_KEY, t); } catch(e) {}
+    }
+    activeTab = loadActiveTab();
+
+    themeBtn.addEventListener("click", function(){
+      var cur = document.documentElement.getAttribute("data-theme") || "light";
+      var next = cur === "dark" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      try { localStorage.setItem("fc-theme", next); } catch(e){}
+    });
+
+    function fmtNum(v, d){
+      var n = Number(v || 0);
+      if (!Number.isFinite(n)) n = 0;
+      return n.toFixed(d);
+    }
+    function esc(v){
+      return String(v == null ? "" : v)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+    async function apiJson(url){
+      var r = await fetch(url, { cache: "no-store" });
+      var d = await r.json().catch(function(){ return {}; });
+      if (!r.ok) throw new Error((d && d.error) || ("请求失败 " + r.status));
+      return d;
+    }
+
+    function matchSourceKey(sourceLabel) {
+      var sl = String(sourceLabel || "").toLowerCase();
+      for (var i = 0; i < ALL_SOURCES.length; i++) {
+        var s = ALL_SOURCES[i];
+        if (sl === s.label.toLowerCase() || sl === s.key.toLowerCase() || sl === s.hint.toLowerCase()) return s.key;
+      }
+      return "";
+    }
+
+    function renderTabs() {
+      var enabled = getEnabledSources();
+      if (enabled.length === 0) {
+        tabBarWrap.innerHTML = "";
+        return;
+      }
+      var html = '<div class="filter-tabs">';
+      var allActive = !activeTab ? " active" : "";
+      html += '<button type="button" class="filter-tab' + allActive + '" data-tab="">全部</button>';
+      for (var i = 0; i < enabled.length; i++) {
+        var s = enabled[i];
+        var cls = activeTab === s.key ? " active" : "";
+        html += '<button type="button" class="filter-tab' + cls + '" data-tab="' + esc(s.key) + '">' + esc(s.label) + '</button>';
+      }
+      html += '<button type="button" class="filter-tab config-btn" data-action="config" title="配置显示来源">⚙️</button>';
+      html += '</div>';
+      tabBarWrap.innerHTML = html;
+
+      var btns = tabBarWrap.querySelectorAll(".filter-tab");
+      for (var j = 0; j < btns.length; j++) {
+        btns[j].addEventListener("click", onTabClick);
+      }
+    }
+
+    function onTabClick(e) {
+      var btn = e.currentTarget;
+      if (btn.dataset.action === "config") {
+        openConfig();
+        return;
+      }
+      activeTab = btn.dataset.tab || "";
+      saveActiveTab(activeTab);
+      renderTabs();
+      renderDetails(lastItems);
+    }
+
+    function openConfig() {
+      var cfg = loadConfig();
+      var html = "";
+      for (var i = 0; i < ALL_SOURCES.length; i++) {
+        var s = ALL_SOURCES[i];
+        var checked = cfg[s.key] ? " checked" : "";
+        html += '<label class="config-item">'
+          + '<input type="checkbox" data-key="' + esc(s.key) + '"' + checked + ' />'
+          + '<span class="cfg-label">' + esc(s.label) + '</span>'
+          + '<span class="cfg-hint">' + esc(s.hint) + '</span>'
+          + '</label>';
+      }
+      configList.innerHTML = html;
+      configModal.classList.add("open");
+    }
+    function closeConfig() {
+      configModal.classList.remove("open");
+    }
+    configCancel.addEventListener("click", closeConfig);
+    configModal.addEventListener("click", function(e) {
+      if (e.target === configModal) closeConfig();
+    });
+    configSave.addEventListener("click", function() {
+      var boxes = configList.querySelectorAll("input[type=checkbox]");
+      var cfg = {};
+      for (var i = 0; i < boxes.length; i++) {
+        cfg[boxes[i].dataset.key] = boxes[i].checked;
+      }
+      saveConfig(cfg);
+      closeConfig();
+      var enabledKeys = {};
+      var enabled = getEnabledSources();
+      for (var j = 0; j < enabled.length; j++) enabledKeys[enabled[j].key] = true;
+      if (activeTab && !enabledKeys[activeTab]) {
+        activeTab = "";
+        saveActiveTab(activeTab);
+      }
+      renderTabs();
+      renderDetails(lastItems);
+    });
+
+    function renderSources(rows){
+      var list = Array.isArray(rows) ? rows : [];
+      sourceBody.innerHTML = "";
+      if (!list.length) {
+        sourceBody.innerHTML = '<tr><td colspan="5" class="muted">暂无数据</td></tr>';
+        return;
+      }
+      var html = [];
+      for (var i = 0; i < list.length; i++) {
+        var x = list[i] || {};
+        html.push(
+          "<tr>"
+          + "<td>" + esc(x.source || "-") + "</td>"
+          + "<td class='right'>" + esc(String(Number(x.conn_count || 0))) + "</td>"
+          + "<td class='right'>" + esc(String(Number(x.estab_count || 0))) + "</td>"
+          + "<td class='right'>" + esc(fmtNum(x.download_mibps, 2)) + "</td>"
+          + "<td class='right'>" + esc(fmtNum(x.upload_mibps, 2)) + "</td>"
+          + "</tr>"
+        );
+      }
+      sourceBody.innerHTML = html.join("");
+    }
+    function renderDetails(rows){
+      var list = Array.isArray(rows) ? rows : [];
+      lastItems = list;
+      var enabledKeys = {};
+      var enabled = getEnabledSources();
+      for (var j = 0; j < enabled.length; j++) enabledKeys[enabled[j].key] = true;
+
+      var filtered = [];
+      for (var i = 0; i < list.length; i++) {
+        var x = list[i] || {};
+        var key = matchSourceKey(x.source);
+        if (activeTab) {
+          if (key === activeTab) filtered.push(x);
+        } else {
+          filtered.push(x);
+        }
+      }
+      detailBody.innerHTML = "";
+      if (!filtered.length) {
+        detailBody.innerHTML = '<tr><td colspan="8" class="muted">暂无连接</td></tr>';
+        return;
+      }
+      var html = [];
+      for (var k = 0; k < filtered.length; k++) {
+        var r = filtered[k] || {};
+        html.push(
+          "<tr>"
+          + "<td>" + esc(r.source || "-") + "</td>"
+          + "<td>" + esc(r.process || "-") + "</td>"
+          + "<td class='right'>" + esc(String(Number(r.pid || 0))) + "</td>"
+          + "<td>" + esc(r.state || "-") + "</td>"
+          + "<td class='mono'>" + esc(r.local_ep || "-") + "</td>"
+          + "<td class='mono'>" + esc(r.peer_ep || "-") + "</td>"
+          + "<td class='right'>" + esc(fmtNum(r.download_mibps, 2)) + "</td>"
+          + "<td class='right'>" + esc(fmtNum(r.upload_mibps, 2)) + "</td>"
+          + "</tr>"
+        );
+      }
+      detailBody.innerHTML = html.join("");
+    }
+    function setStatus(msg, isErr){
+      statusText.textContent = String(msg || "");
+      statusText.className = isErr ? "status-bar err" : "status-bar muted";
+    }
+    async function loadData(){
+      var d = await apiJson(API_BASE + "/api/process-net");
+      renderSources(d.source_stats || []);
+      renderDetails(d.items || []);
+      var delta = Number(d.delta_sec || 0);
+      var sample = Number(d.sample_ts || 0);
+      var count = Number(d.count || 0);
+      var when = sample > 0 ? new Date(sample * 1000).toLocaleTimeString() : "-";
+      setStatus("连接数 " + count + " | 采样间隔 " + fmtNum(delta, 2) + "s | 最近采样 " + when, false);
+      if (versionText) {
+        versionText.textContent = String(d.current_version || "-");
+      }
+      if (d.current_version) {
+        document.title = "网盘进程网络明细 · " + String(d.current_version);
+      }
+      return d;
+    }
+    function schedule(){
+      if (timer) clearTimeout(timer);
+      if (!running) return;
+      timer = setTimeout(function(){
+        loadData().catch(function(err){
+          setStatus("加载失败：" + (err && err.message ? err.message : err), true);
+        }).finally(schedule);
+      }, 2000);
+    }
+    refreshBtn.addEventListener("click", function(){
+      loadData().catch(function(err){
+        setStatus("加载失败：" + (err && err.message ? err.message : err), true);
+      });
+    });
+    pauseBtn.addEventListener("click", function(){
+      running = !running;
+      pauseBtn.textContent = running ? "暂停轮询" : "恢复轮询";
+      if (running) {
+        schedule();
+      } else if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+    });
+    renderTabs();
+    loadData().catch(function(err){
+      setStatus("加载失败：" + (err && err.message ? err.message : err), true);
+    }).finally(schedule);
+  })();
+  </script>
+</body>
+</html>
