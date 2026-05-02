@@ -29,13 +29,13 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import ddns
 from fcc import __version__ as FCC_APP_VERSION
-from fcc import __branch__ as FCC_APP_BRANCH
+from fcc.modules.monitor.process_net import ProcessSourceSpeedSampler
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
 
 _CODE_DIR = Path(__file__).resolve().parent
 _LEGACY_APP_ROOT_DIR = _CODE_DIR.parent
-# 兼容旧版本：此前错误地把 app_root 指向了上级目录（如 /opt）。
+# 兼容旧版本：此前错误地把 app_root 指向了Parent目录（如 /opt）。
 _APP_ROOT_DIR = _CODE_DIR if (_CODE_DIR / "web").is_dir() else _LEGACY_APP_ROOT_DIR
 os.environ.setdefault(
     "SHARECLIP_STORAGE_ROOT",
@@ -47,7 +47,7 @@ _shareclip_import_lock = threading.Lock()
 
 
 def get_shareclip_app():
-    """惰性加载 ShareClip（Flask），与同进程中控服务共用，无需单独监听 8888。"""
+    """惰性加载 ShareClip（Flask），与同进程Control服务共用，无需单独监听 8888。"""
     global _shareclip_app
     if _shareclip_app is None:
         with _shareclip_import_lock:
@@ -108,25 +108,25 @@ THEME_BG_ALLOWED_EXTENSIONS = {
 }
 SOURCE_POOL_KEYS = ("baidu", "guangya", "aliyun")
 SOURCE_POOL_LABELS = {
-    "baidu": "百度网盘",
-    "guangya": "光鸭网盘",
-    "aliyun": "阿里云盘",
+    "baidu": "Baidu Netdisk",
+    "guangya": "Guangya Netdisk",
+    "aliyun": "Aliyun Drive",
 }
 SOURCE_POOL_KEY_ALIASES = {
     "baidu": "baidu",
     "百度": "baidu",
-    "百度网盘": "baidu",
+    "Baidu Netdisk": "baidu",
     "xpan": "baidu",
     "pan.baidu": "baidu",
     "netdisk": "baidu",
     "guangya": "guangya",
     "光鸭": "guangya",
-    "光鸭网盘": "guangya",
+    "Guangya Netdisk": "guangya",
     "aliyun": "aliyun",
     "alipan": "aliyun",
     "阿里": "aliyun",
     "阿里云": "aliyun",
-    "阿里云盘": "aliyun",
+    "Aliyun Drive": "aliyun",
 }
 DEFAULT_SOURCE_IP_POOL_SOURCE = (
     os.environ.get("SOURCE_IP_POOL_SOURCE", "").strip()
@@ -150,55 +150,6 @@ APP_VERSION_TEXT = (
     if APP_VERSION and APP_VERSION.lower() != "unknown"
     else str(APP_VERSION or "unknown")
 )
-
-
-def _normalize_upgrade_branch(value, default: str = "main") -> str:
-    raw = str(value or "").strip().lower()
-    if raw == "stable":
-        raw = "main"
-    if raw not in ("main", "nightly"):
-        raw = str(default or "main").strip().lower()
-        if raw == "stable":
-            raw = "main"
-    if raw not in ("main", "nightly"):
-        raw = "main"
-    return raw
-
-
-APP_BRANCH = _normalize_upgrade_branch(FCC_APP_BRANCH or "", "main")
-UPGRADE_RELEASE_CACHE_TTL = 30.0
-UPGRADE_RELEASE_CACHE_LOCK = threading.Lock()
-UPGRADE_RELEASE_CACHE: dict[tuple[str, str], dict] = {}
-
-
-def _version_aliases(value) -> set[str]:
-    raw = str(value or "").strip().lower()
-    if not raw:
-        return set()
-    if raw.startswith("v"):
-        raw = raw[1:]
-    aliases = {raw}
-    if raw.endswith(".dev0"):
-        base = raw[: -len(".dev0")]
-        aliases.add(base + "-nightly")
-        aliases.add(base + ".nightly")
-    if raw.endswith("-nightly"):
-        base = raw[: -len("-nightly")]
-        aliases.add(base + ".dev0")
-        aliases.add(base + ".nightly")
-    if raw.endswith(".nightly"):
-        base = raw[: -len(".nightly")]
-        aliases.add(base + ".dev0")
-        aliases.add(base + "-nightly")
-    return {x for x in aliases if x}
-
-
-def _is_same_version(current_version: str, target_tag: str) -> bool:
-    a = _version_aliases(current_version)
-    b = _version_aliases(target_tag)
-    if not a or not b:
-        return False
-    return bool(a.intersection(b))
 
 
 def _page_title_with_version(title: str) -> str:
@@ -295,16 +246,9 @@ def _default_upgrade_status() -> dict:
         "running": False,
         "state": "idle",
         "current_version": APP_VERSION_TEXT,
-        "current_branch": APP_BRANCH,
         "repo": DEFAULT_UPGRADE_GITHUB_REPO,
-        "requested_branch": "main",
         "requested_tag": "",
         "target_tag": "",
-        "latest_tag": "",
-        "latest_release_url": "",
-        "up_to_date": False,
-        "upgrade_available": True,
-        "progress_pct": 0.0,
         "release_url": "",
         "message": "",
         "error": "",
@@ -331,19 +275,8 @@ def _read_upgrade_status(app_root: Path = _APP_ROOT_DIR) -> dict:
         base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
-    base["current_branch"] = _normalize_upgrade_branch(base.get("current_branch"), APP_BRANCH)
-    base["requested_branch"] = _normalize_upgrade_branch(base.get("requested_branch"), "main")
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
-    base["latest_tag"] = str(base.get("latest_tag", "") or "").strip()
-    base["latest_release_url"] = str(base.get("latest_release_url", "") or "").strip()
-    base["up_to_date"] = bool(base.get("up_to_date"))
-    base["upgrade_available"] = bool(base.get("upgrade_available", not base["up_to_date"]))
-    try:
-        base["progress_pct"] = float(base.get("progress_pct", 0.0) or 0.0)
-    except Exception:
-        base["progress_pct"] = 0.0
-    base["progress_pct"] = max(0.0, min(100.0, base["progress_pct"]))
     base["running"] = bool(base.get("running"))
     base["state"] = str(base.get("state", "idle") or "idle").strip() or "idle"
     return base
@@ -357,19 +290,8 @@ def _write_upgrade_status(status: dict, app_root: Path = _APP_ROOT_DIR) -> dict:
         base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
-    base["current_branch"] = _normalize_upgrade_branch(base.get("current_branch"), APP_BRANCH)
-    base["requested_branch"] = _normalize_upgrade_branch(base.get("requested_branch"), "main")
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
-    base["latest_tag"] = str(base.get("latest_tag", "") or "").strip()
-    base["latest_release_url"] = str(base.get("latest_release_url", "") or "").strip()
-    base["up_to_date"] = bool(base.get("up_to_date"))
-    base["upgrade_available"] = bool(base.get("upgrade_available", not base["up_to_date"]))
-    try:
-        base["progress_pct"] = float(base.get("progress_pct", 0.0) or 0.0)
-    except Exception:
-        base["progress_pct"] = 0.0
-    base["progress_pct"] = max(0.0, min(100.0, base["progress_pct"]))
     base["running"] = bool(base.get("running"))
     base["state"] = str(base.get("state", "idle") or "idle").strip() or "idle"
     base["updated_at"] = _utc_now_iso()
@@ -813,119 +735,36 @@ def _http_download_file(
     return int(total)
 
 
-def _github_release_payload(repo: str, tag: str = "", branch: str = "main") -> dict:
+def _github_release_payload(repo: str, tag: str = "") -> dict:
     safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
     safe_tag = _normalize_upgrade_tag(tag)
     owner, name = safe_repo.split("/", 1)
-    safe_branch = _normalize_upgrade_branch(branch, "main")
-    headers = {"Accept": "application/vnd.github+json", "User-Agent": "afterclaw-updater/1.0"}
     if safe_tag:
         api_url = (
             f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
             f"/releases/tags/{quote(safe_tag)}"
         )
-        try:
-            data = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                raise ValueError(f"未找到发布版本：{safe_tag}") from exc
-            raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
-        except Exception as exc:
-            raise RuntimeError(f"读取 GitHub Release 失败：{exc}") from exc
-        if not isinstance(data, dict):
-            raise RuntimeError("GitHub Release 返回格式异常")
-        return data
-    if safe_branch == "nightly":
+    else:
         api_url = (
             f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
-            "/releases?per_page=30"
+            "/releases/latest"
         )
-        try:
-            releases = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
-        except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
-        except Exception as exc:
-            raise RuntimeError(f"读取 GitHub Release 失败：{exc}") from exc
-        if not isinstance(releases, list):
-            raise RuntimeError("GitHub Release 返回格式异常")
-        for rel in releases:
-            tag_name = str(rel.get("tag_name") or "").lower()
-            is_pre = bool(rel.get("prerelease"))
-            if is_pre or "nightly" in tag_name:
-                return rel
-        # 某些仓库不会发布 prerelease/nightly tag，回退到 nightly 分支 HEAD 打包。
-        branch_api_url = (
-            f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
-            "/branches/nightly"
-        )
-        try:
-            branch_data = _http_fetch_json(
-                branch_api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers
-            )
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                raise ValueError("仓库暂无可用 nightly Release，且未找到 nightly 分支") from exc
-            raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
-        except Exception as exc:
-            raise RuntimeError(f"读取 nightly 分支信息失败：{exc}") from exc
-        if not isinstance(branch_data, dict):
-            raise RuntimeError("GitHub nightly 分支返回格式异常")
-        commit = branch_data.get("commit") if isinstance(branch_data.get("commit"), dict) else {}
-        sha = str(commit.get("sha") or "").strip()
-        short_sha = sha[:8] if sha else "latest"
-        html_url = str(commit.get("html_url") or "").strip() or (
-            f"https://github.com/{safe_repo}/tree/nightly"
-        )
-        return {
-            "tag_name": f"nightly-{short_sha}",
-            "name": f"nightly@{short_sha}",
-            "prerelease": True,
-            "draft": False,
-            "html_url": html_url,
-            "tarball_url": (
-                f"https://api.github.com/repos/{quote(owner)}/{quote(name)}/tarball/nightly"
-            ),
-            "_source": "nightly-branch",
-        }
-    api_url = (
-        f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
-        "/releases/latest"
-    )
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "afterclaw-updater/1.0"}
     try:
         data = _http_fetch_json(api_url, timeout=UPGRADE_HTTP_TIMEOUT, headers=headers)
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
+            if safe_tag:
+                raise ValueError(f"未找到发布版本：{safe_tag}") from exc
             raise ValueError("仓库暂无可用 Release") from exc
         raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"连接 GitHub 失败：{exc}") from exc
+        raise RuntimeError(f"Connect GitHub failed: {exc}") from exc
     except Exception as exc:
-        raise RuntimeError(f"读取 GitHub Release 失败：{exc}") from exc
+        raise RuntimeError(f"读取 GitHub Release failed: {exc}") from exc
     if not isinstance(data, dict):
         raise RuntimeError("GitHub Release 返回格式异常")
     return data
-
-
-def _latest_release_for_branch(repo: str, branch: str, force_refresh: bool = False) -> dict:
-    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
-    safe_branch = _normalize_upgrade_branch(branch, "main")
-    cache_key = (safe_repo, safe_branch)
-    now = time.time()
-    if not force_refresh:
-        with UPGRADE_RELEASE_CACHE_LOCK:
-            cached = UPGRADE_RELEASE_CACHE.get(cache_key)
-            if cached and (now - float(cached.get("ts", 0.0) or 0.0) <= UPGRADE_RELEASE_CACHE_TTL):
-                return dict(cached.get("payload") or {})
-    payload = _github_release_payload(safe_repo, "", safe_branch)
-    with UPGRADE_RELEASE_CACHE_LOCK:
-        UPGRADE_RELEASE_CACHE[cache_key] = {"ts": now, "payload": dict(payload)}
-    return payload
 
 
 def _parse_github_source_spec(source: str) -> dict:
@@ -991,7 +830,7 @@ def _fetch_source_ip_pools_from_github_spec(source: str) -> dict:
                 raise ValueError(f"GitHub 路径不存在：{rel_path}") from exc
             raise RuntimeError(f"GitHub API 错误（HTTP {exc.code}）") from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(f"GitHub 连接失败：{exc}") from exc
+            raise RuntimeError(f"GitHub Connect失败：{exc}") from exc
         except Exception as exc:
             raise RuntimeError(f"读取 GitHub 目录失败：{exc}") from exc
 
@@ -1038,7 +877,7 @@ def _fetch_source_ip_pools_from_github_spec(source: str) -> dict:
 
     normalized = _normalize_source_ip_pools(pools)
     if not any(normalized.get(k) for k in SOURCE_POOL_KEYS):
-        raise ValueError("GitHub 源中未发现可识别的来源 IP 文件（需包含 baidu/guangya/aliyun 命名）")
+        raise ValueError("GitHub 源中未发现可识别的Source IP 文件（需包含 baidu/guangya/aliyun 命名）")
     return {
         "source": parsed["display"],
         "pools": normalized,
@@ -1154,7 +993,7 @@ def _build_terminal_launch_meta(cfg: dict) -> dict:
         else:
             command = base_cmd
     tip = (
-        "密码模式不会保存密码，点击后在终端内手工输入。"
+        "密码模式不会Save密码，点击后在终端内手工输入。"
         if auth_mode == "password"
         else (
             "推荐使用私钥模式；确保目标机器已授权该公钥。"
@@ -1188,7 +1027,7 @@ def _build_terminal_ssh_argv(cfg: dict) -> tuple[list[str], dict]:
     user = str(meta.get("user", "root") or "").strip() or "root"
     port = _normalize_ssh_port(meta.get("port", 22), 22)
     if not host:
-        raise ValueError("未配置 Terminal Host")
+        raise ValueError("Not configured Terminal Host")
     argv = ["ssh", "-p", str(port)]
     auth_mode = str(meta.get("auth_mode", "key") or "key").strip().lower()
     key_file = _normalize_terminal_key_file_name(meta.get("key_file", ""))
@@ -1202,9 +1041,9 @@ def _build_terminal_ssh_argv(cfg: dict) -> tuple[list[str], dict]:
         elif key_path:
             key_target = Path(os.path.expanduser(key_path))
         if key_target is None:
-            raise ValueError("未配置 SSH key（可填 key_path，或配置目录 key 文件名）")
+            raise ValueError("Not configured SSH key（可填 key_path，或配置目录 key 文件名）")
         if not key_target.exists() or not key_target.is_file():
-            raise ValueError(f"SSH key 文件不存在: {key_target}")
+            raise ValueError(f"SSH key File does not exist: {key_target}")
         try:
             os.chmod(str(key_target), 0o600)
         except Exception:
@@ -1250,6 +1089,15 @@ def default_app_config() -> dict:
         "ui": {
             "hero_preset": "default",
             "hero_custom_bg_file": "",
+        },
+        "netdisk_sources": {
+            "baidu": True,
+            "ali": True,
+            "guangya": True,
+            "dropbox": False,
+            "mega": False,
+            "onedrive": False,
+            "gdrive": False,
         },
     }
 
@@ -1337,6 +1185,12 @@ def normalize_app_config(raw) -> dict:
                 base["ui"]["hero_custom_bg_file"] = _normalize_theme_bg_file_name(
                     ui.get("hero_custom_bg_file")
                 )
+        nd = raw.get("netdisk_sources")
+        if isinstance(nd, dict):
+            nd_cfg = base.setdefault("netdisk_sources", {})
+            for k in ("baidu", "ali", "guangya", "dropbox", "mega", "onedrive", "gdrive"):
+                if k in nd:
+                    nd_cfg[k] = bool(nd.get(k))
     if base["terminal"]["auth_mode"] not in ("key", "password"):
         base["terminal"]["auth_mode"] = "key"
     base["http_service"]["root_dir"] = _normalize_abs_dir_setting(
@@ -1405,8 +1259,8 @@ def safe_relative_path(value: str) -> str:
 
 
 def build_pub_embed_css() -> str:
-    """ShareClip 内嵌页：与中控台主题变量一致，随 data-theme 切换深浅色。"""
-    return """/* ShareClip embed — 与中控台联动 data-theme */
+    """ShareClip 内嵌页：与Control台Theme变量一致，随 data-theme 切换深浅色。"""
+    return """/* ShareClip embed — link with Control panel data-theme */
 :root, :root[data-theme="light"] {
   --bg: #e8ecf4;
   --text: #1c2333;
@@ -1633,7 +1487,7 @@ def _inject_pub_theme_link(html: str) -> str:
     else:
         html += spa_script
 
-    # 避免与中控台 /config 冲突：ShareClip 配置页改走 /clip-config 代理入口。
+    # 避免与Control台 /config 冲突：ShareClip 配置页改走 /clip-config 代理入口。
     html = html.replace('href="/config"', 'href="/clip-config"')
     html = html.replace("href='/config'", "href='/clip-config'")
     html = html.replace('action="/config"', 'action="/clip-config"')
@@ -1708,7 +1562,7 @@ def build_frontend_html() -> str:
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>文件中控台</title>
+  <title>File Control Center</title>
   <script>
     (function(){
       try {
@@ -1728,25 +1582,25 @@ def build_frontend_html() -> str:
   <header class="page-head page-head-dashboard">
     <div class="head-row head-row-dashboard">
       <div class="head-main">
-        <h1>文件中控台</h1>
+        <h1>File Control Center</h1>
       </div>
     </div>
   </header>
 
   <div class="tabs-row">
     <div class="tabs">
-      <button id="tabMonitorBtn" class="tab-btn active" type="button">中控</button>
-      <button id="tabDirBtn" class="tab-btn" type="button">目录服务</button>
+      <button id="tabMonitorBtn" class="tab-btn active" type="button">Control</button>
+      <button id="tabDirBtn" class="tab-btn" type="button">Directory Service</button>
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
     <div class="tabs-actions">
       <a id="terminalQuickLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect><path d="M7.5 10.5 L10 12.5 L7.5 14.5"></path><line x1="11.5" y1="14.5" x2="15.8" y2="14.5"></line><line x1="9" y1="19.5" x2="15" y2="19.5"></line></svg></a>
-      <a href="/config" class="gear-btn" title="Config" aria-label="Config">&#9881;</a>
-      <button type="button" id="themeToggleBtn" class="secondary">浅色模式</button>
+      <a href="/config" class="gear-btn" title="Config" aria-label="Config">⚙️</a>
+      <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme">🌓</button>
       <select id="langSelect" class="lang-select" title="Language">
-        <option value="en">English</option>
         <option value="zh-CN">简体中文</option>
         <option value="zh-TW">繁體中文</option>
+        <option value="en">English</option>
         <option value="de">Deutsch</option>
         <option value="fr">Français</option>
         <option value="ja">日本語</option>
@@ -1756,53 +1610,53 @@ def build_frontend_html() -> str:
 
   <div id="tabDirPanel" class="tab-panel">
   <div class="card">
-    <span class="card-title">目录与批量链接</span>
+    <span class="card-title">Directories & Bulk Links</span>
     <div class="kv-line"><strong>存储根目录</strong><span id="storageText">-</span></div>
     <div class="kv-line"><strong>公开访问域名</strong><span id="publicBaseText">-</span></div>
     <div class="kv-line"><strong>当前目录</strong><span id="currentDirText">.</span></div>
     <div class="toolbar">
       <div class="toolbar-left">
-        <button id="refreshBtn" class="secondary">刷新目录</button>
-        <button id="backBtn" class="secondary">返回上级</button>
-        <button id="copyDirNameBtn" class="secondary">复制当前目录名</button>
-        <button id="listBtn">生成当前目录所有文件 HTTP 链接</button>
-        <button id="copyBtn" class="secondary">复制全部链接</button>
+        <button id="refreshBtn" class="secondary">Refresh directory</button>
+        <button id="backBtn" class="secondary">Go parent</button>
+        <button id="copyDirNameBtn" class="secondary">Copy current directory name</button>
+        <button id="listBtn">Generate HTTP links for all files in current directory</button>
+        <button id="copyBtn" class="secondary">Copy all links</button>
       </div>
     </div>
-    <label>子目录（点击直接进入）</label>
+    <label>Subdirectories (click to enter)</label>
     <div id="dirList" class="dir-list"></div>
     <div class="status-row">
       <div id="status" class="status-bar muted"></div>
-      <div id="dirStatsText" class="status-bar muted dir-summary">文件 0 · 目录 0 · 大小 0B</div>
+      <div id="dirStatsText" class="status-bar muted dir-summary">Files 0 · Dirs 0 · Size 0B</div>
     </div>
   </div>
 
   <div class="card">
     <details class="card-fold">
       <summary class="card-collapse-btn">
-        <span class="card-title" style="margin-bottom:0;">目录名清洗 / 批量重命名</span>
+        <span class="card-title" style="margin-bottom:0;">Name Cleanup / Batch Rename</span>
         <span class="card-collapse-arrow" aria-hidden="true">▶</span>
       </summary>
       <div id="cleanBody" class="card-fold-body">
-      <p class="muted" style="margin:0 0 10px;">在<strong>当前相对目录</strong>下重命名；先预览再执行。可去掉宣传段、中文，并将 <code>S02</code> 季号挪到「首个 20xx 年」前（点分节）。</p>
-      <label for="cleanSubstrings">要删除的子串（每行一个）</label>
-      <textarea id="cleanSubstrings" style="min-height:72px;font-size:12px;" placeholder="例如整段：￡cXcY@FRDS"></textarea>
+      <p class="muted" style="margin:0 0 10px;">在<strong>当前相对目录</strong>下重命名；先Preview再执行。可去掉宣传段、中文，并将 <code>S02</code> 季号挪到「首个 20xx 年」前（点分节）。</p>
+      <label for="cleanSubstrings">Substrings to remove (one per line)</label>
+      <textarea id="cleanSubstrings" style="min-height:72px;font-size:12px;" placeholder="e.g. full segment: ￡cXcY@FRDS"></textarea>
       <div class="row" style="margin-top:8px;align-items:flex-start;">
-        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanStripCjk" /> 去掉中文（CJK / 全角块）</label>
-        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanMoveSeason" checked /> 季号 S## 挪到首个年份 20xx 前</label>
+        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanStripCjk" /> Strip CJK (Chinese/full-width blocks)</label>
+        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanMoveSeason" checked /> Move season S## before first year 20xx</label>
       </div>
       <div class="row" style="margin-top:4px;">
-        <label for="cleanTarget" style="margin:0;align-self:center;">对象</label>
+        <label for="cleanTarget" style="margin:0;align-self:center;">Target</label>
         <select id="cleanTarget" class="small-inp" style="min-width:140px;">
           <option value="both" selected>文件 + 子文件夹</option>
           <option value="files">仅文件</option>
           <option value="dirs">仅子文件夹</option>
         </select>
-        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanRecursive" /> 含子目录（自底向上改名）</label>
+        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanRecursive" /> Include subdirectories (rename bottom-up)</label>
       </div>
       <div class="row" style="margin-top:8px;">
-        <button type="button" class="secondary" id="cleanPreviewBtn">预览</button>
-        <button type="button" id="cleanApplyBtn" disabled>按预览执行重命名</button>
+        <button type="button" class="secondary" id="cleanPreviewBtn">Preview</button>
+        <button type="button" id="cleanApplyBtn" disabled>Apply rename by preview</button>
       </div>
       <div id="cleanPreview" class="clean-preview" style="display:none" aria-live="polite"></div>
       <div id="cleanStatus" class="status-bar muted" style="margin-top:6px"></div>
@@ -1811,7 +1665,7 @@ def build_frontend_html() -> str:
   </div>
 
   <div class="card">
-    <span class="card-title">批量文本（每行一个 HTTP 链接）</span>
+    <span class="card-title">Bulk Text (one HTTP link per line)</span>
     <textarea id="bulkText" readonly></textarea>
   </div>
   </div>
@@ -1819,7 +1673,7 @@ def build_frontend_html() -> str:
   <div id="tabPubPanel" class="tab-panel">
   <div class="card">
     <div class="pub-head">
-      <button id="openPubNewBtn" class="secondary" type="button">新窗口打开</button>
+      <button id="openPubNewBtn" class="secondary" type="button">Open in new window</button>
     </div>
     <div class="clip-grid">
       <section class="clip-card">
@@ -1863,23 +1717,23 @@ def build_frontend_html() -> str:
 
   <div id="tabMonitorPanel" class="tab-panel active">
   <div class="card">
-    <span class="card-title">中控状态与操作</span>
+    <span class="card-title">Control Status & Actions</span>
     <div id="sysStatus" class="sys-strip muted">系统状态加载中...</div>
     <div class="svc-grid">
       <div class="svc-card" id="qbtSvcCard">
         <div class="svc-name">qBittorrent-nox</div>
         <div id="qbtStatusText" class="svc-meta">加载中...</div>
         <div class="row">
-          <button id="qbtToggleBtn" class="secondary">开/关</button>
-          <button id="qbtRestartBtn" class="secondary">重启</button>
+          <button id="qbtToggleBtn" class="secondary">Toggle</button>
+          <button id="qbtRestartBtn" class="secondary">Restart</button>
         </div>
       </div>
       <div class="svc-card" id="ddnsSvcCard">
         <div class="svc-name">DDNS 服务</div>
         <div id="ddnsStatusText" class="svc-meta">加载中...</div>
         <div class="row">
-          <button id="ddnsToggleBtn" class="secondary">开/关</button>
-          <button id="ddnsRestartBtn" class="secondary">重启</button>
+          <button id="ddnsToggleBtn" class="secondary">Toggle</button>
+          <button id="ddnsRestartBtn" class="secondary">Restart</button>
           <button id="ddnsConfigBtn" class="secondary">CONFIG</button>
         </div>
       </div>
@@ -1887,8 +1741,8 @@ def build_frontend_html() -> str:
         <div class="svc-name">当前 HTTP 服务</div>
         <div id="selfStatusText" class="svc-meta">加载中...</div>
         <div class="row">
-          <button id="toggleDownloadBtn" class="secondary">切换上传开关</button>
-          <button id="restartServiceBtn" class="secondary">重启服务并中断上传</button>
+          <button id="toggleDownloadBtn" class="secondary">Toggle upload switch</button>
+          <button id="restartServiceBtn" class="secondary">Restart service and interrupt uploads</button>
         </div>
       </div>
     </div>
@@ -1896,31 +1750,37 @@ def build_frontend_html() -> str:
   </div>
 
   <div class="card" id="httpSpeedCard">
-    <span class="card-title">实时公网传输</span>
+    <span class="card-title">Real-time Public Transfer</span>
     <div class="speed-strip">
-      <span>速度 <span id="speedText" class="hl">-</span></span>
-      <span>活跃连接 <span id="connText" class="hl">-</span></span>
+      <span>Speed <span id="speedText" class="hl">-</span></span>
+      <span>活跃Connect <span id="connText" class="hl">-</span></span>
     </div>
-    <div id="sourceSpeedText" class="speed-source muted">来源速度加载中...</div>
+    <div id="sourceSpeedText" class="speed-source muted">SourceSpeed加载中...</div>
   </div>
 
-  <div class="card" id="httpTransfersCard">
-    <span class="card-title">当前传输（HTTP）</span>
+  <div class="card" id="netdiskCard">
+    <div id="ndTabBarWrap" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;"></div>
+
+    <span class="card-title">Real-time Public Transfer</span>
     <div class="xfer-head">
       <div id="xferSummary" class="xfer-summary">活跃 0 个</div>
       <div class="xfer-toolbar">
-        <span class="xfer-sort-label">排序</span>
+        <span class="xfer-sort-label">Sort</span>
         <div class="xfer-sort-group">
-          <button type="button" class="xfer-sort-btn active" data-sort="speed">速度</button>
-          <button type="button" class="xfer-sort-btn" data-sort="progress">进度</button>
-          <button type="button" class="xfer-sort-btn" data-sort="name">名称</button>
-          <button type="button" class="xfer-sort-btn" data-sort="source">来源</button>
+          <button type="button" class="xfer-sort-btn active" data-sort="speed">Speed</button>
+          <button type="button" class="xfer-sort-btn" data-sort="progress">Progress</button>
+          <button type="button" class="xfer-sort-btn" data-sort="name">Name</button>
+          <button type="button" class="xfer-sort-btn" data-sort="source">Source</button>
         </div>
       </div>
     </div>
     <div id="xferList" class="xfer-list"></div>
+
+    <div id="ndDetailArea"></div>
+    <div id="ndStatusText" class="status-bar muted">Preparing...</div>
   </div>
   </div>
+
   <footer class="global-footer">
     AfterClaw by
     <a href="mailto:mengke@pku.org.cn">Support</a>
@@ -1948,7 +1808,7 @@ def build_frontend_html() -> str:
     const sourceSpeedText = document.getElementById("sourceSpeedText");
     const httpSvcCard = document.getElementById("httpSvcCard");
     const httpSpeedCard = document.getElementById("httpSpeedCard");
-    const httpTransfersCard = document.getElementById("httpTransfersCard");
+    const netdiskCard = document.getElementById("netdiskCard");
     const toggleDownloadBtn = document.getElementById("toggleDownloadBtn");
     const qbtStatusText = document.getElementById("qbtStatusText");
     const ddnsStatusText = document.getElementById("ddnsStatusText");
@@ -2034,10 +1894,6 @@ def build_frontend_html() -> str:
     function applyTheme(theme) {
       document.documentElement.setAttribute("data-theme", theme);
       localStorage.setItem(THEME_KEY, theme);
-      const btn = document.getElementById("themeToggleBtn");
-      if (btn) {
-        btn.textContent = theme === "dark" ? "浅色模式" : "深色模式";
-      }
     }
 
     function showToast(msg, type = "success") {
@@ -2055,7 +1911,7 @@ def build_frontend_html() -> str:
     function toggleTheme() {
       const next = getStoredTheme() === "dark" ? "light" : "dark";
       applyTheme(next);
-      showToast("切换为" + (next === "dark" ? "深色" : "浅色") + "主题");
+      showToast("切换为" + (next === "dark" ? "深色" : "浅色") + "Theme");
       
     }
 
@@ -2359,9 +2215,9 @@ def build_frontend_html() -> str:
         terminalQuickLink.classList.add("inactive");
       }
       if (!enabled) {
-        terminalQuickLink.title = "Terminal（未启用，点击去 Config 配置）";
+        terminalQuickLink.title = "Terminal (disabled, click to configure in Config)";
       } else if (!host) {
-        terminalQuickLink.title = "Terminal（未配置 Host，点击去 Config 配置）";
+        terminalQuickLink.title = "Terminal (host not configured, click to configure in Config)";
       } else {
         terminalQuickLink.title = "Web Terminal · " + (display || host);
       }
@@ -2373,7 +2229,7 @@ def build_frontend_html() -> str:
       const files = Number(s.total_files || 0);
       const dirs = Number(s.total_dirs || 0);
       const sizeHuman = String(s.total_size_human || "0B");
-      dirStatsText.textContent = `文件 ${files} · 目录 ${dirs} · 大小 ${sizeHuman}`;
+      dirStatsText.textContent = `Files ${files} · Dirs ${dirs} · Size ${sizeHuman}`;
     }
 
     function renderLinks(items) {
@@ -2439,7 +2295,7 @@ def build_frontend_html() -> str:
           currentDir = ".";
           currentDirText.textContent = currentDir;
           dirData = await getJson(`/api/directories?dir=${encodeURIComponent(currentDir)}`);
-          setStatus("默认目录不可访问，已回退到根目录。", true);
+          setStatus("Default目录不可访问，已回退到根目录。", true);
         } else {
           throw err;
         }
@@ -2467,7 +2323,7 @@ def build_frontend_html() -> str:
       if (!dirData.directories.length) {
         const empty = document.createElement("div");
         empty.className = "muted";
-        empty.textContent = "(当前目录无子目录)";
+        empty.textContent = "(No subdirectories in current directory)";
         dirList.appendChild(empty);
       }
     }
@@ -2479,21 +2335,21 @@ def build_frontend_html() -> str:
       } else {
         speedText.textContent = `↓ ${latestTotalDownMiBps.toFixed(2)} MiB/s / ↑ ${latestTotalUpMiBps.toFixed(2)} MiB/s`;
       }
-      speedText.title = `点击切换单位（当前 ${speedDisplayUnit}）`;
+      speedText.title = `Click to switch units (current ${speedDisplayUnit}）`;
       speedText.style.cursor = "pointer";
     }
 
     async function loadSpeed() {
       if (!httpModuleOn) {
         speedText.textContent = "-";
-        speedText.title = "点击切换单位";
+        speedText.title = "Click to switch units";
         connText.textContent = "-";
         speedValueReady = false;
         latestTotalDownMiBps = 0;
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = "来源速度：模块已关闭";
+        if (sourceSpeedText) sourceSpeedText.textContent = "Source speeds: module disabled";
         return;
       }
       if (isRealtimePaused()) return;
@@ -2515,36 +2371,44 @@ def build_frontend_html() -> str:
         renderSourceSpeeds(latestSourceStats);
         connText.textContent = String(data.active_conn_1288);
       } catch (err) {
-        speedText.textContent = "获取失败";
-        speedText.title = "点击切换单位";
+        speedText.textContent = "Failed";
+        speedText.title = "Click to switch units";
         connText.textContent = "-";
         speedValueReady = false;
         latestTotalDownMiBps = 0;
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = "来源速度获取失败";
+        if (sourceSpeedText) sourceSpeedText.textContent = "Source speeds fetch failed";
       }
     }
 
     function normalizeSourceName(source) {
       const raw = String(source || "").trim();
-      if (!raw) return "HTTP直连";
+      if (!raw) return "Direct HTTP";
       const s = raw.toLowerCase();
-      if (s.includes("百度") || s.includes("baidu") || s.includes("pan.baidu") || s.includes("xpan") || s.includes("netdisk") || s.includes("baiduyun") || s.includes("yun.baidu") || s.includes("pcs")) return "百度网盘";
-      if (s.includes("光鸭") || s.includes("guangya")) return "光鸭网盘";
-      if (s.includes("阿里") || s.includes("aliyun") || s.includes("alipan")) return "阿里云盘";
-      if (s === "http直连" || s === "http-direct" || s === "http") return "HTTP直连";
-      return "HTTP直连";
+      if (s.includes("guangya") || s.includes("光鸭") || s.includes("clouddrive") || s.includes("cloud drive")) return "Guangya Drive";
+      if (s.includes("aliyun") || s.includes("alipan") || s.includes("阿里")) return "Aliyun Drive";
+      if (s.includes("baidu") || s.includes("pan.baidu") || s.includes("xpan") || s.includes("baiduyun") || s.includes("yun.baidu") || s.includes("pcs") || s.includes("百度")) return "Baidu Netdisk";
+      if (s.includes("dropbox")) return "Dropbox";
+      if (s.includes("mega")) return "MEGA";
+      if (s.includes("onedrive")) return "OneDrive";
+      if ((s.includes("google") && s.includes("drive")) || s.includes("gdrive")) return "Google Drive";
+      if (s === "http-direct" || s === "direct http" || s === "http") return "Direct HTTP";
+      return raw;
     }
 
     function renderSourceSpeeds(sourceStats) {
       if (!sourceSpeedText) return;
       const rows = Array.isArray(sourceStats) ? sourceStats : [];
       const buckets = new Map([
-        ["百度网盘", { down: 0, up: 0, count: 0 }],
-        ["光鸭网盘", { down: 0, up: 0, count: 0 }],
-        ["阿里云盘", { down: 0, up: 0, count: 0 }],
+        ["Baidu Netdisk", { down: 0, up: 0, count: 0 }],
+        ["Guangya Drive", { down: 0, up: 0, count: 0 }],
+        ["Aliyun Drive", { down: 0, up: 0, count: 0 }],
+        ["Dropbox", { down: 0, up: 0, count: 0 }],
+        ["MEGA", { down: 0, up: 0, count: 0 }],
+        ["OneDrive", { down: 0, up: 0, count: 0 }],
+        ["Google Drive", { down: 0, up: 0, count: 0 }],
       ]);
       for (const item of rows) {
         const source = normalizeSourceName(item.source);
@@ -2565,8 +2429,10 @@ def build_frontend_html() -> str:
       }
       const otherDown = Math.max(0, latestTotalDownMiBps - knownDown);
       const otherUp = Math.max(0, latestTotalUpMiBps - knownUp);
-      chunks.push(`其他来源 ↓${otherDown.toFixed(2)} ↑${otherUp.toFixed(2)} MiB/s`);
-      sourceSpeedText.textContent = `来源速度：${chunks.join(" | ")}`;
+      chunks.push(`Other sources ↓${otherDown.toFixed(2)} ↑${otherUp.toFixed(2)} MiB/s`);
+      const sourceLine = `SourceSpeed：${chunks.join(" | ")}`;
+      sourceSpeedText.textContent = sourceLine;
+      sourceSpeedText.title = sourceLine;
     }
 
     function sortTransfers(items) {
@@ -2640,20 +2506,29 @@ def build_frontend_html() -> str:
       const prevClientHeight = xferList ? xferList.clientHeight : 0;
       const stickToBottom = prevScrollHeight > 0 && (prevScrollHeight - prevClientHeight - prevScrollTop) <= 2;
       const allItems = Array.isArray(data.items) ? data.items : [];
-      const items = sortTransfers(allItems.filter((it) => !it.done));
+      let activeItems = allItems.filter((it) => !it.done);
+      if (ndActiveTab) {
+        const tabSource = ND_ALL_SOURCES.find(s => s.key === ndActiveTab);
+        if (tabSource) {
+          activeItems = activeItems.filter(it => normalizeSourceName(it.source) === tabSource.label);
+        }
+      }
+      const items = sortTransfers(activeItems);
       const count = Number(data.count || items.length || 0);
       const recentCount = Number(data.recent_count || 0);
       const overall = Number(data.overall_progress_pct || 0);
-      xferSummary.textContent = `活跃 ${count} 个 · 最近完成 ${recentCount} 个 · 总完成度 ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
+      xferSummary.textContent = `Active ${count} · Recent done ${recentCount} · Overall ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
       xferList.innerHTML = "";
       if (!items.length) {
         const empty = document.createElement("div");
         empty.className = "xfer-item muted";
-        empty.textContent = "当前没有活跃 HTTP 传输任务。";
+        empty.textContent = "No active HTTP transfer tasks.";
         xferList.appendChild(empty);
         xferList.scrollTop = 0;
         return;
       }
+
+      const fragment = document.createDocumentFragment();
       for (const it of items) {
         const row = document.createElement("div");
         row.className = "xfer-item";
@@ -2665,10 +2540,10 @@ def build_frontend_html() -> str:
         source.textContent = normalizeSourceName(it.source);
         const file = document.createElement("div");
         file.className = "xfer-file";
-        file.textContent = it.filename || it.relative_path || "(未知文件)";
+        file.textContent = it.filename || it.relative_path || "(Unknown file)";
         const speed = document.createElement("div");
         speed.className = "xfer-speed";
-        speed.textContent = it.done ? "已完成" : `${(it.speed_mibps || 0).toFixed(2)} MiB/s`;
+        speed.textContent = it.done ? "Done" : `${(it.speed_mibps || 0).toFixed(2)} MiB/s`;
         main.appendChild(source);
         main.appendChild(file);
         main.appendChild(speed);
@@ -2677,8 +2552,10 @@ def build_frontend_html() -> str:
         meta.textContent = formatTransferMeta(it);
         row.appendChild(main);
         row.appendChild(meta);
-        xferList.appendChild(row);
+        fragment.appendChild(row);
       }
+      xferList.appendChild(fragment);
+
       if (stickToBottom) {
         xferList.scrollTop = xferList.scrollHeight;
       } else {
@@ -2689,7 +2566,7 @@ def build_frontend_html() -> str:
 
     async function loadTransfers() {
       if (!httpModuleOn) {
-        xferSummary.textContent = "模块已关闭";
+        xferSummary.textContent = "Module disabled";
         xferList.innerHTML = "";
         latestTransfers = [];
         latestSourceStats = [];
@@ -2712,13 +2589,13 @@ def build_frontend_html() -> str:
         renderSourceSpeeds(latestSourceStats);
         renderTransfers(data);
       } catch (err) {
-        xferSummary.textContent = "活跃 -";
-        if (sourceSpeedText) sourceSpeedText.textContent = "来源速度获取失败";
+        xferSummary.textContent = "Active -";
+        if (sourceSpeedText) sourceSpeedText.textContent = "Source speeds fetch failed";
       }
     }
 
     function renderDownloadSwitch() {
-      toggleDownloadBtn.textContent = downloadsEnabled ? "关闭外网上传" : "开启外网上传";
+      toggleDownloadBtn.textContent = downloadsEnabled ? "Disable public upload" : "Enable public upload";
       toggleDownloadBtn.className = downloadsEnabled ? "secondary" : "";
     }
 
@@ -2766,9 +2643,17 @@ def build_frontend_html() -> str:
       if (tabPubPanel) tabPubPanel.style.display = showShareclipModule ? "" : "none";
       if (httpSvcCard) httpSvcCard.style.display = showHttpModule ? "" : "none";
       if (httpSpeedCard) httpSpeedCard.style.display = showHttpModule ? "" : "none";
-      if (httpTransfersCard) httpTransfersCard.style.display = showHttpModule ? "" : "none";
       if (!showShareclipModule && tabPubBtn && tabPubBtn.classList.contains("active")) {
         switchTab("monitor");
+      }
+      const ndCfg = appCfg.netdisk_sources || {};
+      const prevEnabled = JSON.stringify(ndEnabledSources);
+      ndEnabledSources = ndCfg;
+      if (JSON.stringify(ndEnabledSources) !== prevEnabled) {
+        const enabledKeys = {};
+        ndGetEnabledList().forEach(s => { enabledKeys[s.key] = true; });
+        if (ndActiveTab && !enabledKeys[ndActiveTab]) ndActiveTab = "";
+        ndRenderTabs();
       }
       const qbtActive = data.qbt && data.qbt.active_state === "active";
       qbtControlOn = !!qbtActive;
@@ -2797,7 +2682,7 @@ def build_frontend_html() -> str:
         renderControlStatus(data);
       } catch (err) {
         sysStatus.className = "sys-strip";
-        sysStatus.innerHTML = `<div class="sys-status-line" style="color:var(--danger);">状态获取失败：${err.message}</div>`;
+        sysStatus.innerHTML = `<div class="sys-status-line" style="color:var(--danger);">Status fetch failed: ${err.message}</div>`;
       }
     }
 
@@ -2809,7 +2694,7 @@ def build_frontend_html() -> str:
           body: JSON.stringify({ service, action }),
         });
         if (service === "self" && action === "restart") {
-          setStatus("已发送重启命令，服务即将重启。");
+          setStatus("已发送Restart命令，服务即将Restart。");
           setTimeout(loadControlStatus, 1500);
           return;
         }
@@ -2903,7 +2788,7 @@ def build_frontend_html() -> str:
       lastCleanMoves = null;
       applyBtn.disabled = true;
       st.className = "status-bar muted";
-      st.textContent = "正在预览…";
+      st.textContent = "Previewing...";
       prev.style.display = "none";
       try {
         const data = await getJson("/api/clean/preview", {
@@ -2921,7 +2806,7 @@ def build_frontend_html() -> str:
         const moves = data.moves || [];
         lastCleanMoves = moves.filter((m) => !m.skip);
         if (!moves.length) {
-          st.textContent = "无变更：当前规则下没有需要重命名的项。";
+          st.textContent = "No changes: no items need rename under current rules.";
           return;
         }
         const bad = moves.filter((m) => m.skip);
@@ -2934,24 +2819,24 @@ def build_frontend_html() -> str:
           )
           .join("");
         prev.style.display = "block";
-        st.textContent = `共 ${moves.length} 项，可执行 ${lastCleanMoves.length} 项${
-          bad.length ? "，" + bad.length + " 项冲突" : ""
+        st.textContent = `Total ${moves.length} items, executable ${lastCleanMoves.length} items${
+          bad.length ? "，" + bad.length + " items冲突" : ""
         }。`;
         applyBtn.disabled = lastCleanMoves.length === 0;
       } catch (e) {
         st.className = "status-bar err";
-        st.textContent = "预览失败：" + e.message;
+        st.textContent = "Preview failed: " + e.message;
       }
     }
 
     async function runCleanApply() {
       if (!lastCleanMoves || !lastCleanMoves.length) return;
-      if (!confirm("确定按预览对 " + lastCleanMoves.length + " 项重命名？此操作不可自动撤销。")) {
+      if (!confirm("Apply preview rename for " + lastCleanMoves.length + " items? This action cannot be auto-reverted.")) {
         return;
       }
       const st = document.getElementById("cleanStatus");
       st.className = "status-bar muted";
-      st.textContent = "正在执行…";
+      st.textContent = "Applying...";
       try {
         const data = await getJson("/api/clean/apply", {
           method: "POST",
@@ -2962,14 +2847,14 @@ def build_frontend_html() -> str:
         });
         const results = data.results || [];
         const okN = results.filter((r) => r.ok === "true").length;
-        st.textContent = "完成：成功 " + okN + "，失败 " + (results.length - okN) + "。";
-        if (okN) showToast("已重命名 " + okN + " 项", "success");
+        st.textContent = "Done: success " + okN + ", failed " + (results.length - okN) + ".";
+        if (okN) showToast("已重命名 " + okN + " items", "success");
         lastCleanMoves = null;
         document.getElementById("cleanApplyBtn").disabled = true;
         await loadBaseAndDirs(false);
       } catch (e) {
         st.className = "status-bar err";
-        st.textContent = "执行失败：" + e.message;
+        st.textContent = "Apply failed: " + e.message;
       }
     }
 
@@ -2991,8 +2876,8 @@ def build_frontend_html() -> str:
 
     async function restartService() {
       const restartConfirmText = (window.fccI18n && typeof window.fccI18n.translateRaw === "function")
-        ? (window.fccI18n.translateRaw("确认重启服务？这会中断当前所有上传连接。") || "确认重启服务？这会中断当前所有上传连接。")
-        : "确认重启服务？这会中断当前所有上传连接。";
+        ? (window.fccI18n.translateRaw("确认Restart Service？这会中断当前所有上传Connect。") || "确认Restart Service？这会中断当前所有上传Connect。")
+        : "确认Restart Service？这会中断当前所有上传Connect。";
       if (!confirm(restartConfirmText)) {
         return;
       }
@@ -3002,9 +2887,9 @@ def build_frontend_html() -> str:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason: "manual-ui" }),
         });
-        setStatus("已发送重启命令，当前上传连接会被中断。");
+        setStatus("已发送Restart命令，当前上传Connect会被中断。");
       } catch (err) {
-        setStatus(`重启失败：${err.message}`, true);
+        setStatus(`Restart失败：${err.message}`, true);
       }
     }
 
@@ -3099,7 +2984,7 @@ def build_frontend_html() -> str:
       });
     });
     if (speedText) {
-      speedText.title = "点击切换单位（当前 MiB/s）";
+      speedText.title = "Click to switch units (current MiB/s）";
       speedText.style.cursor = "pointer";
       speedText.addEventListener("click", () => {
         if (!speedValueReady) return;
@@ -3107,6 +2992,191 @@ def build_frontend_html() -> str:
         renderSpeedValue();
       });
     }
+
+    const ndDetailArea = document.getElementById("ndDetailArea");
+    const ndStatusText = document.getElementById("ndStatusText");
+    const ndTabBarWrap = document.getElementById("ndTabBarWrap");
+    const ND_ALL_SOURCES = [
+      { key: "baidu", label: "Baidu Netdisk" },
+      { key: "ali", label: "Aliyun Drive" },
+      { key: "guangya", label: "Guangya Drive" },
+      { key: "dropbox", label: "Dropbox" },
+      { key: "mega", label: "MEGA" },
+      { key: "onedrive", label: "OneDrive" },
+      { key: "gdrive", label: "Google Drive" },
+    ];
+    let ndPolling = false;
+    let ndTimer = 0;
+    let ndActiveTab = "";
+    let ndLastSourceStats = [];
+    let ndLastItems = [];
+    let ndEnabledSources = { baidu: true, ali: true, guangya: true, dropbox: false, mega: false, onedrive: false, gdrive: false };
+
+    function ndSourceLabelToKey(label) {
+      const sl = String(label || "").toLowerCase();
+      for (const s of ND_ALL_SOURCES) {
+        if (sl === s.label.toLowerCase() || sl === s.key.toLowerCase()) return s.key;
+      }
+      return "";
+    }
+    function ndGetEnabledList() {
+      return ND_ALL_SOURCES.filter(s => ndEnabledSources[s.key] !== false);
+    }
+
+    function ndEsc(v) {
+      return String(v == null ? "" : v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+    }
+    function ndFmt(v, d) {
+      const n = Number(v || 0);
+      return Number.isFinite(n) ? n.toFixed(d) : "0." + "0".repeat(d);
+    }
+    function ndRenderTabs() {
+      if (!ndTabBarWrap) return;
+      const enabled = ndGetEnabledList();
+      let html = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px;background:var(--bg-card);border-radius:999px;border:1px solid var(--border);box-shadow:0 4px 16px rgba(15,23,42,0.08);">';
+      html += '<button type="button" class="nd-filter-tab" data-ndtab="" style="background:' + (!ndActiveTab ? "var(--hero-tone,var(--accent));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.15);" : "transparent;color:var(--text-muted);") + 'border:none;padding:8px 16px;border-radius:999px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">All</button>';
+      for (const s of enabled) {
+        const isActive = ndActiveTab === s.key;
+        html += '<button type="button" class="nd-filter-tab" data-ndtab="' + ndEsc(s.key) + '" style="background:' + (isActive ? "var(--hero-tone,var(--accent));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.15);" : "transparent;color:var(--text-muted);") + 'border:none;padding:8px 16px;border-radius:999px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">' + ndEsc(s.label) + '</button>';
+      }
+      html += '<a href="/config#netdisk" class="nd-filter-tab" style="margin-left:auto;background:transparent;color:var(--text-muted);border:none;padding:6px 12px;border-radius:999px;font-size:16px;cursor:pointer;text-decoration:none;white-space:nowrap;" title="Configure visible sources">⚙️</a>';
+      html += '</div>';
+      ndTabBarWrap.innerHTML = html;
+      ndTabBarWrap.querySelectorAll(".nd-filter-tab[data-ndtab]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          ndActiveTab = btn.dataset.ndtab || "";
+          ndRenderTabs();
+          ndRenderCombined();
+          reRenderFilteredTransfers();
+        });
+      });
+    }
+    function reRenderFilteredTransfers() {
+      if (!latestTransfers) return;
+      renderTransfers({ items: latestTransfers, count: latestTransferOverview.count, recent_count: latestTransferOverview.recent_count, overall_progress_pct: latestTransferOverview.overall_progress_pct });
+    }
+    function ndRenderCombined() {
+      if (!ndDetailArea) return;
+      const sourceStats = Array.isArray(ndLastSourceStats) ? ndLastSourceStats : [];
+      const items = Array.isArray(ndLastItems) ? ndLastItems : [];
+      const enabled = ndGetEnabledList();
+      let sourcesToShow = ndActiveTab
+        ? enabled.filter(s => s.key === ndActiveTab)
+        : enabled;
+      // Temporarily hide guangya APP TCP data (not yet implemented; HTTP only)
+      sourcesToShow = sourcesToShow.filter(s => s.key !== 'guangya');
+      if (!sourcesToShow.length) {
+        ndDetailArea.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px;text-align:center;">No enabled sources</div>';
+        return;
+      }
+      const cardStyle = 'margin:12px 0;padding:14px 16px;background:var(--surface-soft);border:1px solid var(--border);border-radius:12px;';
+      const headerStyle = 'display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);';
+      const titleStyle = 'font-weight:750;font-size:15px;color:var(--text);letter-spacing:0.2px;';
+      const badgeStyle = 'display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent);font-size:11px;font-weight:600;';
+      const statRowStyle = 'display:flex;align-items:center;gap:18px;font-size:12px;color:var(--text-muted);margin-left:auto;';
+      const statItemStyle = 'display:inline-flex;align-items:center;gap:4px;';
+      const valStyle = 'color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;';
+      const tableWrapStyle = 'border:1px solid var(--border);border-radius:10px;overflow:auto;background:var(--bg-card,var(--surface));';
+      const tableStyle = 'width:100%;border-collapse:collapse;min-width:860px;';
+      const thStyle = 'border-bottom:1px solid var(--border);padding:9px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);background:var(--surface-soft);';
+      const tdStyle = 'border-bottom:1px solid var(--border);padding:9px 12px;font-size:13px;color:var(--text);vertical-align:middle;';
+      const monoFont = 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace';
+      const emptyStyle = 'color:var(--text-muted);font-size:13px;padding:16px;text-align:center;font-style:italic;';
+      let html = '';
+      for (const src of sourcesToShow) {
+        const stat = sourceStats.find(s => ndSourceLabelToKey(s.source) === src.key);
+        const conns = items.filter(x => ndSourceLabelToKey(x.source) === src.key);
+        const connCount = stat ? Number(stat.conn_count || 0) : conns.length;
+        const estab = stat ? Number(stat.estab_count || 0) : 0;
+        const dl = stat ? ndFmt(stat.download_mibps, 2) : "0.00";
+        const ul = stat ? ndFmt(stat.upload_mibps, 2) : "0.00";
+        const isActive = (Number(dl) > 0 || Number(ul) > 0 || estab > 0);
+        html += '<div style="' + cardStyle + '">';
+        html += '<div style="' + headerStyle + '">';
+        html += '<span style="' + titleStyle + '">' + ndEsc(src.label) + ' <span style="opacity:0.55;font-weight:600;font-size:12px;">APP</span></span>';
+        if (isActive) html += '<span style="' + badgeStyle + '">● 活跃</span>';
+        html += '<span style="' + statRowStyle + '">';
+        html += '<span style="' + statItemStyle + '">Connect <span style="' + valStyle + '">' + connCount + '</span></span>';
+        html += '<span style="' + statItemStyle + '">ESTAB <span style="' + valStyle + '">' + estab + '</span></span>';
+        html += '<span style="' + statItemStyle + '">↓ <span style="' + valStyle + '">' + dl + '</span> MiB/s</span>';
+        html += '<span style="' + statItemStyle + '">↑ <span style="' + valStyle + '">' + ul + '</span> MiB/s</span>';
+        html += '</span>';
+        html += '</div>';
+        if (!conns.length) {
+          html += '<div style="' + emptyStyle + '">暂无 TCP Connect</div>';
+        } else {
+          html += '<div style="' + tableWrapStyle + '">';
+          html += '<table style="' + tableStyle + '">';
+          html += '<thead><tr>';
+          html += '<th style="' + thStyle + 'text-align:left;">Source</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">进程</th>';
+          html += '<th style="' + thStyle + 'text-align:right;">PID</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">状态</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">本地端点</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">对端端点</th>';
+          html += '<th style="' + thStyle + 'text-align:right;">↓ MiB/s</th>';
+          html += '<th style="' + thStyle + 'text-align:right;">↑ MiB/s</th>';
+          html += '</tr></thead><tbody>';
+          for (const r of conns) {
+            const state = String(r.state || "-").toUpperCase();
+            const isEstab = state === 'ESTAB';
+            const stateBadge = isEstab
+              ? 'display:inline-block;padding:2px 8px;border-radius:6px;background:color-mix(in srgb, #16a34a 18%, transparent);color:#16a34a;font-size:11px;font-weight:700;font-family:' + monoFont + ';letter-spacing:0.3px;'
+              : 'display:inline-block;padding:2px 8px;border-radius:6px;background:color-mix(in srgb, var(--text-muted) 14%, transparent);color:var(--text-muted);font-size:11px;font-weight:700;font-family:' + monoFont + ';letter-spacing:0.3px;';
+            const dlR = ndFmt(r.download_mibps, 2);
+            const ulR = ndFmt(r.upload_mibps, 2);
+            const dlEm = Number(dlR) > 0 ? 'color:var(--accent);font-weight:600;' : 'color:var(--text-muted);';
+            const ulEm = Number(ulR) > 0 ? 'color:var(--accent);font-weight:600;' : 'color:var(--text-muted);';
+            html += '<tr>';
+            html += '<td style="' + tdStyle + '">' + ndEsc(r.source || "-") + '</td>';
+            html += '<td style="' + tdStyle + 'font-weight:500;">' + ndEsc(r.process || "-") + '</td>';
+            html += '<td style="' + tdStyle + 'text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted);">' + Number(r.pid || 0) + '</td>';
+            html += '<td style="' + tdStyle + '"><span style="' + stateBadge + '">' + ndEsc(state) + '</span></td>';
+            html += '<td style="' + tdStyle + 'font-family:' + monoFont + ';font-size:12px;color:var(--text-muted);">' + ndEsc(r.local_ep || "-") + '</td>';
+            html += '<td style="' + tdStyle + 'font-family:' + monoFont + ';font-size:12px;">' + ndEsc(r.peer_ep || "-") + '</td>';
+            html += '<td style="' + tdStyle + 'text-align:right;font-variant-numeric:tabular-nums;' + dlEm + '">' + dlR + '</td>';
+            html += '<td style="' + tdStyle + 'text-align:right;font-variant-numeric:tabular-nums;' + ulEm + '">' + ulR + '</td>';
+            html += '</tr>';
+          }
+          html += '</tbody></table></div>';
+        }
+        html += '</div>';
+      }
+      ndDetailArea.innerHTML = html;
+    }
+    async function ndLoadData() {
+      const res = await fetch(location.origin + "/api/process-net", { cache: "no-store" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((d && d.error) || "Request failed " + res.status);
+      ndLastSourceStats = d.source_stats || [];
+      ndLastItems = d.items || [];
+      ndRenderCombined();
+      const count = Number(d.count || 0);
+      const delta = Number(d.delta_sec || 0);
+      const sample = Number(d.sample_ts || 0);
+      const when = sample > 0 ? new Date(sample * 1000).toLocaleTimeString() : "-";
+      if (ndStatusText) {
+        ndStatusText.textContent = "Connections " + count + " | Interval " + ndFmt(delta, 2) + "s | Last sample " + when;
+        ndStatusText.className = "status-bar muted";
+      }
+    }
+    function startNdPolling() {
+      if (ndPolling) return;
+      ndPolling = true;
+      ndRenderTabs();
+      function tick() {
+        ndLoadData().catch(err => {
+          if (ndStatusText) {
+            ndStatusText.textContent = "Load failed: " + (err.message || err);
+            ndStatusText.className = "status-bar err";
+          }
+        }).finally(() => {
+          if (ndPolling) ndTimer = setTimeout(tick, 2000);
+        });
+      }
+      tick();
+    }
+
     Promise.resolve(i18nReady).finally(() => {
       loadBaseAndDirs(true).catch((err) => setStatus(err.message, true));
       try {
@@ -3125,6 +3195,7 @@ def build_frontend_html() -> str:
       setInterval(loadSpeed, 2000);
       setInterval(loadTransfers, 2000);
       setInterval(loadControlStatus, 5000);
+      startNdPolling();
     });
 
     document.addEventListener("fcc:lang-changed", () => {
@@ -3139,20 +3210,14 @@ def build_frontend_html() -> str:
 </body>
 </html>
 """
-    return _inject_page_title(html, "文件中控台")
+    return _inject_page_title(html, "File Control Center")
 
 
 def build_ddns_settings_html() -> str:
-    return _inject_page_title(load_ddns_settings_page(), "DDNS 设置")
+    return _inject_page_title(load_ddns_settings_page(), "DDNS Settings")
 
 
 def build_config_html() -> str:
-    nightly_upgrade_extra_actions = ""
-    if APP_BRANCH == "nightly":
-        nightly_upgrade_extra_actions = """
-          <button type="button" id="demoUpgradeProgressBtn" class="secondary">测试进度条展示</button>
-          <button type="button" id="openStable1288Btn" class="secondary">切换到1288正式版</button>
-"""
     html = """<!doctype html>
 <html lang="en">
 <head>
@@ -3340,75 +3405,6 @@ def build_config_html() -> str:
     }
     #cfgThemeStatus.err { color: var(--danger); font-weight: 600; }
     #cfgThemeMeta { margin: 0; }
-    .upgrade-nightly-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-top: 10px;
-      flex-wrap: wrap;
-    }
-    .upgrade-nightly-row .inline-check {
-      margin: 0;
-      padding: 0;
-      white-space: nowrap;
-    }
-    .upgrade-progress-modal {
-      position: fixed;
-      inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: color-mix(in srgb, #030712 74%, transparent);
-      backdrop-filter: blur(4px);
-      z-index: 9999;
-      padding: 14px;
-    }
-    .upgrade-progress-modal.active { display: flex; }
-    .upgrade-progress-card {
-      width: min(560px, 100%);
-      border: 1px solid var(--border);
-      background: var(--surface-elevated);
-      border-radius: 14px;
-      box-shadow: 0 18px 40px rgba(2, 6, 23, 0.38);
-      padding: 16px;
-    }
-    .upgrade-progress-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-    .upgrade-progress-track {
-      width: 100%;
-      height: 10px;
-      border-radius: 999px;
-      background: color-mix(in srgb, var(--surface-soft) 90%, transparent);
-      border: 1px solid var(--border);
-      overflow: hidden;
-      margin-bottom: 10px;
-    }
-    .upgrade-progress-fill {
-      width: 0%;
-      height: 100%;
-      border-radius: inherit;
-      background: linear-gradient(
-        90deg,
-        color-mix(in srgb, var(--hero-tone, var(--accent)) 76%, #93c5fd 24%) 0%,
-        color-mix(in srgb, var(--hero-tone, var(--accent)) 94%, #dbeafe 6%) 100%
-      );
-      background-size: 220% 100%;
-      animation: upgradePulse 1.2s linear infinite;
-      transition: width 0.35s ease;
-    }
-    @keyframes upgradePulse {
-      from { background-position: 0% 0%; }
-      to { background-position: 220% 0%; }
-    }
-    #upgradeProgressText.err {
-      color: var(--danger);
-      font-weight: 600;
-    }
     @media (max-width: 900px) {
       .cfg-tabs-row {
         grid-template-columns: 1fr;
@@ -3446,14 +3442,15 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.qb" data-i18n-fallback="qB">qB</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
+        <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
         <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect><path d="M7.5 10.5 L10 12.5 L7.5 14.5"></path><line x1="11.5" y1="14.5" x2="15.8" y2="14.5"></line><line x1="9" y1="19.5" x2="15" y2="19.5"></line></svg></a>
-        <button type="button" id="themeToggleBtn" class="secondary">主题</button>
+        <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme">🌓</button>
         <select id="langSelect" class="lang-select" title="Language">
-          <option value="en">English</option>
           <option value="zh-CN">简体中文</option>
           <option value="zh-TW">繁體中文</option>
+          <option value="en">English</option>
           <option value="de">Deutsch</option>
           <option value="fr">Français</option>
           <option value="ja">日本語</option>
@@ -3463,21 +3460,21 @@ def build_config_html() -> str:
 
     <section id="panel-general" class="cfg-panel active">
       <div class="card">
-        <span class="card-title">综合配置（开关各模块）</span>
+        <span class="card-title">Unified Module Configuration</span>
         <div class="cfg-module-list">
           <label class="cfg-module-item">
             <input type="checkbox" id="modHttp" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
-              <p class="cfg-module-title">HTTP 模块</p>
-              <p class="cfg-module-desc">控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制断开一次连接并关闭上传。</p>
+              <p class="cfg-module-title">HTTP Module</p>
+              <p class="cfg-module-desc">控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制Disconnect一次Connect并关闭上传。</p>
             </div>
           </label>
           <label class="cfg-module-item">
             <input type="checkbox" id="modQbt" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
-              <p class="cfg-module-title">qB 模块</p>
+              <p class="cfg-module-title">qB Module</p>
               <p class="cfg-module-desc">主页面显示 qB 状态卡及 qB 相关控制入口。</p>
             </div>
           </label>
@@ -3485,77 +3482,79 @@ def build_config_html() -> str:
             <input type="checkbox" id="modDdns" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
-              <p class="cfg-module-title">DDNS 模块</p>
-              <p class="cfg-module-desc">主页面显示 DDNS 状态卡，并保留 Config 内 DDNS 设置入口。</p>
+              <p class="cfg-module-title">DDNS Module</p>
+              <p class="cfg-module-desc">主页面显示 DDNS 状态卡，并保留 Config 内 DDNS Settings入口。</p>
             </div>
           </label>
           <label class="cfg-module-item">
             <input type="checkbox" id="modShareclip" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
-              <p class="cfg-module-title">ShareClip 模块</p>
+              <p class="cfg-module-title">ShareClip Module</p>
               <p class="cfg-module-desc">控制主页面 ShareClip 标签页显示。</p>
             </div>
           </label>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="saveModulesBtn">保存综合配置</button>
-          <button type="button" id="restartCfgServiceBtn" class="secondary">重启服务</button>
+          <button type="button" id="saveModulesBtn">Save Unified Config</button>
+          <button type="button" id="restartCfgServiceBtn" class="secondary">Restart Service</button>
         </div>
         <p id="generalStatus" class="cfg-status"></p>
       </div>
       <div class="card">
+        <span class="card-title">Auto Upgrade (GitHub Release)</span>
+        <p class="cfg-help">从 GitHub 拉取发布包并执行本地 <code>install.sh</code>。升级过程中服务可能Restart，页面短暂Disconnect属于正常现象。</p>
+        <p class="cfg-help" style="margin-top:6px;">当前服务器版本：<code id="upgradeCurrentVersion">-</code></p>
+        <div class="cfg-grid" style="margin-top:12px;">
+          <label class="cfg-item">
+            <div class="title">Repository (owner/repo)</div>
+            <input id="upgradeRepoInput" placeholder="e.g. EinProfispieler/afterclaw" />
+          </label>
+          <label class="cfg-item">
+            <div class="title">Target Tag (optional)</div>
+            <input id="upgradeTagInput" placeholder="Leave empty to upgrade to latest release" />
+          </label>
+        </div>
+        <div class="cfg-actions">
+          <button type="button" id="runUpgradeBtn">Run Auto Upgrade</button>
+          <button type="button" id="refreshUpgradeStatusBtn" class="secondary">Refresh upgrade status</button>
+        </div>
+        <p id="upgradeStatus" class="cfg-status"></p>
+        <p id="upgradeMeta" class="cfg-help"></p>
+      </div>
+      <div class="card">
         <span class="card-title">
           <svg class="brush-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 4.2l5.6 5.6-9.8 9.8-6.7 1 1-6.7 9.9-9.7z"></path><path d="M12.1 6.3l5.6 5.6"></path></svg>
-          主题背景
+          Theme背景
         </span>
         <p class="cfg-help">这里设置主页顶栏背景，不再在主页常驻显示配置面板。</p>
         <div class="theme-panel" style="margin-top:10px;">
           <div class="theme-preset-group">
-            <button type="button" class="theme-preset-btn" data-hero-preset="default">默认</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="aurora">极光</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="sunset">落日</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="frost">冰川</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="afterclaw_clouds">云海暮光</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="custom">自定义</button>
+            <button type="button" class="theme-preset-btn" data-hero-preset="default">Default</button>
+            <button type="button" class="theme-preset-btn" data-hero-preset="aurora">Aurora</button>
+            <button type="button" class="theme-preset-btn" data-hero-preset="sunset">Sunset</button>
+            <button type="button" class="theme-preset-btn" data-hero-preset="frost">Frost</button>
+            <button type="button" class="theme-preset-btn" data-hero-preset="afterclaw_clouds">Clouds at Dusk</button>
+            <button type="button" class="theme-preset-btn" data-hero-preset="custom">Custom</button>
           </div>
           <div class="theme-upload-row">
             <input id="cfgThemeBgFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" />
-            <button type="button" id="cfgThemeBgUploadBtn" class="secondary">上传并应用</button>
-            <button type="button" id="cfgThemeBgClearBtn" class="secondary">恢复默认</button>
+            <button type="button" id="cfgThemeBgUploadBtn" class="secondary">Upload & Apply</button>
+            <button type="button" id="cfgThemeBgClearBtn" class="secondary">Restore Default</button>
           </div>
-          <p id="cfgThemeMeta" class="cfg-help">当前背景：默认</p>
+          <p id="cfgThemeMeta" class="cfg-help">当前背景：Default</p>
           <p id="cfgThemeStatus" class="cfg-help">支持 PNG/JPG/WEBP/GIF/AVIF，最大 12MB。</p>
         </div>
-      </div>
-      <div class="card">
-        <span class="card-title">自动升级（GitHub Release）</span>
-        <p class="cfg-help">从 GitHub 拉取发布包并执行本地 <code>install.sh</code>。升级时会显示进度条，过程中服务可能重启。</p>
-        <p class="cfg-help" style="margin-top:6px;">自动对比远端版本；若当前版本已是最新，将禁止执行升级。</p>
-        <p class="cfg-help" style="margin-top:6px;">当前服务器版本：<code id="upgradeCurrentVersion">-</code> ｜ 远端目标版本：<code id="upgradeRemoteVersion">-</code></p>
-        <div class="upgrade-nightly-row">
-          <label class="inline-check">
-            <input type="checkbox" id="upgradeNightlyOnly" />
-            <span>升级Nightly版</span>
-          </label>
-        </div>
-        <div class="cfg-actions">
-          <button type="button" id="checkUpgradeVersionBtn" class="secondary">检测版本</button>
-          <button type="button" id="runUpgradeBtn">执行自动升级</button>
-__NIGHTLY_UPGRADE_ACTIONS__
-        </div>
-        <p id="upgradeStatus" class="cfg-status"></p>
-        <p id="upgradeMeta" class="cfg-help"></p>
       </div>
     </section>
 
     <section id="panel-http" class="cfg-panel">
       <div class="card">
-        <span class="card-title">HTTP 配置</span>
+        <span class="card-title">HTTP Configuration</span>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
-            <div class="title">程序端口</div>
-            <p class="cfg-help">默认 1288。保存 HTTP 配置后需重启程序才会切换监听端口。</p>
+            <div class="title">Service Port</div>
+            <p class="cfg-help">Default 1288。Save HTTP Configuration后需Restart程序才会切换监听端口。</p>
             <input id="webPortInput" type="number" min="1" max="65535" placeholder="1288" />
             <p id="webPortHint" class="cfg-help" style="margin-top:8px;">当前运行端口：1288</p>
           </label>
@@ -3563,59 +3562,59 @@ __NIGHTLY_UPGRADE_ACTIONS__
         <p class="cfg-help">当前 HTTP 根目录：<strong id="httpStorageRoot">-</strong></p>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
-            <div class="title">HTTP 根目录（允许 / 下任意目录）</div>
-            <p class="cfg-help">填写绝对路径，例如：<code>/</code>、<code>/srv/Storage</code>、<code>/home/user</code>。</p>
-            <input id="httpRootDir" placeholder="例如：/srv/Storage 或 /" />
+            <div class="title">HTTP Root Directory (any path under / is allowed)</div>
+            <p class="cfg-help">填写绝对路径，e.g. <code>/</code>、<code>/srv/Storage</code>、<code>/home/user</code>。</p>
+            <input id="httpRootDir" placeholder="e.g. /srv/Storage or /" />
             <div class="row" style="margin-top:8px;">
-              <button type="button" id="httpScanRootBtn" class="secondary">验证（扫描）</button>
+              <button type="button" id="httpScanRootBtn" class="secondary">Validate (scan)</button>
             </div>
             <p id="httpScanResult" class="cfg-help" style="margin-top:8px;"></p>
           </label>
           <label class="cfg-item">
-            <div class="title">默认目录（相对 HTTP 根目录）</div>
-            <p class="cfg-help">主页面“目录服务”打开时会默认跳转到此目录。</p>
-            <input id="httpDefaultDir" placeholder="例如：BT/TV 或 ." />
+            <div class="title">Default directory (relative to HTTP root)</div>
+            <p class="cfg-help">主页面“Directory Service”打开时会Default跳转到此目录。</p>
+            <input id="httpDefaultDir" placeholder="e.g. BT/TV or ." />
           </label>
           <div class="cfg-item" style="grid-column: 1 / -1;">
-            <div class="title">来源 IP 池（1288 训练）</div>
-            <p class="cfg-help">按“每行一个 IP/CIDR”维护来源池。命中后优先标记为对应来源（高于 UA/Referer 关键词）。</p>
+            <div class="title">Source IP pools (1288 training)</div>
+            <p class="cfg-help">按“每行一个 IP/CIDR”维护Source池。命中后优先标记为对应Source（高于 UA/Referer 关键词）。</p>
             <div class="cfg-grid" style="margin-top:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
               <label class="cfg-item">
-                <div class="title">百度网盘 IP 池</div>
-                <textarea id="httpPoolBaidu" rows="7" placeholder="例如：&#10;112.80.248.0/21&#10;220.181.38.0/24"></textarea>
+                <div class="title">Baidu Netdisk IP Pool</div>
+                <textarea id="httpPoolBaidu" rows="7" placeholder="e.g. &#10;112.80.248.0/21&#10;220.181.38.0/24"></textarea>
               </label>
               <label class="cfg-item">
-                <div class="title">光鸭网盘 IP 池</div>
-                <textarea id="httpPoolGuangya" rows="7" placeholder="例如：&#10;203.0.113.0/24"></textarea>
+                <div class="title">Guangya Netdisk IP Pool</div>
+                <textarea id="httpPoolGuangya" rows="7" placeholder="e.g. &#10;203.0.113.0/24"></textarea>
               </label>
               <label class="cfg-item">
-                <div class="title">阿里云盘 IP 池</div>
-                <textarea id="httpPoolAliyun" rows="7" placeholder="例如：&#10;47.0.0.0/8"></textarea>
+                <div class="title">Aliyun Drive IP Pool</div>
+                <textarea id="httpPoolAliyun" rows="7" placeholder="e.g. &#10;47.0.0.0/8"></textarea>
               </label>
             </div>
             <div class="cfg-item" style="margin-top:10px;">
-              <div class="title">可更新来源（GitHub/URL）</div>
-              <p class="cfg-help">支持 <code>github:owner/repo/path</code>，例如：<code>github:EinProfispieler/afterclaw/data/vendor-ip-pools</code>。</p>
+              <div class="title">Updatable sources (GitHub/URL)</div>
+              <p class="cfg-help">支持 <code>github:owner/repo/path</code>，e.g. <code>github:EinProfispieler/afterclaw/data/vendor-ip-pools</code>。</p>
               <div class="row" style="margin-top:8px;">
-                <input id="httpPoolSource" class="grow" placeholder="例如：github:EinProfispieler/afterclaw/data/vendor-ip-pools" />
-                <button type="button" id="syncHttpPoolSourceBtn" class="secondary">从源更新 IP 池</button>
+                <input id="httpPoolSource" class="grow" placeholder="e.g. github:EinProfispieler/afterclaw/data/vendor-ip-pools" />
+                <button type="button" id="syncHttpPoolSourceBtn" class="secondary">Update IP pools from source</button>
               </div>
               <p id="httpPoolSourceMeta" class="cfg-help" style="margin-top:8px;"></p>
             </div>
           </div>
           <div class="cfg-item">
-            <div class="title">目录浏览器（目标服务器）</div>
+            <div class="title">Directory Browser (target server)</div>
             <div class="row" style="margin-top:8px;">
-              <input id="httpBrowseDir" class="grow" placeholder="例如：." />
-              <button type="button" id="httpBrowseLoadBtn" class="secondary">加载子目录</button>
-              <button type="button" id="httpBrowseParentBtn" class="secondary">上级</button>
+              <input id="httpBrowseDir" class="grow" placeholder="e.g. ." />
+              <button type="button" id="httpBrowseLoadBtn" class="secondary">Load subdirectories</button>
+              <button type="button" id="httpBrowseParentBtn" class="secondary">Parent</button>
             </div>
-            <p class="cfg-help" style="margin-top:8px;">点击下方子目录可快速设为默认目录。</p>
+            <p class="cfg-help" style="margin-top:8px;">点击下方子目录可快速设为Default目录。</p>
             <div id="httpDirList" class="dir-list" style="max-height:230px;"></div>
           </div>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="saveHttpBtn">保存 HTTP 配置</button>
+          <button type="button" id="saveHttpBtn">Save HTTP Configuration</button>
         </div>
         <p id="httpStatus" class="cfg-status"></p>
       </div>
@@ -3623,18 +3622,18 @@ __NIGHTLY_UPGRADE_ACTIONS__
 
     <section id="panel-qbt" class="cfg-panel">
       <div class="card">
-        <span class="card-title">qB 配置</span>
+        <span class="card-title">qB Configuration</span>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item inline-check">
-            <input type="checkbox" id="qbtMonitorEnabled" /> <span class="title">qB 监控</span>
+            <input type="checkbox" id="qbtMonitorEnabled" /> <span class="title">qB Monitoring</span>
           </label>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="saveQbtBtn">保存 qB 配置</button>
-          <button type="button" id="qbtOptimizeBtn">一键优化配置</button>
-          <button type="button" id="qbtFixPermBtn" class="secondary">修复 qB 监控权限</button>
-          <button type="button" id="qbtRestartSvcBtn" class="secondary">qB 服务重启</button>
-          <button type="button" id="qbtQuitBtn" class="secondary">qB 退出</button>
+          <button type="button" id="saveQbtBtn">Save qB Configuration</button>
+          <button type="button" id="qbtOptimizeBtn">One-click optimize config</button>
+          <button type="button" id="qbtFixPermBtn" class="secondary">Fix qB monitoring permissions</button>
+          <button type="button" id="qbtRestartSvcBtn" class="secondary">Restart qB service</button>
+          <button type="button" id="qbtQuitBtn" class="secondary">Quit qB</button>
         </div>
         <p id="qbtRuntimeStatus" class="cfg-status muted"></p>
         <p id="qbtStatus" class="cfg-status"></p>
@@ -3647,59 +3646,59 @@ __NIGHTLY_UPGRADE_ACTIONS__
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item inline-check">
             <input type="checkbox" id="termEnabled" />
-            <span class="title">启用主页 Terminal 图标</span>
+            <span class="title">Enable Terminal icon on homepage</span>
           </label>
           <label class="cfg-item">
             <div class="title">Host</div>
-            <input id="termHost" placeholder="例如：192.168.1.30" />
+            <input id="termHost" placeholder="e.g. 192.168.1.30" />
           </label>
           <label class="cfg-item">
             <div class="title">User</div>
-            <input id="termUser" placeholder="例如：root" />
+            <input id="termUser" placeholder="e.g. root" />
           </label>
           <label class="cfg-item">
             <div class="title">Port</div>
             <input id="termPort" type="number" min="1" max="65535" placeholder="22" />
           </label>
           <label class="cfg-item">
-            <div class="title">认证方式</div>
+            <div class="title">Authentication mode</div>
             <select id="termAuthMode">
               <option value="key">key（推荐）</option>
-              <option value="password">password（不保存密码）</option>
+              <option value="password">password（不Save密码）</option>
             </select>
           </label>
           <label class="cfg-item" id="termKeyFileItem">
-            <div class="title">配置目录 Key 文件名（可选）</div>
-            <input id="termKeyFile" list="termKeyFileList" placeholder="例如：id_ed25519" />
+            <div class="title">Key filename in config directory (optional)</div>
+            <input id="termKeyFile" list="termKeyFileList" placeholder="e.g. id_ed25519" />
             <datalist id="termKeyFileList"></datalist>
             <p class="cfg-help" style="margin-top:6px;">配置目录：<code id="termKeyDirText">terminal_keys</code></p>
             <div class="row" style="margin-top:8px;">
-              <button type="button" id="termPickKeyBtn" class="secondary">选择并上传 key</button>
-              <button type="button" id="termRefreshKeyListBtn" class="secondary">刷新 key 列表</button>
+              <button type="button" id="termPickKeyBtn" class="secondary">Select & Upload key</button>
+              <button type="button" id="termRefreshKeyListBtn" class="secondary">Refresh key list</button>
               <input id="termKeyUploadInput" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream,text/plain" style="display:none;" />
             </div>
             <p class="cfg-help" style="margin-top:6px;">可从当前设备选择私钥文件并上传到配置目录。</p>
           </label>
           <label class="cfg-item" id="termKeyPathItem">
-            <div class="title">私钥路径（key 模式）</div>
-            <input id="termKeyPath" placeholder="例如：~/.ssh/id_ed25519" />
+            <div class="title">Private key path (key mode)</div>
+            <input id="termKeyPath" placeholder="e.g. ~/.ssh/id_ed25519" />
             <p class="cfg-help" style="margin-top:6px;">未填“配置目录 Key 文件名”时使用此路径。</p>
           </label>
         </div>
         <div class="cfg-item" style="margin-top:12px;">
-          <div class="title">连接预览</div>
+          <div class="title">ConnectPreview</div>
           <p id="terminalTip" class="cfg-help"></p>
           <p class="cfg-help" style="margin-top:8px;">Terminal Link:
-            <a id="terminalPreviewLink" href="#terminal" target="_blank" rel="noopener">未配置</a>
+            <a id="terminalPreviewLink" href="#terminal" target="_blank" rel="noopener">Not configured</a>
           </p>
           <p class="cfg-help" style="margin-top:6px;">网页终端入口：
             <a id="terminalWebLink" href="/terminal">打开 /terminal</a>
           </p>
-          <div id="terminalPreviewCmd" class="cfg-code">未配置</div>
+          <div id="terminalPreviewCmd" class="cfg-code">Not configured</div>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="saveTerminalBtn">保存 Terminal 配置</button>
-          <button type="button" id="copyTerminalCmdBtn" class="secondary">复制 SSH 命令</button>
+          <button type="button" id="saveTerminalBtn">Save Terminal config</button>
+          <button type="button" id="copyTerminalCmdBtn" class="secondary">Copy SSH command</button>
         </div>
         <p id="terminalStatus" class="cfg-status"></p>
       </div>
@@ -3713,21 +3712,54 @@ __NIGHTLY_UPGRADE_ACTIONS__
         </div>
       </div>
     </section>
-  </div>
-  <div id="upgradeProgressModal" class="upgrade-progress-modal" aria-hidden="true">
-    <div class="upgrade-progress-card">
-      <div class="upgrade-progress-head">
-        <strong id="upgradeProgressTitle">升级进度</strong>
-        <span id="upgradeProgressPercent">0%</span>
+
+    <section id="panel-netdisk" class="cfg-panel">
+      <div class="card">
+        <span class="card-title">NetdiskSource</span>
+        <p class="card-desc" style="margin:0 0 12px;font-size:13px;color:var(--text-muted);">选择需要监控的NetdiskSource。启用后，主页面和进程网络明细将显示对应Source的Connect与Speed信息。</p>
+        <div class="cfg-module-list">
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndBaidu" class="cfg-switch-input" checked />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">Baidu Netdisk</p><p class="cfg-module-desc">BaiduNetdisk</p></div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndAli" class="cfg-switch-input" checked />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">Aliyun Drive</p><p class="cfg-module-desc">aDrive / alipan</p></div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndGuangya" class="cfg-switch-input" checked />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">Guangya Netdisk</p><p class="cfg-module-desc">CloudDrive</p></div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndDropbox" class="cfg-switch-input" />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">Dropbox</p><p class="cfg-module-desc">Dropbox client</p></div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndMega" class="cfg-switch-input" />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">MEGA</p><p class="cfg-module-desc">MEGA / MEGAsync</p></div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndOnedrive" class="cfg-switch-input" />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">OneDrive</p><p class="cfg-module-desc">Microsoft OneDrive</p></div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="ndGdrive" class="cfg-switch-input" />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div><p class="cfg-module-title">Google Drive</p><p class="cfg-module-desc">Google Drive client</p></div>
+          </label>
+        </div>
+        <div class="cfg-save-row" style="margin-top:16px;">
+          <button id="saveNetdiskBtn" type="button">Save Netdisk config</button>
+          <span id="netdiskStatus" class="status-bar muted"></span>
+        </div>
       </div>
-      <div class="upgrade-progress-track">
-        <div id="upgradeProgressBar" class="upgrade-progress-fill"></div>
-      </div>
-      <p id="upgradeProgressText" class="cfg-help">准备中...</p>
-      <div class="cfg-actions" style="margin-top:10px;">
-        <button type="button" id="closeUpgradeProgressBtn" class="secondary">隐藏窗口</button>
-      </div>
-    </div>
+    </section>
   </div>
   <div id="toastContainer"></div>
 
@@ -3762,31 +3794,21 @@ __NIGHTLY_UPGRADE_ACTIONS__
         auth_mode: "key",
         key_path: "~/.ssh/id_ed25519",
         key_file: ""
+      },
+      netdisk_sources: {
+        baidu: true,
+        ali: true,
+        guangya: true,
+        dropbox: false,
+        mega: false,
+        onedrive: false,
+        gdrive: false
       }
     };
     var runtimeWebPort = 1288;
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
-    var upgradeState = {
-      supported: false,
-      running: false,
-      state: "idle",
-      current_version: "",
-      current_branch: "main",
-      requested_branch: "main",
-      selected_branch: "main",
-      latest_tag: "",
-      latest_release_url: "",
-      up_to_date: false,
-      upgrade_available: true,
-      progress_pct: 0,
-      release_url: "",
-      message: "",
-      error: "",
-      support_reason: ""
-    };
+    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", repo: "EinProfispieler/afterclaw", requested_tag: "", target_tag: "", release_url: "", message: "", error: "" };
     var upgradePollTimer = 0;
-    var upgradeDemoTimer = 0;
-    var upgradeProgressHiddenByUser = false;
 
     function byId(id){ return document.getElementById(id); }
     function trRaw(text){
@@ -3842,8 +3864,6 @@ __NIGHTLY_UPGRADE_ACTIONS__
     function applyTheme(t){
       document.documentElement.setAttribute("data-theme", t);
       try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
-      var b = byId("themeToggleBtn");
-      if (b) b.textContent = t === "dark" ? "浅色模式" : "深色模式";
     }
     function normalizeHeroPreset(v){
       var x = String(v || "").trim().toLowerCase();
@@ -3886,15 +3906,15 @@ __NIGHTLY_UPGRADE_ACTIONS__
       }
       var meta = byId("cfgThemeMeta");
       if (meta) {
-        var labels = { default: "默认", aurora: "极光", sunset: "落日", frost: "冰川", afterclaw_clouds: "云海暮光", custom: "自定义图片" };
-        meta.textContent = "当前背景：" + (labels[effective] || "默认");
+        var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
+        meta.textContent = "Current background: " + (labels[effective] || "Default");
       }
       syncHeroPresetButtons();
     }
     async function apiJson(url, opts){
       var r = await fetch(url, opts || {});
       var d = await r.json().catch(function(){ return {}; });
-      if (!r.ok) throw new Error((d && d.error) || ("请求失败 " + r.status));
+      if (!r.ok) throw new Error((d && d.error) || ("Request failed " + r.status));
       return d;
     }
     function normalizeDirInput(raw){
@@ -3931,9 +3951,9 @@ __NIGHTLY_UPGRADE_ACTIONS__
     }
     function applySourceIpPoolsInputs(rawPools){
       var pools = rawPools || {};
-      byId("httpPoolBaidu").value = poolRowsToText(pools.baidu || pools["百度网盘"] || []);
-      byId("httpPoolGuangya").value = poolRowsToText(pools.guangya || pools["光鸭网盘"] || []);
-      byId("httpPoolAliyun").value = poolRowsToText(pools.aliyun || pools["阿里云盘"] || []);
+      byId("httpPoolBaidu").value = poolRowsToText(pools.baidu || pools["Baidu Netdisk"] || []);
+      byId("httpPoolGuangya").value = poolRowsToText(pools.guangya || pools["Guangya Netdisk"] || []);
+      byId("httpPoolAliyun").value = poolRowsToText(pools.aliyun || pools["Aliyun Drive"] || []);
     }
     function collectSourceIpPoolsDraft(){
       return {
@@ -3962,7 +3982,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       var sourceInput = byId("httpPoolSource");
       var source = normalizeSourceIpPoolSource(sourceInput ? sourceInput.value : "");
       if (sourceInput) sourceInput.value = source;
-      setStatus("httpStatus", "正在从来源同步 IP 池...");
+      setStatus("httpStatus", "正在从Source同步 IP 池...");
       var d = await apiJson("/api/http/source-ip-pools/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3972,11 +3992,11 @@ __NIGHTLY_UPGRADE_ACTIONS__
       var counts = (d && d.counts) || {};
       var remoteCounts = (d && d.remote_counts) || {};
       var mode = String((d && d.mode) || "merge");
-      var summary = "来源同步完成：百度 " + Number(counts.baidu || 0)
+      var summary = "Source同步完成：百度 " + Number(counts.baidu || 0)
         + " · 光鸭 " + Number(counts.guangya || 0)
         + " · 阿里云 " + Number(counts.aliyun || 0);
       var files = (d && Array.isArray(d.files_used)) ? d.files_used : [];
-      var meta = "当前来源：" + source;
+      var meta = "当前Source：" + source;
       if (files.length) {
         meta += " | 命中文件 " + files.length + " 个";
       }
@@ -4019,70 +4039,23 @@ __NIGHTLY_UPGRADE_ACTIONS__
       var desired = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : cfg.web_port, cfg.web_port || 1288);
       var msg = "当前运行端口：" + String(runtimeWebPort) + "。";
       if (desired !== runtimeWebPort) {
-        msg += " 保存后需重启程序，重启后切换到：" + String(desired) + "。";
+        msg += " Save后需Restart程序，Restart后切换到：" + String(desired) + "。";
       } else {
-        msg += " 当前保存值与运行端口一致。";
+        msg += " 当前Save值与运行端口一致。";
       }
       hint.textContent = msg;
     }
-    function normalizeUpgradeBranchInput(raw){
-      var v = String(raw || "").trim().toLowerCase();
-      if (v === "stable") v = "main";
-      if (v !== "main" && v !== "nightly") v = "main";
+    function normalizeUpgradeRepoInput(raw){
+      var v = String(raw || "").trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/g, "");
       return v;
     }
-    function selectedUpgradeBranch(){
-      return (byId("upgradeNightlyOnly") && byId("upgradeNightlyOnly").checked) ? "nightly" : "main";
-    }
-    function stableConfigUrl1288(){
-      try {
-        var u = new URL(window.location.href);
-        u.port = "1288";
-        u.pathname = "/config";
-        u.hash = "#general";
-        return u.toString();
-      } catch (e) {
-        var protocol = window.location.protocol || "http:";
-        var host = window.location.hostname || "127.0.0.1";
-        return protocol + "//" + host + ":1288/config#general";
-      }
+    function normalizeUpgradeTagInput(raw){
+      return String(raw || "").trim();
     }
     function stopUpgradePolling(){
       if (upgradePollTimer) {
         clearTimeout(upgradePollTimer);
         upgradePollTimer = 0;
-      }
-    }
-    function stopUpgradeDemo(){
-      if (upgradeDemoTimer) {
-        clearInterval(upgradeDemoTimer);
-        upgradeDemoTimer = 0;
-      }
-    }
-    function openUpgradeProgress(title){
-      var modal = byId("upgradeProgressModal");
-      if (!modal) return;
-      modal.classList.add("active");
-      modal.setAttribute("aria-hidden", "false");
-      if (byId("upgradeProgressTitle")) byId("upgradeProgressTitle").textContent = String(title || "升级进度");
-    }
-    function hideUpgradeProgress(){
-      var modal = byId("upgradeProgressModal");
-      if (!modal) return;
-      modal.classList.remove("active");
-      modal.setAttribute("aria-hidden", "true");
-    }
-    function setUpgradeProgress(pct, text, isErr){
-      var v = Number(pct);
-      if (!Number.isFinite(v)) v = 0;
-      if (v < 0) v = 0;
-      if (v > 100) v = 100;
-      if (byId("upgradeProgressBar")) byId("upgradeProgressBar").style.width = v + "%";
-      if (byId("upgradeProgressPercent")) byId("upgradeProgressPercent").textContent = String(Math.round(v)) + "%";
-      var textEl = byId("upgradeProgressText");
-      if (textEl) {
-        textEl.textContent = String(text || "");
-        textEl.classList.toggle("err", !!isErr);
       }
     }
     function renderUpgradeStatus(status){
@@ -4092,43 +4065,41 @@ __NIGHTLY_UPGRADE_ACTIONS__
         running: !!s.running,
         state: String(s.state || (s.running ? "running" : "idle")),
         current_version: String(s.current_version || ""),
-        current_branch: normalizeUpgradeBranchInput(String(s.current_branch || "main")),
-        requested_branch: normalizeUpgradeBranchInput(String(s.requested_branch || "main")),
-        selected_branch: normalizeUpgradeBranchInput(String(s.selected_branch || s.requested_branch || "main")),
-        latest_tag: String(s.latest_tag || ""),
-        latest_release_url: String(s.latest_release_url || ""),
-        up_to_date: !!s.up_to_date,
-        upgrade_available: !!s.upgrade_available,
-        progress_pct: Number(s.progress_pct || 0),
+        repo: String(s.repo || "EinProfispieler/afterclaw"),
+        requested_tag: String(s.requested_tag || ""),
+        target_tag: String(s.target_tag || ""),
         release_url: String(s.release_url || ""),
         message: String(s.message || ""),
         error: String(s.error || ""),
         support_reason: String(s.support_reason || "")
       };
-      if (byId("upgradeNightlyOnly")) {
-        var branchHint = upgradeState.selected_branch || selectedUpgradeBranch();
-        if (!byId("upgradeNightlyOnly").dataset.userTouched) {
-          byId("upgradeNightlyOnly").checked = (branchHint === "nightly");
+      if (byId("upgradeRepoInput")) {
+        if (!String(byId("upgradeRepoInput").value || "").trim()) {
+          byId("upgradeRepoInput").value = upgradeState.repo;
+        }
+      }
+      if (byId("upgradeTagInput")) {
+        var preferredTag = upgradeState.requested_tag || upgradeState.target_tag || "";
+        if (!String(byId("upgradeTagInput").value || "").trim() && preferredTag) {
+          byId("upgradeTagInput").value = preferredTag;
         }
       }
       var statusText = "";
       var isErr = false;
       if (!upgradeState.supported) {
-        statusText = "自动升级不可用" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
+        statusText = "Auto-upgrade unavailable" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
         isErr = true;
       } else if (upgradeState.running) {
-        statusText = "升级进行中";
-        if (upgradeState.latest_tag) statusText += "：" + upgradeState.latest_tag;
+        statusText = "Upgrade in progress";
+        if (upgradeState.target_tag) statusText += "：" + upgradeState.target_tag;
         if (upgradeState.message) statusText += " · " + upgradeState.message;
       } else if (upgradeState.state === "success") {
-        statusText = upgradeState.message || ("升级完成：" + (upgradeState.latest_tag || "latest"));
+        statusText = upgradeState.message || ("Upgrade completed: " + (upgradeState.target_tag || "latest"));
       } else if (upgradeState.state === "error") {
-        statusText = upgradeState.error ? ("升级失败：" + upgradeState.error) : "升级失败";
+        statusText = upgradeState.error ? ("Upgrade failed: " + upgradeState.error) : "Upgrade failed";
         isErr = true;
-      } else if (upgradeState.up_to_date) {
-        statusText = "当前版本已是最新，无需升级";
       } else {
-        statusText = upgradeState.message || "等待执行升级";
+        statusText = upgradeState.message || "Waiting to run upgrade";
       }
       var statusEl = byId("upgradeStatus");
       if (statusEl) {
@@ -4138,36 +4109,24 @@ __NIGHTLY_UPGRADE_ACTIONS__
       if (byId("upgradeCurrentVersion")) {
         byId("upgradeCurrentVersion").textContent = upgradeState.current_version || "-";
       }
-      if (byId("upgradeRemoteVersion")) {
-        byId("upgradeRemoteVersion").textContent = upgradeState.latest_tag || "-";
-      }
       var meta = [];
       if (upgradeState.current_version) meta.push("当前服务器版本：" + upgradeState.current_version);
-      if (upgradeState.current_branch) meta.push("当前分支：" + upgradeState.current_branch);
-      if (upgradeState.selected_branch) meta.push("目标分支：" + upgradeState.selected_branch);
+      if (upgradeState.repo) meta.push("仓库：" + upgradeState.repo);
+      if (upgradeState.requested_tag) meta.push("请求 Tag：" + upgradeState.requested_tag);
+      if (upgradeState.target_tag) meta.push("目标版本：" + upgradeState.target_tag);
       if (s.started_at) meta.push("开始：" + String(s.started_at));
       if (s.finished_at) meta.push("结束：" + String(s.finished_at));
-      if (upgradeState.latest_release_url) meta.push("Release：" + upgradeState.latest_release_url);
-      else if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
+      if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
       if (byId("upgradeMeta")) byId("upgradeMeta").textContent = meta.join(" | ");
-      var canRun = (!!upgradeState.supported) && (!upgradeState.running) && (!!upgradeState.upgrade_available) && (!upgradeState.up_to_date);
       if (byId("runUpgradeBtn")) {
-        byId("runUpgradeBtn").disabled = !canRun;
+        byId("runUpgradeBtn").disabled = (!upgradeState.supported) || !!upgradeState.running;
       }
-      if (upgradeState.running) {
-        if (!upgradeProgressHiddenByUser) openUpgradeProgress("升级进度");
-        setUpgradeProgress(upgradeState.progress_pct || 0, upgradeState.message || statusText, false);
-      } else if (upgradeState.state === "error") {
-        if (!upgradeProgressHiddenByUser) openUpgradeProgress("升级失败");
-        setUpgradeProgress(upgradeState.progress_pct || 0, upgradeState.error || statusText, true);
-      } else if (upgradeState.state === "success") {
-        if (!upgradeProgressHiddenByUser) openUpgradeProgress("升级完成");
-        setUpgradeProgress(100, upgradeState.message || statusText, false);
+      if (byId("refreshUpgradeStatusBtn")) {
+        byId("refreshUpgradeStatusBtn").disabled = false;
       }
     }
     async function loadUpgradeStatus(silent){
-      var branch = selectedUpgradeBranch();
-      var d = await apiJson("/api/upgrade/status?branch=" + encodeURIComponent(branch));
+      var d = await apiJson("/api/upgrade/status");
       renderUpgradeStatus(d || {});
       if (!silent && upgradeState.running) {
         setStatus("upgradeStatus", "升级任务进行中，请勿关闭页面。");
@@ -4176,35 +4135,33 @@ __NIGHTLY_UPGRADE_ACTIONS__
         stopUpgradePolling();
         upgradePollTimer = setTimeout(function(){
           loadUpgradeStatus(true).catch(function(){});
-        }, 1200);
+        }, 2000);
       } else {
         stopUpgradePolling();
       }
       return d || {};
     }
     async function runAutoUpgrade(){
-      var branch = selectedUpgradeBranch();
-      if (upgradeState.up_to_date) {
-        throw new Error("当前版本已是最新，无需升级");
+      var repo = normalizeUpgradeRepoInput(byId("upgradeRepoInput") ? byId("upgradeRepoInput").value : "");
+      var tag = normalizeUpgradeTagInput(byId("upgradeTagInput") ? byId("upgradeTagInput").value : "");
+      if (!repo) {
+        throw new Error("请先填写仓库 owner/repo");
       }
-      if (!window.confirm("确认执行自动升级？将拉取 " + branch + " 最新版本并执行 install.sh（过程中服务可能重启）。")) {
+      var hintTag = tag ? ("Tag " + tag) : "latest release";
+      if (!window.confirm("Confirm auto-upgrade? Will pull from " + repo + " tag " + hintTag + " and run install.sh (service may restart).")) {
         return null;
       }
-      stopUpgradeDemo();
-      upgradeProgressHiddenByUser = false;
-      openUpgradeProgress("升级进度");
-      setUpgradeProgress(3, "升级任务启动中...", false);
       setStatus("upgradeStatus", "正在提交升级任务...");
       var d = await apiJson("/api/upgrade/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch: branch })
+        body: JSON.stringify({ repo: repo, tag: tag })
       });
       renderUpgradeStatus((d && d.status) || {});
       if (d && d.queued) {
         setStatus("upgradeStatus", "升级任务已入队，正在执行。");
       } else {
-        setStatus("upgradeStatus", (d && d.status && d.status.message) || "当前无需升级或已有任务在执行。", true);
+        setStatus("upgradeStatus", "已有升级任务在执行或当前环境不支持自动升级。", true);
       }
       if (upgradeState.running) {
         stopUpgradePolling();
@@ -4213,23 +4170,6 @@ __NIGHTLY_UPGRADE_ACTIONS__
         }, 1200);
       }
       return d;
-    }
-    function runUpgradeProgressDemo(){
-      stopUpgradeDemo();
-      upgradeProgressHiddenByUser = false;
-      openUpgradeProgress("升级进度演示");
-      var p = 0;
-      setUpgradeProgress(p, "演示阶段：正在校验版本", false);
-      upgradeDemoTimer = setInterval(function(){
-        p += 5;
-        if (p < 35) setUpgradeProgress(p, "演示阶段：正在下载升级包", false);
-        else if (p < 70) setUpgradeProgress(p, "演示阶段：正在解压升级包", false);
-        else if (p < 100) setUpgradeProgress(p, "演示阶段：正在执行 install.sh", false);
-        else {
-          setUpgradeProgress(100, "演示完成：进度条展示正常", false);
-          stopUpgradeDemo();
-        }
-      }, 140);
     }
     function shellQuote(s){
       var v = String(s || "");
@@ -4312,8 +4252,8 @@ __NIGHTLY_UPGRADE_ACTIONS__
       });
       applyCfg((d && d.config) || d);
       applyHeroTheme((d && d.ui_theme) || uiThemeFromConfigPayload(d));
-      var labels = { default: "默认", aurora: "极光", sunset: "落日", frost: "冰川", afterclaw_clouds: "云海暮光", custom: "自定义图片" };
-      setHeroThemeStatus("已切换背景：" + (labels[p] || "默认"));
+      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
+      setHeroThemeStatus("Switched background: " + (labels[p] || "Default"));
     }
     async function uploadHeroImageFromFile(file){
       if (!file) throw new Error("请先选择一张本地图片");
@@ -4343,7 +4283,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       applyCfg((d && d.config) || d);
       applyHeroTheme((d && d.ui_theme) || uiThemeFromConfigPayload(d));
       if (byId("cfgThemeBgFileInput")) byId("cfgThemeBgFileInput").value = "";
-      setHeroThemeStatus("已恢复默认背景");
+      setHeroThemeStatus("已Restore Default背景");
     }
     async function uploadTerminalKeyFromFile(file){
       if (!file) return;
@@ -4424,7 +4364,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
         link: link,
         command: command,
         tip: auth === "password"
-          ? "密码模式不会保存密码，点击后在终端中手工输入。"
+          ? "密码模式不会Save密码，点击后在终端中手工输入。"
           : (keyFile ? ("使用配置目录 key：" + keyFile) : "推荐使用 key 模式；确保目标主机已授权你的公钥。")
       };
     }
@@ -4441,16 +4381,16 @@ __NIGHTLY_UPGRADE_ACTIONS__
           preview.textContent = m.display || m.link;
         } else {
           preview.href = "#terminal";
-          preview.textContent = "未配置";
+          preview.textContent = "Not configured";
         }
       }
       if (webLink) {
         if (enabled && host) {
           webLink.href = "/terminal";
-          webLink.textContent = "打开 /terminal";
+          webLink.textContent = "Open /terminal";
         } else {
           webLink.href = "#terminal";
-          webLink.textContent = "请先配置并启用 Terminal";
+          webLink.textContent = "Configure and enable Terminal first";
         }
       }
       if (head) {
@@ -4474,7 +4414,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       var draft = collectTerminalDraft();
       var m = buildTerminalMetaFromDraft(draft);
       byId("terminalTip").textContent = m.tip;
-      byId("terminalPreviewCmd").textContent = m.command || "未配置";
+      byId("terminalPreviewCmd").textContent = m.command || "Not configured";
       byId("termKeyFileItem").style.display = m.auth_mode === "key" ? "" : "none";
       byId("termKeyPathItem").style.display = m.auth_mode === "key" ? "" : "none";
       renderTerminalLinks(m);
@@ -4487,7 +4427,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       if (!rows.length) {
         var empty = document.createElement("div");
         empty.className = "muted";
-        empty.textContent = "(当前目录无子目录)";
+        empty.textContent = "(No subdirectories in current directory)";
         wrap.appendChild(empty);
         return;
       }
@@ -4510,7 +4450,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
           loadHttpDirBrowser(dir, true).catch(function(err){
             setStatus("httpStatus", "加载失败：" + err.message, true);
           });
-          setStatus("httpStatus", "已选择默认目录：" + dir);
+          setStatus("httpStatus", "已选择Default目录：" + dir);
         });
         wrap.appendChild(btn);
       });
@@ -4566,7 +4506,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
         if (target !== ".") {
           target = ".";
           d = await apiJson("/api/directories?stats=0&root_dir=" + encodeURIComponent(root) + "&dir=" + encodeURIComponent(target));
-          setStatus("httpStatus", "默认目录不可访问，已回退到根目录。", true);
+          setStatus("httpStatus", "Default目录不可访问，已回退到根目录。", true);
         } else {
           throw err;
         }
@@ -4587,6 +4527,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       cfg.http_service = c.http_service || cfg.http_service;
       cfg.ui = c.ui || cfg.ui;
       cfg.terminal = c.terminal || cfg.terminal;
+      cfg.netdisk_sources = c.netdisk_sources || cfg.netdisk_sources;
       if (byId("webPortInput")) byId("webPortInput").value = String(cfg.web_port);
       byId("modQbt").checked = cfg.modules.qbt !== false;
       byId("modDdns").checked = cfg.modules.ddns !== false;
@@ -4597,7 +4538,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       byId("httpDefaultDir").value = normalizeDirInput((cfg.http_service || {}).default_dir || ".");
       applySourceIpPoolsInputs((cfg.http_service || {}).source_ip_pools || {});
       applySourceIpPoolSourceInput((cfg.http_service || {}).source_ip_pool_source || "");
-      renderSourceIpPoolMeta("当前来源：" + normalizeSourceIpPoolSource((cfg.http_service || {}).source_ip_pool_source || ""));
+      renderSourceIpPoolMeta("当前Source：" + normalizeSourceIpPoolSource((cfg.http_service || {}).source_ip_pool_source || ""));
       byId("httpBrowseDir").value = byId("httpDefaultDir").value;
       var term = cfg.terminal || {};
       byId("termEnabled").checked = term.enabled !== false;
@@ -4613,6 +4554,14 @@ __NIGHTLY_UPGRADE_ACTIONS__
         hero_custom_bg_file: String((cfg.ui || {}).hero_custom_bg_file || ""),
         hero_custom_bg_url: heroTheme.hero_custom_bg_url || ""
       });
+      var ns = cfg.netdisk_sources || {};
+      byId("ndBaidu").checked = ns.baidu !== false;
+      byId("ndAli").checked = ns.ali !== false;
+      byId("ndGuangya").checked = ns.guangya !== false;
+      byId("ndDropbox").checked = ns.dropbox !== false;
+      byId("ndMega").checked = ns.mega !== false;
+      byId("ndOnedrive").checked = ns.onedrive !== false;
+      byId("ndGdrive").checked = ns.gdrive !== false;
       updateWebPortHint();
     }
     async function loadCfg(){
@@ -4650,19 +4599,19 @@ __NIGHTLY_UPGRADE_ACTIONS__
         if (q.detail) line += " | " + q.detail;
         byId("qbtRuntimeStatus").textContent = trRaw(line);
       } catch (err) {
-        byId("qbtRuntimeStatus").textContent = trRaw("加载失败:") + " " + err.message;
+        byId("qbtRuntimeStatus").textContent = trRaw("Load failed:") + " " + err.message;
       }
     }
     function switchTab(name){
       var tab = (name || "").trim() || "general";
-      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1 };
+      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, netdisk:1 };
       if (!valid[tab]) tab = "general";
       var btns = Array.prototype.slice.call(document.querySelectorAll(".cfg-tab"));
       for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
         b.classList.toggle("active", b.getAttribute("data-tab") === tab);
       }
-      ["general","http","qbt","terminal","ddns"].forEach(function(t){
+      ["general","http","qbt","terminal","ddns","netdisk"].forEach(function(t){
         var p = byId("panel-" + t);
         if (p) p.classList.toggle("active", t === tab);
       });
@@ -4728,86 +4677,87 @@ __NIGHTLY_UPGRADE_ACTIONS__
         updateWebPortHint();
         var actionSummary = summarizeModuleActions((d && d.module_actions) || []);
         if (actionSummary.text) {
-          setStatus("generalStatus", "综合配置已保存：" + actionSummary.text, actionSummary.has_error);
+          setStatus("generalStatus", "综合配置已Save：" + actionSummary.text, actionSummary.has_error);
         } else if (payload.modules.http === false) {
-          setStatus("generalStatus", d.http_disconnect_triggered ? "综合配置已保存：HTTP 模块已关闭，已中断本程序上传连接并关闭上传。" : "综合配置已保存：HTTP 模块已关闭，上传已禁用。", false);
+          setStatus("generalStatus", d.http_disconnect_triggered ? "综合配置已Save：HTTP module is disabled，已中断本程序上传Connect并关闭上传。" : "综合配置已Save：HTTP module is disabled，上传已禁用。", false);
         } else {
-          setStatus("generalStatus", "综合配置已保存", false);
+          setStatus("generalStatus", "综合配置已Save", false);
         }
       } catch (err) {
-        setStatus("generalStatus", "保存失败：" + err.message, true);
+        setStatus("generalStatus", "Save失败：" + err.message, true);
+      }
+    });
+
+    byId("saveNetdiskBtn").addEventListener("click", async function(){
+      try {
+        var payload = {
+          netdisk_sources: {
+            baidu: byId("ndBaidu").checked,
+            ali: byId("ndAli").checked,
+            guangya: byId("ndGuangya").checked,
+            dropbox: byId("ndDropbox").checked,
+            mega: byId("ndMega").checked,
+            onedrive: byId("ndOnedrive").checked,
+            gdrive: byId("ndGdrive").checked
+          }
+        };
+        var d = await apiJson("/api/app-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        applyCfg(d.config || d);
+        setStatus("netdiskStatus", "Netdisk配置已Save", false);
+      } catch (err) {
+        setStatus("netdiskStatus", "Save失败：" + err.message, true);
       }
     });
 
     byId("restartCfgServiceBtn").addEventListener("click", async function(){
-      if (!window.confirm(trRaw("确认重启服务？端口等变更将在重启后生效。"))) return;
+      if (!window.confirm(trRaw("Confirm restarting service? Port changes take effect after restart."))) return;
       try {
-        setStatus("generalStatus", "正在发送重启指令...");
+        setStatus("generalStatus", "正在发送Restart指令...");
         var d = await apiJson("/api/control/restart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason: "config-page-restart" })
         });
         if (d && d.queued === false) {
-          setStatus("generalStatus", "重启任务未入队，请稍后重试。", true);
+          setStatus("generalStatus", "Restart任务未入队，请稍后重试。", true);
           return;
         }
-        setStatus("generalStatus", "已发送重启命令，端口等变更将在重启后生效。");
+        setStatus("generalStatus", "已发送Restart命令，端口等变更将在Restart后生效。");
       } catch (err) {
-        setStatus("generalStatus", "重启失败：" + err.message, true);
+        setStatus("generalStatus", "Restart失败：" + err.message, true);
       }
     });
 
-    if (byId("checkUpgradeVersionBtn")) {
-      byId("checkUpgradeVersionBtn").addEventListener("click", async function(){
-        try {
-          setStatus("upgradeStatus", "正在检测远端版本...");
-          await loadUpgradeStatus(false);
-          if (!upgradeState.running) {
-            setStatus(
-              "upgradeStatus",
-              upgradeState.up_to_date
-                ? "当前版本已是最新，无需升级"
-                : (upgradeState.message || "版本检测完成")
-            );
-          }
-        } catch (err) {
-          setStatus("upgradeStatus", "检测失败：" + err.message, true);
-        }
-      });
-    }
     if (byId("runUpgradeBtn")) {
       byId("runUpgradeBtn").addEventListener("click", async function(){
         try {
           await runAutoUpgrade();
         } catch (err) {
-          setStatus("upgradeStatus", "启动升级失败：" + err.message, true);
+          setStatus("upgradeStatus", "Failed to start upgrade: " + err.message, true);
         }
       });
     }
-    if (byId("demoUpgradeProgressBtn")) {
-      byId("demoUpgradeProgressBtn").addEventListener("click", function(){
-        runUpgradeProgressDemo();
+    if (byId("refreshUpgradeStatusBtn")) {
+      byId("refreshUpgradeStatusBtn").addEventListener("click", async function(){
+        try {
+          await loadUpgradeStatus(false);
+        } catch (err) {
+          setStatus("upgradeStatus", "Refresh失败：" + err.message, true);
+        }
       });
     }
-    if (byId("openStable1288Btn")) {
-      byId("openStable1288Btn").setAttribute("title", stableConfigUrl1288());
-      byId("openStable1288Btn").addEventListener("click", function(){
-        window.location.href = stableConfigUrl1288();
+    if (byId("upgradeRepoInput")) {
+      byId("upgradeRepoInput").addEventListener("blur", function(){
+        this.value = normalizeUpgradeRepoInput(this.value);
       });
     }
-    if (byId("upgradeNightlyOnly")) {
-      byId("upgradeNightlyOnly").addEventListener("change", function(){
-        this.dataset.userTouched = "1";
-        loadUpgradeStatus(true).catch(function(err){
-          setStatus("upgradeStatus", "加载升级状态失败：" + err.message, true);
-        });
-      });
-    }
-    if (byId("closeUpgradeProgressBtn")) {
-      byId("closeUpgradeProgressBtn").addEventListener("click", function(){
-        upgradeProgressHiddenByUser = true;
-        hideUpgradeProgress();
+    if (byId("upgradeTagInput")) {
+      byId("upgradeTagInput").addEventListener("blur", function(){
+        this.value = normalizeUpgradeTagInput(this.value);
       });
     }
 
@@ -4830,11 +4780,11 @@ __NIGHTLY_UPGRADE_ACTIONS__
         byId("httpBrowseDir").value = target;
         await loadHttpDirBrowser(target, true);
         var restartMsg = (d && d.web_port_restart_required)
-          ? (" 程序端口将在重启后切换为 " + String(parseWebPort(((d.config || {}).web_port), webPort)) + "。")
+          ? (" Service Port将在Restart后切换为 " + String(parseWebPort(((d.config || {}).web_port), webPort)) + "。")
           : "";
-        setStatus("httpStatus", "HTTP 配置已保存" + restartMsg);
+        setStatus("httpStatus", "HTTP Configuration已Save" + restartMsg);
       } catch (err) {
-        setStatus("httpStatus", "保存失败：" + err.message, true);
+        setStatus("httpStatus", "Save失败：" + err.message, true);
       }
     });
 
@@ -4882,7 +4832,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
         try {
           await syncSourceIpPoolsFromRemote();
         } catch (err) {
-          setStatus("httpStatus", "来源同步失败：" + err.message, true);
+          setStatus("httpStatus", "Source同步失败：" + err.message, true);
         }
       });
     }
@@ -4904,23 +4854,23 @@ __NIGHTLY_UPGRADE_ACTIONS__
           body: JSON.stringify(payload)
         });
         applyCfg(d.config || d);
-        setStatus("qbtStatus", "qB 配置已保存");
+        setStatus("qbtStatus", "qB Configuration已Save");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "保存失败：" + err.message, true);
+        setStatus("qbtStatus", "Save失败：" + err.message, true);
       }
     });
 
     byId("qbtOptimizeBtn").addEventListener("click", async function(){
-      if (!window.confirm("将注释当前相关配置并写入优化参数，继续吗？")) return;
+      if (!window.confirm("Will comment current related config and apply optimized parameters. Continue?")) return;
       try {
-        setStatus("qbtStatus", "正在优化 qB 配置...");
+        setStatus("qbtStatus", "正在优化 qB Configuration...");
         var d = await apiJson("/api/qbt/optimize-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
-        setStatus("qbtStatus", (d && d.message) || "qB 配置优化完成");
+        setStatus("qbtStatus", (d && d.message) || "qB Configuration优化完成");
         await loadQbtRuntime();
       } catch (err) {
         setStatus("qbtStatus", "优化失败：" + err.message, true);
@@ -4929,7 +4879,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
 
     byId("qbtFixPermBtn").addEventListener("click", async function(){
       try {
-        setStatus("qbtStatus", "正在修复 qB 配置与权限...");
+        setStatus("qbtStatus", "正在修复 qB Configuration与权限...");
         var d = await apiJson("/api/qbt/fix-monitor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4949,22 +4899,22 @@ __NIGHTLY_UPGRADE_ACTIONS__
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ service: "qbt", action: "restart" })
         });
-        setStatus("qbtStatus", "qB 服务已重启");
+        setStatus("qbtStatus", "qB 服务已Restart");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "重启失败：" + err.message, true);
+        setStatus("qbtStatus", "Restart失败：" + err.message, true);
       }
     });
 
     byId("qbtQuitBtn").addEventListener("click", async function(){
-      if (!window.confirm("确定要执行 qB 退出吗？")) return;
+      if (!window.confirm("Confirm qB quit?")) return;
       try {
         await apiJson("/api/control/service", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ service: "qbt", action: "quit" })
         });
-        setStatus("qbtStatus", "已发送 qB 退出指令");
+        setStatus("qbtStatus", "已发送 Quit qB指令");
         await loadQbtRuntime();
       } catch (err) {
         setStatus("qbtStatus", "退出失败：" + err.message, true);
@@ -4981,9 +4931,9 @@ __NIGHTLY_UPGRADE_ACTIONS__
       try {
         await loadBaseInfo();
         refreshTerminalPreview();
-        setStatus("terminalStatus", "key 列表已刷新");
+        setStatus("terminalStatus", "key 列表已Refresh");
       } catch (err) {
-        setStatus("terminalStatus", "刷新失败：" + err.message, true);
+        setStatus("terminalStatus", "Refresh失败：" + err.message, true);
       }
     });
 
@@ -5011,23 +4961,23 @@ __NIGHTLY_UPGRADE_ACTIONS__
           body: JSON.stringify({ terminal: draft })
         });
         applyCfg(d.config || d);
-        setStatus("terminalStatus", "Terminal 配置已保存");
+        setStatus("terminalStatus", "Terminal 配置已Save");
       } catch (err) {
-        setStatus("terminalStatus", "保存失败：" + err.message, true);
+        setStatus("terminalStatus", "Save失败：" + err.message, true);
       }
     });
 
     byId("copyTerminalCmdBtn").addEventListener("click", async function(){
       var m = buildTerminalMetaFromDraft(collectTerminalDraft());
       if (!m.command) {
-        setStatus("terminalStatus", "请先填写 Host/User 等连接信息", true);
+        setStatus("terminalStatus", "请先填写 Host/User 等Connect信息", true);
         return;
       }
       var ok = await copyTextSmart(m.command);
       if (ok) {
         setStatus("terminalStatus", "SSH 命令已复制");
       } else {
-        setStatus("terminalStatus", "复制失败，请手工复制预览命令", true);
+        setStatus("terminalStatus", "复制失败，请手工复制Preview命令", true);
       }
     });
 
@@ -5099,7 +5049,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
     async function apiJson(url, opts){
       var r = await fetch(url, opts || {});
       var d = await r.json().catch(function(){ return {}; });
-      if (!r.ok) throw new Error((d && d.error) || ("请求失败 " + r.status));
+      if (!r.ok) throw new Error((d && d.error) || ("Request failed " + r.status));
       return d;
     }
     function applyUiTheme(uiTheme){
@@ -5115,10 +5065,10 @@ __NIGHTLY_UPGRADE_ACTIONS__
       } else {
         document.documentElement.style.removeProperty("--hero-custom-url");
       }
-      var labels = { default: "默认", aurora: "极光", sunset: "落日", frost: "冰川", afterclaw_clouds: "云海暮光", custom: "自定义图片" };
+      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
       var meta = byId("cfgThemeMeta");
       if (meta) {
-        meta.textContent = "当前背景：" + (labels[effective] || "默认");
+        meta.textContent = "Current background: " + (labels[effective] || "Default");
       }
       Array.prototype.slice.call(document.querySelectorAll('#panel-general .theme-preset-btn')).forEach(function(btn){
         var p = normalizeHeroPreset(btn.getAttribute("data-hero-preset"));
@@ -5133,8 +5083,8 @@ __NIGHTLY_UPGRADE_ACTIONS__
         body: JSON.stringify({ ui: { hero_preset: p } })
       });
       applyUiTheme((d && d.ui_theme) || {});
-      var labels = { default: "默认", aurora: "极光", sunset: "落日", frost: "冰川", afterclaw_clouds: "云海暮光", custom: "自定义图片" };
-      setStatus("已切换背景：" + (labels[p] || "默认"), false);
+      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
+      setStatus("Switched background: " + (labels[p] || "Default"), false);
     }
     async function uploadThemeImage(file){
       if (!file) throw new Error("请先选择一张本地图片");
@@ -5163,7 +5113,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       applyUiTheme((d && d.ui_theme) || {});
       var fileInput = byId("cfgThemeBgFileInput");
       if (fileInput) fileInput.value = "";
-      setStatus("已恢复默认背景", false);
+      setStatus("已Restore Default背景", false);
     }
     Array.prototype.slice.call(document.querySelectorAll('#panel-general .theme-preset-btn')).forEach(function(btn){
       btn.addEventListener("click", async function(){
@@ -5277,7 +5227,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
     async function apiJson(url, opts){
       var r = await fetch(url, opts || {});
       var d = await r.json().catch(function(){ return {}; });
-      if (!r.ok) throw new Error((d && d.error) || ("请求失败 " + r.status));
+      if (!r.ok) throw new Error((d && d.error) || ("Request failed " + r.status));
       return d;
     }
     function switchTab(name){
@@ -5302,7 +5252,7 @@ __NIGHTLY_UPGRADE_ACTIONS__
       if (byId("modHttp")) byId("modHttp").checked = modules.http !== false;
       var wp = parseWebPort((cfg || {}).web_port, 1288);
       if (byId("webPortInput")) byId("webPortInput").value = String(wp);
-      if (byId("webPortHint")) byId("webPortHint").textContent = "当前保存端口：" + String(wp) + "（修改后需重启生效）";
+      if (byId("webPortHint")) byId("webPortHint").textContent = "Saved port: " + String(wp) + " (restart required after change)";
     }
     async function loadModuleConfig(){
       var d = await apiJson("/api/app-config");
@@ -5327,11 +5277,11 @@ __NIGHTLY_UPGRADE_ACTIONS__
       applyModuleConfig((d && d.config) || d || {});
       var actionSummary = summarizeModuleActions((d && d.module_actions) || []);
       if (actionSummary.text) {
-        setStatus("generalStatus", "综合配置已保存：" + actionSummary.text, actionSummary.has_error);
+        setStatus("generalStatus", "综合配置已Save：" + actionSummary.text, actionSummary.has_error);
       } else if (payload.modules.http === false) {
-        setStatus("generalStatus", d.http_disconnect_triggered ? "综合配置已保存：HTTP 模块已关闭，已中断本程序上传连接并关闭上传。" : "综合配置已保存：HTTP 模块已关闭，上传已禁用。", false);
+        setStatus("generalStatus", d.http_disconnect_triggered ? "综合配置已Save：HTTP module is disabled，已中断本程序上传Connect并关闭上传。" : "综合配置已Save：HTTP module is disabled，上传已禁用。", false);
       } else {
-        setStatus("generalStatus", "综合配置已保存", false);
+        setStatus("generalStatus", "综合配置已Save", false);
       }
     }
 
@@ -5341,25 +5291,25 @@ __NIGHTLY_UPGRADE_ACTIONS__
     if (byId("saveModulesBtn")) {
       byId("saveModulesBtn").addEventListener("click", function(){
         saveModuleConfig().catch(function(err){
-          setStatus("generalStatus", "保存失败：" + ((err && err.message) || err), true);
+          setStatus("generalStatus", "Save失败：" + ((err && err.message) || err), true);
         });
       });
     }
     if (byId("restartCfgServiceBtn")) {
       byId("restartCfgServiceBtn").addEventListener("click", function(){
-        if (!window.confirm(trRaw("确认重启服务？端口等变更将在重启后生效。"))) return;
+        if (!window.confirm(trRaw("Confirm restarting service? Port changes take effect after restart."))) return;
         apiJson("/api/control/restart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason: "config-page-restart" })
         }).then(function(d){
           if (d && d.queued === false) {
-            setStatus("generalStatus", "重启任务未入队，请稍后重试。", true);
+            setStatus("generalStatus", "Restart任务未入队，请稍后重试。", true);
             return;
           }
-          setStatus("generalStatus", "已发送重启命令，端口等变更将在重启后生效。", false);
+          setStatus("generalStatus", "已发送Restart命令，端口等变更将在Restart后生效。", false);
         }).catch(function(err){
-          setStatus("generalStatus", "重启失败：" + ((err && err.message) || err), true);
+          setStatus("generalStatus", "Restart失败：" + ((err && err.message) || err), true);
         });
       });
     }
@@ -5372,7 +5322,6 @@ __NIGHTLY_UPGRADE_ACTIONS__
 </body>
 </html>
 """
-    html = html.replace("__NIGHTLY_UPGRADE_ACTIONS__", nightly_upgrade_extra_actions)
     return _inject_page_title(html, "Config")
 
 
@@ -5438,12 +5387,12 @@ def build_terminal_html() -> str:
           <p class="page-sub">浏览器内 SSH 终端（xterm.js）</p>
         </div>
         <div class="head-actions">
-          <a href="/config#terminal" class="gear-btn" title="Config / Terminal" aria-label="Config / Terminal">&#9881;</a>
-          <button type="button" id="themeToggleBtn" class="secondary">主题</button>
+          <a href="/config#terminal" class="gear-btn" title="Config / Terminal" aria-label="Config / Terminal">⚙️</a>
+          <button type="button" id="themeToggleBtn" class="secondary">Theme</button>
           <select id="langSelect" class="lang-select" title="Language">
-            <option value="en">English</option>
             <option value="zh-CN">简体中文</option>
             <option value="zh-TW">繁體中文</option>
+            <option value="en">English</option>
             <option value="de">Deutsch</option>
             <option value="fr">Français</option>
             <option value="ja">日本語</option>
@@ -5455,12 +5404,12 @@ def build_terminal_html() -> str:
     <div class="card">
       <div class="term-toolbar">
         <span class="term-target">目标：<span id="termTarget">加载中...</span></span>
-        <button type="button" id="connectBtn">连接</button>
-        <button type="button" id="disconnectBtn" class="secondary">断开</button>
-        <button type="button" id="copyCmdBtn" class="secondary">复制 SSH 命令</button>
-        <button type="button" id="clearBtn" class="secondary">清屏</button>
+        <button type="button" id="connectBtn">Connect</button>
+        <button type="button" id="disconnectBtn" class="secondary">Disconnect</button>
+        <button type="button" id="copyCmdBtn" class="secondary">Copy SSH command</button>
+        <button type="button" id="clearBtn" class="secondary">Clear</button>
       </div>
-      <div id="termStatus" class="status-bar muted">准备就绪</div>
+      <div id="termStatus" class="status-bar muted">Ready</div>
       <div id="termView" class="term-shell"></div>
       <div class="term-link-line">外部终端直连：<a id="sshLaunchLink" href="#" target="_blank" rel="noopener">-</a></div>
       <div id="termCmdPreview" class="term-code">-</div>
@@ -5498,8 +5447,6 @@ def build_terminal_html() -> str:
     function applyTheme(t){
       document.documentElement.setAttribute("data-theme", t);
       try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
-      var b = document.getElementById("themeToggleBtn");
-      if (b) b.textContent = t === "dark" ? "浅色模式" : "深色模式";
       if (term) {
         term.options.theme = t === "dark"
           ? { background: "#0b1220", foreground: "#dbe5f5", cursor: "#60a5fa" }
@@ -5513,7 +5460,7 @@ def build_terminal_html() -> str:
     async function apiJson(url, opts){
       var r = await fetch(url, opts || {});
       var d = await r.json().catch(function(){ return {}; });
-      if (!r.ok) throw new Error((d && d.error) || ("请求失败 " + r.status));
+      if (!r.ok) throw new Error((d && d.error) || ("Request failed " + r.status));
       return d;
     }
     async function copyTextSmart(text){
@@ -5560,15 +5507,15 @@ def build_terminal_html() -> str:
       if (!m.enabled) {
         setStatus("Terminal 模块未启用，请到 Config -> Terminal 开启。", true);
       } else if (!m.host) {
-        setStatus("未配置 Terminal Host，请到 Config -> Terminal 设置。", true);
+        setStatus("Not configured Terminal Host，请到 Config -> Terminal 设置。", true);
       } else {
-        setStatus("准备连接到 " + display);
+        setStatus("准备Connect到 " + display);
       }
     }
     function ensureTerminalReady(){
       if (term) return true;
       if (!window.Terminal || !window.FitAddon) {
-        setStatus("xterm.js 资源加载失败，请检查 /vendor/xterm 资源后刷新。", true);
+        setStatus("xterm.js 资源加载失败，请检查 /vendor/xterm 资源后Refresh。", true);
         return false;
       }
       term = new Terminal({
@@ -5641,7 +5588,7 @@ def build_terminal_html() -> str:
           return;
         }
       } catch (err) {
-        setStatus("读取失败：" + err.message, true);
+        setStatus("Read failed: " + err.message, true);
         sessionId = "";
         return;
       }
@@ -5663,11 +5610,11 @@ def build_terminal_html() -> str:
         if (!sessionId) throw new Error("会话 ID 无效");
         term.clear();
         term.focus();
-        setStatus("已连接，输入命令即可。");
+        setStatus("已Connect，输入命令即可。");
         if (pollTimer) window.clearTimeout(pollTimer);
         pollTimer = window.setTimeout(readLoop, 30);
       } catch (err) {
-        setStatus("连接失败：" + err.message, true);
+        setStatus("Connect失败：" + err.message, true);
       }
     }
     async function disconnectSession(){
@@ -5690,7 +5637,7 @@ def build_terminal_html() -> str:
       } catch (err) {
         // ignore close error
       }
-      setStatus("会话已断开");
+      setStatus("会话已Disconnect");
     }
     async function loadBase(){
       var d = await apiJson("/api/base");
@@ -5780,19 +5727,28 @@ class AppHandler(BaseHTTPRequestHandler):
         "tx_mbps": 0.0,
     }
     transfer_source_rules = (
-        ("百度网盘", ("百度", "baidu", "pan.baidu", "xpan", "netdisk", "baiduyun", "yun.baidu", "pcs")),
-        ("光鸭网盘", ("光鸭", "guangya")),
-        ("阿里云盘", ("阿里", "aliyun", "alipan", "阿里云盘")),
+        # Keep Guangya/Aliyun ahead of Baidu and avoid generic netdisk keyword.
+        ("Guangya Netdisk", ("光鸭", "guangya", "clouddrive", "cloud drive")),
+        ("Aliyun Drive", ("阿里", "aliyun", "alipan", "Aliyun Drive")),
+        ("Baidu Netdisk", ("百度", "baidu", "pan.baidu", "xpan", "baiduyun", "yun.baidu", "pcs")),
+        ("Dropbox", ("dropbox",)),
+        ("MEGA", ("mega",)),
+        ("OneDrive", ("onedrive",)),
+        ("Google Drive", ("google drive", "gdrive")),
     )
     process_source_rules = (
-        ("百度网盘", ("baidunetdisk", "netdisk", "xpan")),
-        ("光鸭网盘", ("guangya",)),
-        ("阿里云盘", ("aliyundrive", "alipan", "aliyun")),
+        ("Baidu Netdisk", ("baidunetdisk", "xpan")),
+        ("Guangya Netdisk", ("guangya",)),
+        ("Aliyun Drive", ("aliyundrive", "alipan", "aliyun")),
+        ("Dropbox", ("dropbox",)),
+        ("MEGA", ("megasync", "mega")),
+        ("OneDrive", ("onedrive",)),
+        ("Google Drive", ("googledrivesync", "gdrive")),
     )
+    process_speed_sampler = ProcessSourceSpeedSampler(process_source_rules)
+    process_detail_sampler = ProcessSourceSpeedSampler(process_source_rules)
     active_transfers = {}
     transfer_recent_ttl_sec = 8.0
-    process_net_lock = threading.Lock()
-    process_net_state = {"last_ts": 0.0, "socket_counters": {}}
     qbt_candidates = [
         DEFAULT_QBT_SERVICE,
         "qbittorrent-nox",
@@ -5832,7 +5788,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if not shareclip_route_match(path, query_id_pub):
             return False
         if not self._shareclip_module_enabled():
-            self._error("ShareClip 模块已关闭", status=HTTPStatus.FORBIDDEN)
+            self._error("ShareClip module is disabled", status=HTTPStatus.FORBIDDEN)
             return True
         if not self._require_lan():
             return True
@@ -5904,7 +5860,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     self.wfile.write(out)
             return True
         except Exception as exc:
-            self._error(f"ShareClip 处理失败：{exc}", status=HTTPStatus.BAD_GATEWAY)
+            self._error(f"ShareClip handling failed: {exc}", status=HTTPStatus.BAD_GATEWAY)
             return True
 
     def _dispatch_ddnsgo_proxy(self, parsed, command: str, send_body: bool) -> bool:
@@ -5912,7 +5868,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if not ddnsgo_route_match(path):
             return False
         if not self._ddns_module_enabled():
-            self._error("DDNS 模块已关闭", status=HTTPStatus.FORBIDDEN)
+            self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
             return True
         if not self._require_lan():
             return True
@@ -5924,7 +5880,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 base_url = "http://127.0.0.1:9876"
             up = urlparse(base_url)
             if up.scheme not in ("http", "https") or not up.netloc:
-                self._error("ddns-go base_url 无效，请在 DDNS 设置中修正", status=HTTPStatus.BAD_REQUEST)
+                self._error("ddns-go base_url is invalid, please fix in DDNS Settings", status=HTTPStatus.BAD_REQUEST)
                 return True
 
             sub_path = path[len("/ddns-go") :] if path.startswith("/ddns-go") else path
@@ -6010,7 +5966,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.wfile.write(out)
             return True
         except Exception as exc:
-            self._error(f"ddns-go 代理失败：{exc}", status=HTTPStatus.BAD_GATEWAY)
+            self._error(f"ddns-go proxy failed: {exc}", status=HTTPStatus.BAD_GATEWAY)
             return True
 
     def _client_ip(self) -> str:
@@ -6021,140 +5977,6 @@ class AppHandler(BaseHTTPRequestHandler):
         http_cfg = (cfg.get("http_service") or {}) if isinstance(cfg, dict) else {}
         return _normalize_source_ip_pools(http_cfg.get("source_ip_pools"))
 
-    @classmethod
-    def _infer_source_by_process_name(cls, process_name: str) -> str:
-        pname = str(process_name or "").strip().lower()
-        if not pname:
-            return ""
-        for source, keywords in cls.process_source_rules:
-            if any(str(k).lower() in pname for k in keywords):
-                return str(source)
-        return ""
-
-    @classmethod
-    def _collect_process_socket_counters(cls) -> dict:
-        try:
-            proc = subprocess.run(
-                ["ss", "-tinpH"],
-                capture_output=True,
-                text=True,
-                timeout=2.0,
-                check=False,
-            )
-            if proc.returncode != 0:
-                return {}
-            lines = proc.stdout.splitlines()
-        except Exception:
-            return {}
-
-        out = {}
-        i = 0
-        while i < len(lines):
-            header = str(lines[i] or "")
-            if not header.strip():
-                i += 1
-                continue
-            detail = ""
-            if i + 1 < len(lines) and lines[i + 1].startswith("\t"):
-                detail = str(lines[i + 1] or "")
-                i += 2
-            else:
-                i += 1
-
-            user_matches = re.findall(r'\("([^"]+)",pid=(\d+),fd=(\d+)\)', header)
-            if not user_matches:
-                continue
-            endpoint_match = re.match(r"^\S+\s+\d+\s+\d+\s+(\S+)\s+(\S+)", header)
-            if endpoint_match:
-                local_ep, peer_ep = endpoint_match.group(1), endpoint_match.group(2)
-            else:
-                local_ep, peer_ep = "-", "-"
-            state = (header.split(None, 1)[0] or "").strip().upper()
-
-            combo = f"{header} {detail}"
-            acked_match = re.search(r"bytes_acked:(\d+)", combo)
-            recv_match = re.search(r"bytes_received:(\d+)", combo)
-            acked = int(acked_match.group(1)) if acked_match else 0
-            received = int(recv_match.group(1)) if recv_match else 0
-
-            for process_name, pid, fd in user_matches:
-                source = cls._infer_source_by_process_name(process_name)
-                if not source:
-                    continue
-                socket_key = f"{source}|{pid}|{local_ep}|{peer_ep}"
-                out[socket_key] = {
-                    "source": source,
-                    "pid": int(pid),
-                    "process": str(process_name),
-                    "state": state,
-                    "acked": acked,
-                    "received": received,
-                }
-        return out
-
-    @classmethod
-    def _process_source_speed_snapshot(cls) -> dict:
-        now = time.time()
-        current = cls._collect_process_socket_counters()
-        source_speed = {}
-        for row in current.values():
-            source = str((row or {}).get("source", "") or "").strip()
-            if not source:
-                continue
-            agg = source_speed.setdefault(
-                source,
-                {
-                    "source": source,
-                    "count": 0,
-                    "conn_count": 0,
-                    "active_count": 0,
-                    "download_mibps": 0.0,
-                    "upload_mibps": 0.0,
-                },
-            )
-            if str((row or {}).get("state", "") or "").upper() == "ESTAB":
-                agg["conn_count"] = int(agg.get("conn_count", 0)) + 1
-        with cls.process_net_lock:
-            last_ts = float(cls.process_net_state.get("last_ts", 0.0) or 0.0)
-            last = cls.process_net_state.get("socket_counters") or {}
-            cls.process_net_state["last_ts"] = now
-            cls.process_net_state["socket_counters"] = current
-
-        if not current or last_ts <= 0 or now <= last_ts:
-            return source_speed
-        delta_sec = now - last_ts
-        if delta_sec <= 0:
-            return source_speed
-        for socket_key, row in current.items():
-            if str((row or {}).get("state", "") or "").upper() != "ESTAB":
-                continue
-            prev = last.get(socket_key) if isinstance(last, dict) else None
-            if not isinstance(prev, dict):
-                continue
-            acked_now = int(row.get("acked", 0) or 0)
-            recv_now = int(row.get("received", 0) or 0)
-            acked_prev = int(prev.get("acked", 0) or 0)
-            recv_prev = int(prev.get("received", 0) or 0)
-            delta_send = max(acked_now - acked_prev, 0)
-            delta_recv = max(recv_now - recv_prev, 0)
-            if delta_send <= 0 and delta_recv <= 0:
-                continue
-            source = str(row.get("source", "") or "").strip()
-            if not source:
-                continue
-            agg = source_speed[source]
-            # 下载=进程接收；上传=进程发送。
-            agg["download_mibps"] = float(agg.get("download_mibps", 0.0)) + (
-                delta_recv / 1024.0 / 1024.0 / delta_sec
-            )
-            agg["upload_mibps"] = float(agg.get("upload_mibps", 0.0)) + (
-                delta_send / 1024.0 / 1024.0 / delta_sec
-            )
-            agg["active_count"] = int(agg.get("active_count", 0)) + 1
-        for agg in source_speed.values():
-            agg["count"] = int(agg.get("active_count", 0) or 0)
-        return source_speed
-
     def _infer_transfer_source(
         self,
         relative_path: str,
@@ -6164,9 +5986,6 @@ class AppHandler(BaseHTTPRequestHandler):
         client_ip: str = "",
         source_ip_pools: dict | None = None,
     ) -> str:
-        ip_source = _match_source_label_by_ip(client_ip, source_ip_pools)
-        if ip_source:
-            return ip_source
         rel = str(relative_path or "")
         name = str(filename or "")
         ua = str(user_agent or "")
@@ -6175,7 +5994,10 @@ class AppHandler(BaseHTTPRequestHandler):
         for source, keywords in self.transfer_source_rules:
             if any(str(k).lower() in merged for k in keywords):
                 return str(source)
-        return "HTTP直连"
+        ip_source = _match_source_label_by_ip(client_ip, source_ip_pools)
+        if ip_source:
+            return ip_source
+        return "Direct HTTP"
 
     def _is_lan_client(self) -> bool:
         ip_text = self._client_ip()
@@ -6194,14 +6016,16 @@ class AppHandler(BaseHTTPRequestHandler):
     def _require_lan(self) -> bool:
         if self._is_lan_client():
             return True
-        self._error("仅允许局域网访问该页面/API", status=HTTPStatus.FORBIDDEN)
+        self._error("LAN-only access allowed for this page/API", status=HTTPStatus.FORBIDDEN)
         return False
 
-    def _send_json(self, data: dict, status: int = HTTPStatus.OK):
+    def _send_json(self, data: dict, status: int = HTTPStatus.OK, cors: bool = False):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
+        if cors:
+            self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(payload)
 
@@ -6209,7 +6033,7 @@ class AppHandler(BaseHTTPRequestHandler):
         payload = html.encode("utf-8")
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        # 配置/中控页包含内联脚本，禁用缓存可避免前端逻辑更新后仍命中旧页面。
+        # 配置/Control页包含内联脚本，禁用缓存可避免前端逻辑更新后仍命中旧页面。
         self.send_header("Cache-Control", "no-store, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Content-Length", str(len(payload)))
@@ -6239,10 +6063,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 self.wfile.write(data)
             return True
         except ValueError:
-            self._error("静态资源路径非法", status=HTTPStatus.FORBIDDEN)
+            self._error("Invalid static resource path", status=HTTPStatus.FORBIDDEN)
             return True
         except Exception as exc:
-            self._error(f"静态资源读取失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            self._error(f"Static resource read failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
             return True
 
     def _error(self, message: str, status: int = HTTPStatus.BAD_REQUEST):
@@ -6263,7 +6087,7 @@ class AppHandler(BaseHTTPRequestHandler):
         fallback = cls._http_root_dir(app_cfg)
         root = Path(_normalize_abs_dir_setting(raw, str(fallback)))
         if require_exists and (not root.exists() or not root.is_dir()):
-            raise ValueError(f"HTTP 根目录不存在或不可访问: {root}")
+            raise ValueError(f"HTTP 根Directory does not exist或不可访问: {root}")
         return root
 
     @classmethod
@@ -6367,7 +6191,7 @@ class AppHandler(BaseHTTPRequestHandler):
     @classmethod
     def _service_action(cls, unit: str, action: str):
         if not unit:
-            return False, "服务未配置"
+            return False, "服务Not configured"
         if action not in {"start", "stop", "restart"}:
             return False, "不支持的动作"
         try:
@@ -6596,7 +6420,7 @@ class AppHandler(BaseHTTPRequestHandler):
             verify = cls._qbt_stats_snapshot() if was_active else {}
             verify_ok = bool((verify or {}).get("ok", False))
             detail = str((verify or {}).get("detail", "") or "").strip()
-            msg = "qB 监控权限修复完成"
+            msg = "qB Monitoring权限修复完成"
             if was_active and verify_ok:
                 msg += "，已验证监控可用"
             elif was_active and detail:
@@ -6731,7 +6555,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     pref_start = idx
                     break
             if pref_start is None:
-                raise RuntimeError("写入失败：未找到 [Preferences] 分组")
+                raise RuntimeError("Write failed: 未找到 [Preferences] 分组")
             for idx in range(pref_start + 1, len(rewritten_lines)):
                 stripped = rewritten_lines[idx].strip()
                 if stripped.startswith("[") and stripped.endswith("]"):
@@ -6780,7 +6604,7 @@ class AppHandler(BaseHTTPRequestHandler):
             verify = cls._qbt_stats_snapshot() if was_active else {}
             verify_ok = bool((verify or {}).get("ok", False))
             detail = str((verify or {}).get("detail", "") or "").strip()
-            msg = "qB 配置优化完成"
+            msg = "qB Configuration优化完成"
             if was_active and verify_ok:
                 msg += "，监控已恢复"
             elif was_active and detail:
@@ -7048,7 +6872,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
         try:
             shutdown_call()
-            return True, "已发送 qB 退出指令"
+            return True, "已发送 Quit qB指令"
         except urllib.error.HTTPError as e:
             if e.code not in (401, 403):
                 return False, f"WebUI HTTP {e.code}"
@@ -7083,7 +6907,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if text != "Ok.":
                 return False, "WebUI 登录失败（用户名或密码错误）"
             shutdown_call()
-            return True, "已发送 qB 退出指令"
+            return True, "已发送 Quit qB指令"
         except urllib.error.HTTPError as e:
             return False, f"WebUI 登录失败（HTTP {e.code}）"
         except urllib.error.URLError as e:
@@ -7172,7 +6996,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 f" | 做种 {seeding} · 下载 {downloading} · 活跃 {active} · 总计 {len(torrents)}"
             )
             if peers > 0:
-                detail += f" · 连接 {peers}"
+                detail += f" · Connect {peers}"
             if dht_nodes > 0:
                 detail += f" · DHT {dht_nodes}"
 
@@ -7219,7 +7043,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if qbt_stats.get("ok"):
                 qbt["stats"] = qbt_stats
         elif qbt.get("active_state") == "active" and not qbt_monitor_enabled:
-            qbt["detail"] = "qB 监控已关闭（可在 Config -> qB 中开启）"
+            qbt["detail"] = "qB Monitoring已关闭（可在 Config -> qB 中开启）"
         ddns_svc = ddns.merge_builtin_into_systemd_shape(_APP_ROOT_DIR)
         if ddns_svc is None:
             ddns_svc = cls._resolve_existing_unit(cls.ddns_candidates)
@@ -7234,7 +7058,7 @@ class AppHandler(BaseHTTPRequestHandler):
             "sub_state": "unknown",
         }
         if not http_module_on:
-            self_svc["detail"] = "HTTP 模块已关闭（仅本程序 /http-files 上传节点被禁用）"
+            self_svc["detail"] = "HTTP module is disabled（仅本程序 /http-files 上传节点被禁用）"
         return {
             "system": cls._system_status(),
             "qbt": qbt,
@@ -7282,7 +7106,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 stored_source = str(t.get("source", "") or "").strip()
                 source = (
                     stored_source
-                    if stored_source and stored_source != "HTTP直连"
+                    if stored_source and stored_source != "Direct HTTP"
                     else self._infer_transfer_source(
                         str(t.get("relative_path", "") or ""),
                         str(t.get("filename", "") or ""),
@@ -7354,8 +7178,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     "upload_mibps": speed_mibps,
                 }
             )
-        # 合并“非 1288 通道”的网盘 App 进程流量（如 baidunetdisk）。
-        process_speeds = self._process_source_speed_snapshot()
+        # 合并“非 1288 通道”的Netdisk App 进程流量（如 baidunetdisk）。
+        process_speeds = self.process_speed_sampler.source_speed_snapshot()
         if process_speeds:
             idx = {str(x.get("source", "")): x for x in source_stats}
             for source, row in process_speeds.items():
@@ -7649,7 +7473,7 @@ class AppHandler(BaseHTTPRequestHandler):
         return True, ""
 
     @classmethod
-    def _upgrade_status_payload(cls, branch_raw="main") -> dict:
+    def _upgrade_status_payload(cls) -> dict:
         status = _read_upgrade_status(_APP_ROOT_DIR)
         ok, reason = cls._upgrade_supported()
         with cls.upgrade_lock:
@@ -7660,56 +7484,22 @@ class AppHandler(BaseHTTPRequestHandler):
             status["state"] = "running"
         elif stale_running and str(status.get("state", "")) == "running":
             status["state"] = "unknown"
-            status["message"] = "升级任务触发了服务重启，请手动确认当前版本。"
+            status["message"] = "Upgrade task triggered a service restart; please verify current version manually."
             status["finished_at"] = _utc_now_iso()
             _write_upgrade_status(status, _APP_ROOT_DIR)
         status["supported"] = bool(ok)
         status["support_reason"] = str(reason or "")
         status["current_version"] = APP_VERSION_TEXT
-        status["current_branch"] = APP_BRANCH
-        status["progress_pct"] = float(status.get("progress_pct", 0.0) or 0.0)
         try:
             status["repo"] = _normalize_upgrade_repo(
                 status.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO
             )
         except Exception:
             status["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
-        selected_branch = _normalize_upgrade_branch(
-            branch_raw or status.get("requested_branch") or "main",
-            "main",
-        )
-        status["selected_branch"] = selected_branch
-        if (not running) and ok:
-            try:
-                release = _latest_release_for_branch(
-                    status["repo"], selected_branch, force_refresh=False
-                )
-                latest_tag = str(release.get("tag_name") or "").strip()
-                latest_url = str(release.get("html_url") or "").strip()
-                up_to_date = _is_same_version(APP_VERSION_TEXT, latest_tag)
-                status["latest_tag"] = latest_tag
-                status["latest_release_url"] = latest_url
-                status["up_to_date"] = bool(up_to_date)
-                status["upgrade_available"] = not bool(up_to_date)
-                if status.get("state") == "idle":
-                    status["message"] = (
-                        "当前版本已是最新，无需升级"
-                        if up_to_date
-                        else (f"可升级到：{latest_tag}" if latest_tag else "检测到可升级版本")
-                    )
-            except Exception as exc:
-                status["latest_tag"] = ""
-                status["latest_release_url"] = ""
-                status["up_to_date"] = False
-                status["upgrade_available"] = False
-                if status.get("state") == "idle":
-                    status["message"] = f"远端版本检查失败：{exc}"
-        elif running:
-            status["upgrade_available"] = True
         return status
 
     @classmethod
-    def _schedule_upgrade(cls, repo_raw, branch_raw="main"):
+    def _schedule_upgrade(cls, repo_raw, tag_raw):
         ok, reason = cls._upgrade_supported()
         if not ok:
             status = _write_upgrade_status(
@@ -7717,7 +7507,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "supported": False,
                     "running": False,
                     "state": "error",
-                    "message": "自动升级不可用",
+                    "message": "Auto-upgrade unavailable",
                     "error": str(reason or "当前环境不支持"),
                 },
                 _APP_ROOT_DIR,
@@ -7725,71 +7515,7 @@ class AppHandler(BaseHTTPRequestHandler):
             status["support_reason"] = str(reason or "")
             return False, status
         repo = _normalize_upgrade_repo(repo_raw, DEFAULT_UPGRADE_GITHUB_REPO)
-        branch = _normalize_upgrade_branch(branch_raw, "main")
-        try:
-            release = _latest_release_for_branch(repo, branch, force_refresh=True)
-        except Exception as exc:
-            status = _write_upgrade_status(
-                {
-                    "supported": True,
-                    "running": False,
-                    "state": "error",
-                    "repo": repo,
-                    "requested_branch": branch,
-                    "message": "远端版本检查失败",
-                    "error": str(exc),
-                    "progress_pct": 0.0,
-                },
-                _APP_ROOT_DIR,
-            )
-            status["support_reason"] = ""
-            return False, status
-        target_tag = str(release.get("tag_name") or "").strip()
-        release_url = str(release.get("html_url") or "").strip()
-        tarball_url = str(release.get("tarball_url") or "").strip()
-        if not target_tag:
-            target_tag = "latest"
-        if _is_same_version(APP_VERSION_TEXT, target_tag):
-            status = _write_upgrade_status(
-                {
-                    "supported": True,
-                    "running": False,
-                    "state": "idle",
-                    "repo": repo,
-                    "requested_branch": branch,
-                    "target_tag": target_tag,
-                    "latest_tag": target_tag,
-                    "latest_release_url": release_url,
-                    "up_to_date": True,
-                    "upgrade_available": False,
-                    "message": "当前版本已是最新，无需升级",
-                    "error": "",
-                    "progress_pct": 100.0,
-                    "finished_at": _utc_now_iso(),
-                },
-                _APP_ROOT_DIR,
-            )
-            status["support_reason"] = ""
-            return False, status
-        if not tarball_url:
-            status = _write_upgrade_status(
-                {
-                    "supported": True,
-                    "running": False,
-                    "state": "error",
-                    "repo": repo,
-                    "requested_branch": branch,
-                    "target_tag": target_tag,
-                    "latest_tag": target_tag,
-                    "latest_release_url": release_url,
-                    "message": "自动升级失败",
-                    "error": "Release 缺少 tarball 下载地址",
-                    "progress_pct": 0.0,
-                },
-                _APP_ROOT_DIR,
-            )
-            status["support_reason"] = ""
-            return False, status
+        tag = _normalize_upgrade_tag(tag_raw)
         with cls.upgrade_lock:
             if cls.upgrade_running:
                 status = _read_upgrade_status(_APP_ROOT_DIR)
@@ -7802,17 +7528,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     "running": True,
                     "state": "running",
                     "repo": repo,
-                    "requested_branch": branch,
-                    "requested_tag": "",
+                    "requested_tag": tag,
                     "target_tag": "",
-                    "latest_tag": target_tag,
-                    "latest_release_url": release_url,
-                    "up_to_date": False,
-                    "upgrade_available": True,
                     "release_url": "",
-                    "message": "升级任务已启动，正在下载升级包",
+                    "message": "升级任务已启动，正在拉取 Release 信息",
                     "error": "",
-                    "progress_pct": 5.0,
                     "started_at": _utc_now_iso(),
                     "finished_at": "",
                 },
@@ -7822,21 +7542,26 @@ class AppHandler(BaseHTTPRequestHandler):
         def _worker():
             temp_dir = None
             try:
+                release = _github_release_payload(repo, tag)
+                target_tag = str(release.get("tag_name") or "").strip()
+                tarball_url = str(release.get("tarball_url") or "").strip()
+                release_url = str(release.get("html_url") or "").strip()
+                if not target_tag:
+                    target_tag = tag or "latest"
+                if not tarball_url:
+                    raise RuntimeError("Release 缺少 tarball 下载地址")
+
                 status_now = _read_upgrade_status(_APP_ROOT_DIR)
                 status_now.update(
                     {
                         "running": True,
                         "state": "running",
                         "repo": repo,
-                        "requested_branch": branch,
-                        "requested_tag": "",
+                        "requested_tag": tag,
                         "target_tag": target_tag,
                         "release_url": release_url,
-                        "latest_tag": target_tag,
-                        "latest_release_url": release_url,
-                        "message": f"正在下载升级包：{target_tag}",
+                        "message": f"已获取 Release {target_tag}，开始下载",
                         "error": "",
-                        "progress_pct": 20.0,
                     }
                 )
                 _write_upgrade_status(status_now, _APP_ROOT_DIR)
@@ -7855,17 +7580,6 @@ class AppHandler(BaseHTTPRequestHandler):
 
                 src_root = temp_dir / "src"
                 src_root.mkdir(parents=True, exist_ok=True)
-                status_now = _read_upgrade_status(_APP_ROOT_DIR)
-                status_now.update(
-                    {
-                        "running": True,
-                        "state": "running",
-                        "message": f"下载完成，正在解压：{target_tag}",
-                        "error": "",
-                        "progress_pct": 45.0,
-                    }
-                )
-                _write_upgrade_status(status_now, _APP_ROOT_DIR)
                 with tarfile.open(archive_path, "r:gz") as tf:
                     tf.extractall(path=src_root)
                 children = [p for p in src_root.iterdir() if p.is_dir()]
@@ -7881,9 +7595,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     {
                         "running": True,
                         "state": "running",
-                        "message": f"已解压 {target_tag}，执行 install.sh 中",
+                        "message": f"已下载 {target_tag}，执行安装脚本中",
                         "error": "",
-                        "progress_pct": 70.0,
                     }
                 )
                 _write_upgrade_status(status_now, _APP_ROOT_DIR)
@@ -7918,17 +7631,11 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": False,
                         "state": "success",
                         "repo": repo,
-                        "requested_branch": branch,
-                        "requested_tag": "",
+                        "requested_tag": tag,
                         "target_tag": target_tag,
-                        "latest_tag": target_tag,
-                        "latest_release_url": release_url,
-                        "up_to_date": True,
-                        "upgrade_available": False,
                         "release_url": release_url,
-                        "message": f"升级完成：{target_tag}",
+                        "message": f"Upgrade completed: {target_tag}",
                         "error": "",
-                        "progress_pct": 100.0,
                         "finished_at": _utc_now_iso(),
                     },
                     _APP_ROOT_DIR,
@@ -7940,11 +7647,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": False,
                         "state": "error",
                         "repo": repo,
-                        "requested_branch": branch,
-                        "requested_tag": "",
-                        "message": "自动升级失败",
+                        "requested_tag": tag,
+                        "message": "自动Upgrade failed",
                         "error": str(exc),
-                        "progress_pct": max(5.0, float(status_now.get("progress_pct", 0.0) or 0.0)),
                         "finished_at": _utc_now_iso(),
                     }
                 )
@@ -7966,7 +7671,7 @@ class AppHandler(BaseHTTPRequestHandler):
         root = Path(root_dir or self._http_root_dir())
         target_dir = ensure_under_root(root, root / rel_dir)
         if not target_dir.exists() or not target_dir.is_dir():
-            raise FileNotFoundError("目录不存在")
+            raise FileNotFoundError("Directory does not exist")
 
         children = []
         for entry in target_dir.iterdir():
@@ -7982,7 +7687,7 @@ class AppHandler(BaseHTTPRequestHandler):
         root = Path(root_dir or self._http_root_dir())
         target_dir = ensure_under_root(root, root / rel_dir)
         if not target_dir.exists() or not target_dir.is_dir():
-            raise FileNotFoundError("目录不存在")
+            raise FileNotFoundError("Directory does not exist")
 
         total_files = 0
         total_dirs = 0
@@ -8087,7 +7792,7 @@ class AppHandler(BaseHTTPRequestHandler):
             info["error"] = "权限不足：无法列出目录内容（需要目录 r+x）"
             return info
         except Exception as exc:
-            info["error"] = f"扫描失败：{exc}"
+            info["error"] = f"Scan failed: {exc}"
             return info
 
         info["ok"] = bool(info["can_read"] and info["can_exec"] and info["can_list"])
@@ -8259,7 +7964,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def _send_file(self, file_path: Path, send_body: bool = True, http_root: Path | None = None):
         if not file_path.exists() or not file_path.is_file():
-            self._error("文件不存在", status=HTTPStatus.NOT_FOUND)
+            self._error("File does not exist", status=HTTPStatus.NOT_FOUND)
             return
         try:
             content_type, _ = mimetypes.guess_type(str(file_path))
@@ -8406,7 +8111,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                 tr["done"] = True
                                 tr["ended_at"] = time.time()
         except Exception as exc:
-            self._error(f"文件读取失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+            self._error(f"File read failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -8426,7 +8131,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             p = _APP_ROOT_DIR / "web" / "dashboard.css"
             if not p.is_file():
-                self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+                self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
                 return
             data = p.read_bytes()
             self.send_response(HTTPStatus.OK)
@@ -8443,7 +8148,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "i18n.js", send_body=True, cache_control="no-store, max-age=0"
             ):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path.startswith("/locales/"):
             if not self._require_lan():
@@ -8454,21 +8159,21 @@ class AppHandler(BaseHTTPRequestHandler):
                 cache_control="no-store, max-age=0",
             ):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path.startswith(f"/{THEME_ASSETS_DIR_NAME}/"):
             if not self._require_lan():
                 return
             if self._send_static_asset(parsed.path.lstrip("/"), send_body=True):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path.startswith("/vendor/"):
             if not self._require_lan():
                 return
             if self._send_static_asset(parsed.path.lstrip("/"), send_body=True):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path == "/config":
             if not self._require_lan():
@@ -8479,6 +8184,17 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._require_lan():
                 return
             self._send_html(build_terminal_html())
+            return
+        if parsed.path == "/process-net":
+            if not self._require_lan():
+                return
+            if self._send_static_asset(
+                "process-net.html",
+                send_body=True,
+                cache_control="no-store, max-age=0",
+            ):
+                return
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if self._dispatch_ddnsgo_proxy(parsed, "GET", True):
             return
@@ -8494,14 +8210,14 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._require_lan():
                 return
             if not self._ddns_module_enabled():
-                self._error("DDNS 模块已关闭", status=HTTPStatus.FORBIDDEN)
+                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
                 return
             self._send_html(build_ddns_settings_html())
             return
 
         if parsed.path.startswith("/http-files/"):
             if not self._downloads_effective_enabled():
-                self._error("外网上传已关闭", status=HTTPStatus.FORBIDDEN)
+                self._error("Public upload is disabled", status=HTTPStatus.FORBIDDEN)
                 return
             try:
                 http_root = self._http_root_dir()
@@ -8514,7 +8230,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.FORBIDDEN)
                 return
             except Exception as exc:
-                self._error(f"下载失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Download failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
         if parsed.path == "/api/base":
@@ -8545,6 +8261,18 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(self._speed_snapshot())
             return
 
+        if parsed.path == "/api/process-net":
+            if not self._require_lan():
+                return
+            data = self.process_detail_sampler.detailed_snapshot() or {}
+            payload = {
+                **(data if isinstance(data, dict) else {}),
+                "current_version": APP_VERSION_TEXT,
+                "app_version": APP_VERSION,
+            }
+            self._send_json(payload, cors=True)
+            return
+
         if parsed.path == "/api/transfers":
             if not self._require_lan():
                 return
@@ -8566,20 +8294,14 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/upgrade/status":
             if not self._require_lan():
                 return
-            branch_hint = ""
-            try:
-                q = parse_qs(parsed.query or "")
-                branch_hint = str((q.get("branch") or [""])[0] or "")
-            except Exception:
-                branch_hint = ""
-            self._send_json(self._upgrade_status_payload(branch_hint))
+            self._send_json(self._upgrade_status_payload())
             return
 
         if parsed.path == "/api/ddns/config":
             if not self._require_lan():
                 return
             if not self._ddns_module_enabled():
-                self._error("DDNS 模块已关闭", status=HTTPStatus.FORBIDDEN)
+                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
                 return
             cfg = ddns.load_config(_APP_ROOT_DIR)
             st = ddns.status_for_api(_APP_ROOT_DIR)
@@ -8598,14 +8320,14 @@ class AppHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             path_raw = str(query.get("path", [""])[0] or "").strip()
             if not path_raw:
-                self._error("缺少 path 参数", status=HTTPStatus.BAD_REQUEST)
+                self._error("Missing path parameter", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
                 info = self._http_path_scan(path_raw)
                 self._send_json(info)
                 return
             except Exception as exc:
-                self._error(f"路径扫描失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Path scan failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
         if parsed.path == "/api/directories":
@@ -8640,7 +8362,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.NOT_FOUND)
                 return
             except Exception as exc:
-                self._error(f"目录查询失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Directory query failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
         if parsed.path == "/api/files":
@@ -8657,7 +8379,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 rel_dir = safe_relative_path(query.get("dir", ["."])[0])
                 target_dir = ensure_under_root(http_root, http_root / rel_dir)
                 if not target_dir.exists() or not target_dir.is_dir():
-                    self._error("目录不存在", status=HTTPStatus.NOT_FOUND)
+                    self._error("Directory does not exist", status=HTTPStatus.NOT_FOUND)
                     return
 
                 items = []
@@ -8684,10 +8406,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.FORBIDDEN)
                 return
             except Exception as exc:
-                self._error(f"扫描失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Scan failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
-        self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+        self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
 
     def do_HEAD(self):
         parsed = urlparse(self.path)
@@ -8706,7 +8428,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             p = _APP_ROOT_DIR / "web" / "dashboard.css"
             if not p.is_file():
-                self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+                self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
                 return
             n = p.stat().st_size
             self.send_response(HTTPStatus.OK)
@@ -8722,7 +8444,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "i18n.js", send_body=False, cache_control="no-store, max-age=0"
             ):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path.startswith("/locales/"):
             if not self._require_lan():
@@ -8733,21 +8455,21 @@ class AppHandler(BaseHTTPRequestHandler):
                 cache_control="no-store, max-age=0",
             ):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path.startswith(f"/{THEME_ASSETS_DIR_NAME}/"):
             if not self._require_lan():
                 return
             if self._send_static_asset(parsed.path.lstrip("/"), send_body=False):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path.startswith("/vendor/"):
             if not self._require_lan():
                 return
             if self._send_static_asset(parsed.path.lstrip("/"), send_body=False):
                 return
-            self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
         if parsed.path == "/terminal":
             if not self._require_lan():
@@ -8758,13 +8480,24 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             return
+        if parsed.path == "/process-net":
+            if not self._require_lan():
+                return
+            if self._send_static_asset(
+                "process-net.html",
+                send_body=False,
+                cache_control="no-store, max-age=0",
+            ):
+                return
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
+            return
         if self._dispatch_ddnsgo_proxy(parsed, "HEAD", True):
             return
         if self._dispatch_shareclip_flask(parsed, "HEAD", True):
             return
         if parsed.path.startswith("/http-files/"):
             if not self._downloads_effective_enabled():
-                self._error("外网上传已关闭", status=HTTPStatus.FORBIDDEN)
+                self._error("Public upload is disabled", status=HTTPStatus.FORBIDDEN)
                 return
             try:
                 http_root = self._http_root_dir()
@@ -8777,10 +8510,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.FORBIDDEN)
                 return
             except Exception as exc:
-                self._error(f"下载失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Download failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
-        self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+        self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
         parsed = urlparse(self.path)
@@ -8799,7 +8532,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     body.get("cols", 120), body.get("rows", 30)
                 )
             except Exception as exc:
-                self._error(f"终端连接失败：{exc}", status=HTTPStatus.BAD_REQUEST)
+                self._error(f"Terminal connection failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json({"ok": True, "session_id": sid, "meta": meta})
             return
@@ -8813,7 +8546,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     body.get("session_id"), body.get("max_bytes", 131072)
                 )
             except Exception as exc:
-                self._error(f"读取失败：{exc}", status=HTTPStatus.BAD_REQUEST)
+                self._error(f"Read failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json(data)
             return
@@ -8827,7 +8560,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     body.get("session_id"), body.get("data", "")
                 )
             except Exception as exc:
-                self._error(f"写入失败：{exc}", status=HTTPStatus.BAD_REQUEST)
+                self._error(f"Write failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json(data)
             return
@@ -8841,7 +8574,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     body.get("session_id"), body.get("cols", 120), body.get("rows", 30)
                 )
             except Exception as exc:
-                self._error(f"调整失败：{exc}", status=HTTPStatus.BAD_REQUEST)
+                self._error(f"Resize failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json(data)
             return
@@ -8853,7 +8586,7 @@ class AppHandler(BaseHTTPRequestHandler):
             try:
                 data = self._terminal_close_session(body.get("session_id"))
             except Exception as exc:
-                self._error(f"关闭失败：{exc}", status=HTTPStatus.BAD_REQUEST)
+                self._error(f"Close failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json(data)
             return
@@ -8863,7 +8596,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             body = self._parse_body()
             if not isinstance(body, dict):
-                self._error("请求体需为 JSON 对象", status=HTTPStatus.BAD_REQUEST)
+                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
                 file_name, size = _save_terminal_key_file(
@@ -8875,7 +8608,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
                 return
             except Exception as exc:
-                self._error(f"key 文件保存失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Key file save failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             current = load_app_config(_APP_ROOT_DIR)
             term_cfg = current.setdefault("terminal", {})
@@ -8898,7 +8631,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             body = self._parse_body()
             if not isinstance(body, dict):
-                self._error("请求体需为 JSON 对象", status=HTTPStatus.BAD_REQUEST)
+                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
                 file_name, size = _save_theme_bg_file(
@@ -8911,7 +8644,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             except Exception as exc:
                 self._error(
-                    f"背景图片保存失败：{exc}",
+                    f"背景图片Save失败：{exc}",
                     status=HTTPStatus.INTERNAL_SERVER_ERROR,
                 )
                 return
@@ -8948,7 +8681,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if body is None:
                 body = {}
             if not isinstance(body, dict):
-                self._error("请求体需为 JSON 对象", status=HTTPStatus.BAD_REQUEST)
+                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
                 return
             current = load_app_config(_APP_ROOT_DIR)
             http_cfg = current.setdefault("http_service", {})
@@ -8973,7 +8706,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
                 return
             except Exception as exc:
-                self._error(f"同步来源失败：{exc}", status=HTTPStatus.BAD_GATEWAY)
+                self._error(f"Source sync failed: {exc}", status=HTTPStatus.BAD_GATEWAY)
                 return
             local_pools = _normalize_source_ip_pools(http_cfg.get("source_ip_pools"))
             remote_pools = _normalize_source_ip_pools((pulled or {}).get("pools"))
@@ -9013,7 +8746,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             body = self._parse_body()
             if not isinstance(body, dict):
-                self._error("请求体需为 JSON 对象", status=HTTPStatus.BAD_REQUEST)
+                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
                 return
             current = load_app_config(_APP_ROOT_DIR)
             prev_qbt_enabled = self._qbt_module_enabled(current)
@@ -9025,10 +8758,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 try:
                     web_port_new = int(web_port_raw)
                 except Exception:
-                    self._error("程序端口需为 1-65535 的整数", status=HTTPStatus.BAD_REQUEST)
+                    self._error("Service port must be an integer in 1-65535", status=HTTPStatus.BAD_REQUEST)
                     return
                 if web_port_new <= 0 or web_port_new > 65535:
-                    self._error("程序端口需为 1-65535 的整数", status=HTTPStatus.BAD_REQUEST)
+                    self._error("Service port must be an integer in 1-65535", status=HTTPStatus.BAD_REQUEST)
                     return
                 current["web_port"] = web_port_new
             if isinstance(body.get("modules"), dict):
@@ -9076,7 +8809,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 default_target = ensure_under_root(root_for_check, root_for_check / rel_default)
                 if not default_target.exists() or not default_target.is_dir():
                     self._error(
-                        f"默认目录不存在或不可访问: {default_target}",
+                        f"DefaultDirectory does not exist或不可访问: {default_target}",
                         status=HTTPStatus.BAD_REQUEST,
                     )
                     return
@@ -9118,6 +8851,12 @@ class AppHandler(BaseHTTPRequestHandler):
                     ui_cfg["hero_custom_bg_file"] = _normalize_theme_bg_file_name(
                         incoming_ui.get("hero_custom_bg_file")
                     )
+            if isinstance(body.get("netdisk_sources"), dict):
+                nd_cfg = current.setdefault("netdisk_sources", {})
+                incoming_nd = body["netdisk_sources"]
+                for k in ("baidu", "ali", "guangya", "dropbox", "mega", "onedrive", "gdrive"):
+                    if k in incoming_nd:
+                        nd_cfg[k] = bool(incoming_nd.get(k))
             saved = save_app_config(current, _APP_ROOT_DIR)
             web_port_restart_required = (
                 _normalize_web_port(saved.get("web_port"), DEFAULT_WEB_PORT)
@@ -9133,7 +8872,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 with self.control_lock:
                     self.downloads_enabled = False
                     AppHandler.downloads_enabled = False
-                # 仅中断本程序 /http-files 上传连接，不重启服务。
+                # 仅中断本程序 /http-files 上传Connect，不Restart Service。
                 self._cut_http_downloads_once()
                 disconnect_triggered = True
                 module_actions.append(
@@ -9141,7 +8880,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "module": "http",
                         "action": "disable-downloads",
                         "ok": True,
-                        "message": "HTTP 模块已关闭，已禁用上传并中断本程序上传连接",
+                        "message": "HTTP module is disabled，已禁用上传并中断本程序上传Connect",
                     }
                 )
             elif not new_http_enabled:
@@ -9153,7 +8892,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "module": "http",
                         "action": "disable-downloads",
                         "ok": True,
-                        "message": "HTTP 模块已关闭，上传保持禁用",
+                        "message": "HTTP module is disabled，上传保持禁用",
                     }
                 )
 
@@ -9209,7 +8948,7 @@ class AppHandler(BaseHTTPRequestHandler):
                             "ok": bool(ok),
                             "message": "内置 DDNS 已停止"
                             if ok
-                            else f"停止内置 DDNS 失败：{msg}",
+                            else f"停止内置 DDNS failed: {msg}",
                         }
                     )
                 ext_ddns = self._resolve_existing_unit(self.ddns_candidates)
@@ -9284,7 +9023,7 @@ class AppHandler(BaseHTTPRequestHandler):
             body = self._parse_body()
             enabled = bool(body.get("enabled", True))
             if enabled and not self._http_module_enabled():
-                self._error("HTTP 模块已关闭，无法开启上传", status=HTTPStatus.BAD_REQUEST)
+                self._error("HTTP module is disabled; cannot enable upload", status=HTTPStatus.BAD_REQUEST)
                 return
             with self.control_lock:
                 self.downloads_enabled = enabled
@@ -9306,17 +9045,17 @@ class AppHandler(BaseHTTPRequestHandler):
             if body is None:
                 body = {}
             if not isinstance(body, dict):
-                self._error("请求体需为 JSON 对象", status=HTTPStatus.BAD_REQUEST)
+                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
                 queued, status = self._schedule_upgrade(
-                    body.get("repo"), body.get("branch")
+                    body.get("repo"), body.get("tag")
                 )
             except ValueError as exc:
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
                 return
             except Exception as exc:
-                self._error(f"启动升级失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Failed to start upgrade: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"queued": bool(queued), "status": status})
             return
@@ -9325,7 +9064,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._require_lan():
                 return
             if not self._ddns_module_enabled():
-                self._error("DDNS 模块已关闭", status=HTTPStatus.FORBIDDEN)
+                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
                 return
             body = self._parse_body()
             ok, msg = ddns.apply_config_from_body(_APP_ROOT_DIR, body)
@@ -9345,7 +9084,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._require_lan():
                 return
             if not self._ddns_module_enabled():
-                self._error("DDNS 模块已关闭", status=HTTPStatus.FORBIDDEN)
+                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
                 return
             ok, msg, ip = ddns.do_update_once(_APP_ROOT_DIR)
             if not ok:
@@ -9361,7 +9100,7 @@ class AppHandler(BaseHTTPRequestHandler):
             rel = str(body.get("dir", ".") or ".")
             target = str(body.get("target", "both") or "both")
             if target not in ("both", "files", "dirs"):
-                self._error("target 须为 both / files / dirs", status=HTTPStatus.BAD_REQUEST)
+                self._error("target must be both / files / dirs", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
                 plan = build_rename_plan(
@@ -9383,7 +9122,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(e), status=HTTPStatus.BAD_REQUEST)
                 return
             except Exception as exc:
-                self._error(f"预览失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Preview failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json(
                 {
@@ -9407,12 +9146,12 @@ class AppHandler(BaseHTTPRequestHandler):
             body = self._parse_body()
             moves = body.get("moves")
             if not isinstance(moves, list) or not moves:
-                self._error("moves 须为非空数组", status=HTTPStatus.BAD_REQUEST)
+                self._error("moves must be a non-empty array", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
                 results = apply_rename_plan(self.storage_root, moves)
             except Exception as exc:
-                self._error(f"执行失败：{exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Execution failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"results": results})
             return
@@ -9424,40 +9163,40 @@ class AppHandler(BaseHTTPRequestHandler):
             service = str(body.get("service", "")).strip().lower()
             action = str(body.get("action", "")).strip().lower()
             if service not in {"qbt", "ddns", "self"}:
-                self._error("service 参数无效", status=HTTPStatus.BAD_REQUEST)
+                self._error("Invalid service parameter", status=HTTPStatus.BAD_REQUEST)
                 return
             if action not in {"start", "stop", "restart", "quit"}:
-                self._error("action 参数无效", status=HTTPStatus.BAD_REQUEST)
+                self._error("Invalid action parameter", status=HTTPStatus.BAD_REQUEST)
                 return
             if service == "qbt" and (not self._qbt_module_enabled()) and action != "stop":
                 self._error(
-                    "qB 模块已关闭，请在 Config 中开启后再操作",
+                    "qB module is disabled，请在 Config 中开启后再操作",
                     status=HTTPStatus.FORBIDDEN,
                 )
                 return
             if service == "ddns" and (not self._ddns_module_enabled()) and action != "stop":
                 self._error(
-                    "DDNS 模块已关闭，请在 Config 中开启后再操作",
+                    "DDNS module is disabled，请在 Config 中开启后再操作",
                     status=HTTPStatus.FORBIDDEN,
                 )
                 return
 
             if service == "self":
                 if action != "restart":
-                    self._error("self 仅支持 restart", status=HTTPStatus.BAD_REQUEST)
+                    self._error("self only supports restart", status=HTTPStatus.BAD_REQUEST)
                     return
                 queued = self._schedule_restart()
                 self._send_json({"queued": queued})
                 return
 
             if action == "quit" and service != "qbt":
-                self._error("仅 qbt 支持 quit", status=HTTPStatus.BAD_REQUEST)
+                self._error("Only qbt supports quit", status=HTTPStatus.BAD_REQUEST)
                 return
 
             if service == "qbt" and action == "quit":
                 ok, msg = self._qbt_shutdown_once()
                 if not ok:
-                    self._error(f"quit 失败：{msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                    self._error(f"quit failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                     return
                 self._qbt_reset_stats_cache()
                 self._send_json(self._control_status_payload())
@@ -9469,7 +9208,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 ok, msg = ddns.service_action(_APP_ROOT_DIR, action)
                 if not ok:
                     self._error(
-                        f"{action} 失败：{msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR
+                        f"{action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR
                     )
                     return
                 self._send_json(self._control_status_payload())
@@ -9479,12 +9218,12 @@ class AppHandler(BaseHTTPRequestHandler):
             target_info = status_now.get(service) or {}
             unit = str(target_info.get("unit", "")).strip()
             if not unit or target_info.get("load_state") == "not-found":
-                self._error(f"{service} 服务未找到", status=HTTPStatus.NOT_FOUND)
+                self._error(f"{service} service not found", status=HTTPStatus.NOT_FOUND)
                 return
 
             ok, msg = self._service_action(unit, action)
             if not ok:
-                self._error(f"{action} 失败：{msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"{action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             if service == "qbt":
                 self._qbt_reset_stats_cache()
@@ -9496,13 +9235,13 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if not self._qbt_module_enabled():
                 self._error(
-                    "qB 模块已关闭，请在 Config 中开启后再操作",
+                    "qB module is disabled，请在 Config 中开启后再操作",
                     status=HTTPStatus.FORBIDDEN,
                 )
                 return
             ok, msg, detail = self._qbt_fix_monitor_config()
             if not ok:
-                self._error(f"qB 修复失败：{msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"qB fix failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             status_payload = self._control_status_payload()
             self._send_json(
@@ -9520,13 +9259,13 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if not self._qbt_module_enabled():
                 self._error(
-                    "qB 模块已关闭，请在 Config 中开启后再操作",
+                    "qB module is disabled，请在 Config 中开启后再操作",
                     status=HTTPStatus.FORBIDDEN,
                 )
                 return
             ok, msg, detail = self._qbt_optimize_config()
             if not ok:
-                self._error(f"qB 优化失败：{msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"qB optimize failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             status_payload = self._control_status_payload()
             self._send_json(
@@ -9539,13 +9278,13 @@ class AppHandler(BaseHTTPRequestHandler):
             )
             return
 
-        self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+        self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
 
     def do_DELETE(self):
         parsed = urlparse(self.path)
         if self._dispatch_shareclip_flask(parsed, "DELETE", True):
             return
-        self._error("未找到资源", status=HTTPStatus.NOT_FOUND)
+        self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
 
     def log_message(self, fmt: str, *args):
         return
