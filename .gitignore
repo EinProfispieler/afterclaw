@@ -29,3 +29,4 @@ install_on_130.sh
 push_ip_file.sh
 package_to_icloud.sh
 github-coordinator.md
+.recovery/
