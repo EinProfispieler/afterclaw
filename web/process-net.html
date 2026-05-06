@@ -154,7 +154,7 @@ tr:last-child td { border-bottom: 0; }
               <tr>
                 <th>来源</th>
                 <th class="right">连接数</th>
-                <th class="right">ESTAB</th>
+                <th class="right">建立连接</th>
                 <th class="right">下载 MiB/s</th>
                 <th class="right">上传 MiB/s</th>
               </tr>
@@ -458,7 +458,7 @@ tr:last-child td { border-bottom: 0; }
         versionText.textContent = String(d.current_version || "-");
       }
       if (d.current_version) {
-        document.title = "网盘进程网络明细 · " + String(d.current_version);
+        document.title = "网盘进程网络明细";
       }
       return d;
     }
