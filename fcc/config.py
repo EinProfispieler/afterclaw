@@ -20,8 +20,8 @@ WEB_PORT = int(os.environ.get("WEB_PORT", "1288"))
 STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/Storage")).expanduser().resolve()
 PUBLIC_SCHEME = os.environ.get("PUBLIC_SCHEME", "http").strip() or "http"
 PUBLIC_HOST = (
-    os.environ.get("PUBLIC_HOST", f"home.rxotc.cn:{WEB_PORT}").strip()
-    or f"home.rxotc.cn:{WEB_PORT}"
+    os.environ.get("PUBLIC_HOST", f"127.0.0.1:{WEB_PORT}").strip()
+    or f"127.0.0.1:{WEB_PORT}"
 )
 
 

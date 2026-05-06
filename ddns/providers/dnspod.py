@@ -14,7 +14,11 @@ _API = "https://dnsapi.cn/"
 def _call(token: str, action: str, params: dict) -> dict:
     data = {"login_token": token, "format": "json", "lang": "cn", **params}
     body = urllib.parse.urlencode(data).encode("utf-8")  # type: ignore[attr-defined]
-    req = urllib.request.Request(_API + action, data=body, headers={"User-Agent": "storage-ctrl-ddns/2 (randypku@github)"})
+    req = urllib.request.Request(
+        _API + action,
+        data=body,
+        headers={"User-Agent": "afterclaw-ddns/2"},
+    )
     with urllib.request.urlopen(req, timeout=25) as r:
         return json.loads(r.read().decode("utf-8", errors="replace"))
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Restricted to a single user by default (can override with FCC_ALLOWED_USER).
-ALLOWED_USER="${FCC_ALLOWED_USER:-randy}"
+ALLOWED_USER="${FCC_ALLOWED_USER:-$(id -un)}"
 if [[ "$(id -un)" != "${ALLOWED_USER}" ]]; then
   echo "This script is restricted to user: ${ALLOWED_USER}" >&2
   exit 1
@@ -122,4 +122,3 @@ print(json.dumps(
     ensure_ascii=False,
 ))
 PY
-

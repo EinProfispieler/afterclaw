@@ -13,6 +13,9 @@ __pycache__/
 *.pem
 *.key
 terminal_keys/
+# Never commit personal key material
+**/randy.pem
+**/randy.pem.pub
 ddns_config.json
 # Local tool data
 .claude/

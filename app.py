@@ -70,8 +70,8 @@ DEFAULT_WEB_PORT = int(os.environ.get("WEB_PORT", "1288"))
 ACTIVE_WEB_PORT = DEFAULT_WEB_PORT
 DEFAULT_PUBLIC_SCHEME = os.environ.get("PUBLIC_SCHEME", "http").strip() or "http"
 DEFAULT_PUBLIC_HOST = (
-    os.environ.get("PUBLIC_HOST", f"home.rxotc.cn:{DEFAULT_WEB_PORT}").strip()
-    or f"home.rxotc.cn:{DEFAULT_WEB_PORT}"
+    os.environ.get("PUBLIC_HOST", f"127.0.0.1:{DEFAULT_WEB_PORT}").strip()
+    or f"127.0.0.1:{DEFAULT_WEB_PORT}"
 )
 DEFAULT_QBT_SERVICE = os.environ.get("QBT_SERVICE", "").strip()
 DEFAULT_QBT_API_URL = (
@@ -1074,8 +1074,8 @@ def default_app_config() -> dict:
         },
         "terminal": {
             "enabled": True,
-            "host": os.environ.get("TERMINAL_SSH_HOST", "192.168.1.30").strip()
-            or "192.168.1.30",
+            "host": os.environ.get("TERMINAL_SSH_HOST", "127.0.0.1").strip()
+            or "127.0.0.1",
             "port": _normalize_ssh_port(os.environ.get("TERMINAL_SSH_PORT", "22"), 22),
             "user": os.environ.get("TERMINAL_SSH_USER", "root").strip() or "root",
             "auth_mode": (
@@ -3650,7 +3650,7 @@ def build_config_html() -> str:
           </label>
           <label class="cfg-item">
             <div class="title">Host</div>
-            <input id="termHost" placeholder="e.g. 192.168.1.30" />
+            <input id="termHost" placeholder="e.g. 127.0.0.1" />
           </label>
           <label class="cfg-item">
             <div class="title">User</div>
@@ -3788,7 +3788,7 @@ def build_config_html() -> str:
       },
       terminal: {
         enabled: true,
-        host: "192.168.1.30",
+        host: "127.0.0.1",
         user: "root",
         port: 22,
         auth_mode: "key",
