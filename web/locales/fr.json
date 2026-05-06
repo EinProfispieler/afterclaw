@@ -353,43 +353,43 @@
     "Save Unified Config": "Enregistrer la configuration unifiée",
     "Refresh upgrade status": "Actualiser le statut de mise à jour",
     "Check Server Version": "Vérifier la version du serveur",
-    "Auto Upgrade": "Mise à jour auto",
-    "自动升级（GitHub Release）": "Mise à jour auto",
+    "Auto Update": "Mise à jour auto",
+    "自动更新（GitHub Release）": "Mise à jour auto",
     "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "Récupérer la version depuis GitHub et exécuter install.sh. Le service peut redémarrer pendant la mise à jour ; une brève déconnexion est normale.",
     "仓库（owner/repo）": "Dépôt (owner/repo)",
-    "升级分支": "Branche de mise à jour",
+    "更新分支": "Branche de mise à jour",
     "stable（稳定版）": "stable (Stable)",
     "nightly（开发版）": "nightly (Développement)",
     "目标 Tag（可选）": "Tag cible (optionnel)",
-    "执行自动升级": "Lancer la mise à jour auto",
+    "执行自动更新": "Lancer la mise à jour auto",
     "刷新升级状态": "Actualiser le statut",
-    "自动升级不可用": "Mise à jour auto indisponible",
+    "自动更新不可用": "Mise à jour auto indisponible",
     "升级进行中": "Mise à jour en cours",
     "升级失败": "Mise à jour échouée",
-    "等待执行升级": "En attente de mise à jour",
-    "正在提交升级任务...": "Soumission de la tâche de mise à jour...",
-    "升级任务已入队，正在执行。": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
-    "已有升级任务在执行或当前环境不支持自动升级。": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
+    "等待执行更新": "En attente de mise à jour",
+    "正在提交更新任务...": "Soumission de la tâche de mise à jour...",
+    "更新任务已入队，正在执行。": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
+    "已有更新任务在执行或当前环境不支持自动更新。": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
     "升级任务进行中，请勿关闭页面。": "Mise à jour en cours, veuillez ne pas fermer cette page.",
     "请先填写仓库 owner/repo": "Veuillez d'abord saisir le dépôt owner/repo",
-    "Auto Upgrade (GitHub Release)": "Mise à jour auto",
+    "Auto Update (GitHub Release)": "Mise à jour auto",
     "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "Récupérer la version depuis GitHub et exécuter install.sh. Le service peut redémarrer pendant la mise à jour ; une brève déconnexion est normale.",
     "Repository (owner/repo)": "Dépôt (owner/repo)",
-    "Upgrade Branch": "Branche de mise à jour",
+    "Update Branch": "Branche de mise à jour",
     "stable (Stable)": "stable (Stable)",
     "main (Stable)": "main (Stable)",
     "nightly (Development)": "nightly (Développement)",
     "Target Tag (optional)": "Tag cible (optionnel)",
-    "Run Auto Upgrade": "Lancer la mise à jour auto",
+    "Run Auto Update": "Lancer la mise à jour auto",
     "Refresh Upgrade Status": "Actualiser le statut",
-    "Auto upgrade unavailable": "Mise à jour auto indisponible",
-    "Upgrade in progress": "Mise à jour en cours",
-    "Upgrade failed": "Mise à jour échouée",
-    "Waiting to run upgrade": "En attente de mise à jour",
+    "Auto update unavailable": "Mise à jour auto indisponible",
+    "Update in progress": "Mise à jour en cours",
+    "Update failed": "Mise à jour échouée",
+    "Waiting to run update": "En attente de mise à jour",
     "Submitting upgrade task...": "Soumission de la tâche de mise à jour...",
-    "Upgrade task queued, running now.": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
-    "An upgrade task is already running or auto upgrade is not supported.": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
-    "Upgrade in progress, please do not close this page.": "Mise à jour en cours, veuillez ne pas fermer cette page.",
+    "Update task queued, running now.": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
+    "An update task is already running or auto update is not supported.": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
+    "Update in progress, please do not close this page.": "Mise à jour en cours, veuillez ne pas fermer cette page.",
     "Please enter repository owner/repo first": "Veuillez d'abord saisir le dépôt owner/repo",
     "Key mode is recommended. Make sure the target host has your public key authorized.": "Le mode key est recommande ; assurez-vous que la cle publique est autorisee sur l'hote cible.",
     "Please fill host/user and connection info first": "Veuillez d'abord renseigner Host/User et les autres informations de connexion.",
@@ -412,9 +412,9 @@
     "Config directory: ": "Repertoire de configuration :",
     "Uses this path when \"Key filename in config directory\" is empty.": "Ce chemin est utilise quand 'Nom du fichier key du repertoire de configuration' est vide.",
     "Upgrade is in progress. Please keep this page open.": "Mise à jour en cours, veuillez ne pas fermer cette page.",
-    "Submitting upgrade job...": "Soumission de la tâche de mise à jour...",
-    "Upgrade job queued and running.": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
-    "An upgrade task is already running, or auto-upgrade is unsupported in current environment.": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
+    "Submitting update job...": "Soumission de la tâche de mise à jour...",
+    "Update job queued and running.": "Tâche de mise à jour en file d'attente, en cours d'exécution.",
+    "An update task is already running, or auto-update is unsupported in current environment.": "Une mise à jour est déjà en cours ou la mise à jour auto n'est pas prise en charge.",
     "Key file is too large (max 1MB)": "Fichier key trop volumineux (max 1MB)",
     "Unable to read key filename": "Impossible de lire le nom du fichier key",
     "Key file uploaded: ": "Fichier key televerse :",
@@ -793,7 +793,7 @@
       "to": "Mise à jour échouée : $1"
     },
     {
-      "re": "^自动升级不可用：(.+)$",
+      "re": "^自动更新不可用：(.+)$",
       "to": "Mise à jour auto indisponible : $1"
     },
     {
@@ -825,7 +825,7 @@
       "to": "Fin : $1"
     },
     {
-      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "re": "^确认执行自动更新？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
       "to": "Confirmer la mise à jour auto ? $2 sera récupéré depuis $1 et install.sh sera exécuté (le service peut redémarrer)."
     },
     {
@@ -841,11 +841,11 @@
       "to": "Mise à jour terminée : $1"
     },
     {
-      "re": "^Upgrade failed: (.+)$",
+      "re": "^Update failed: (.+)$",
       "to": "Mise à jour échouée : $1"
     },
     {
-      "re": "^Auto upgrade unavailable: (.+)$",
+      "re": "^Auto update unavailable: (.+)$",
       "to": "Mise à jour auto indisponible : $1"
     },
     {
@@ -877,11 +877,11 @@
       "to": "Fin : $1"
     },
     {
-      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "re": "^Confirm auto update\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
       "to": "Confirmer la mise à jour auto ? $1 sera récupéré depuis $2 et install.sh sera exécuté (le service peut redémarrer)."
     },
     {
-      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "re": "^Leave empty to update to the latest release of selected branch$",
       "to": "Laisser vide pour mettre à jour vers la dernière version de la branche sélectionnée"
     },
     {

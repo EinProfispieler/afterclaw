@@ -353,43 +353,43 @@
     "Save Unified Config": "Einheitliche Konfiguration speichern",
     "Refresh upgrade status": "Upgrade-Status aktualisieren",
     "Check Server Version": "Serverversion prüfen",
-    "Auto Upgrade": "Auto-Upgrade",
-    "自动升级（GitHub Release）": "Auto-Upgrade",
+    "Auto Update": "Auto-Upgrade",
+    "自动更新（GitHub Release）": "Auto-Upgrade",
     "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "Release von GitHub abrufen und lokales install.sh ausfuehren. Der Dienst wird moeglicherweise waehrend des Upgrades neu gestartet; eine kurze Unterbrechung ist normal.",
     "仓库（owner/repo）": "Repository (owner/repo)",
-    "升级分支": "Upgrade-Branch",
+    "更新分支": "Upgrade-Branch",
     "stable（稳定版）": "stable (Stabil)",
     "nightly（开发版）": "nightly (Entwicklung)",
     "目标 Tag（可选）": "Ziel-Tag (optional)",
-    "执行自动升级": "Auto-Upgrade ausfuehren",
+    "执行自动更新": "Auto-Upgrade ausfuehren",
     "刷新升级状态": "Upgrade-Status aktualisieren",
-    "自动升级不可用": "Auto-Upgrade nicht verfuegbar",
+    "自动更新不可用": "Auto-Upgrade nicht verfuegbar",
     "升级进行中": "Upgrade laeuft",
     "升级失败": "Upgrade fehlgeschlagen",
-    "等待执行升级": "Warte auf Upgrade-Ausfuehrung",
-    "正在提交升级任务...": "Upgrade-Aufgabe wird eingereicht...",
-    "升级任务已入队，正在执行。": "Upgrade-Aufgabe eingereiht, wird ausgefuehrt.",
-    "已有升级任务在执行或当前环境不支持自动升级。": "Es laeuft bereits ein Upgrade oder Auto-Upgrade wird nicht unterstuetzt.",
+    "等待执行更新": "Warte auf Upgrade-Ausfuehrung",
+    "正在提交更新任务...": "Upgrade-Aufgabe wird eingereicht...",
+    "更新任务已入队，正在执行。": "Upgrade-Aufgabe eingereiht, wird ausgefuehrt.",
+    "已有更新任务在执行或当前环境不支持自动更新。": "Es laeuft bereits ein Upgrade oder Auto-Upgrade wird nicht unterstuetzt.",
     "升级任务进行中，请勿关闭页面。": "Upgrade laeuft, bitte schliessen Sie diese Seite nicht.",
     "请先填写仓库 owner/repo": "Bitte geben Sie zuerst Repository owner/repo ein",
-    "Auto Upgrade (GitHub Release)": "Auto-Upgrade",
+    "Auto Update (GitHub Release)": "Auto-Upgrade",
     "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "Release von GitHub abrufen und lokales install.sh ausfuehren. Der Dienst wird moeglicherweise waehrend des Upgrades neu gestartet; eine kurze Unterbrechung ist normal.",
     "Repository (owner/repo)": "Repository (owner/repo)",
-    "Upgrade Branch": "Upgrade-Branch",
+    "Update Branch": "Upgrade-Branch",
     "stable (Stable)": "stable (Stabil)",
     "main (Stable)": "main (Stabil)",
     "nightly (Development)": "nightly (Entwicklung)",
     "Target Tag (optional)": "Ziel-Tag (optional)",
-    "Run Auto Upgrade": "Auto-Upgrade ausfuehren",
+    "Run Auto Update": "Auto-Upgrade ausfuehren",
     "Refresh Upgrade Status": "Upgrade-Status aktualisieren",
-    "Auto upgrade unavailable": "Auto-Upgrade nicht verfuegbar",
-    "Upgrade in progress": "Upgrade laeuft",
-    "Upgrade failed": "Upgrade fehlgeschlagen",
-    "Waiting to run upgrade": "Warte auf Upgrade-Ausfuehrung",
+    "Auto update unavailable": "Auto-Upgrade nicht verfuegbar",
+    "Update in progress": "Upgrade laeuft",
+    "Update failed": "Upgrade fehlgeschlagen",
+    "Waiting to run update": "Warte auf Upgrade-Ausfuehrung",
     "Submitting upgrade task...": "Upgrade-Aufgabe wird eingereicht...",
-    "Upgrade task queued, running now.": "Upgrade-Aufgabe eingereiht, wird ausgefuehrt.",
-    "An upgrade task is already running or auto upgrade is not supported.": "Es laeuft bereits ein Upgrade oder Auto-Upgrade wird nicht unterstuetzt.",
-    "Upgrade in progress, please do not close this page.": "Upgrade laeuft, bitte schliessen Sie diese Seite nicht.",
+    "Update task queued, running now.": "Upgrade-Aufgabe eingereiht, wird ausgefuehrt.",
+    "An update task is already running or auto update is not supported.": "Es laeuft bereits ein Upgrade oder Auto-Upgrade wird nicht unterstuetzt.",
+    "Update in progress, please do not close this page.": "Upgrade laeuft, bitte schliessen Sie diese Seite nicht.",
     "Please enter repository owner/repo first": "Bitte geben Sie zuerst Repository owner/repo ein",
     "Key mode is recommended. Make sure the target host has your public key authorized.": "Key-Modus wird empfohlen. Stellen Sie sicher, dass der Zielhost Ihren oeffentlichen Schluessel autorisiert hat.",
     "Please fill host/user and connection info first": "Bitte zuerst Host/User und andere Verbindungsinformationen ausfuellen.",
@@ -412,9 +412,9 @@
     "Config directory: ": "Konfigurationsverzeichnis:",
     "Uses this path when \"Key filename in config directory\" is empty.": "Dieser Pfad wird verwendet, wenn 'Key-Dateiname im Konfigurationsverzeichnis' leer ist.",
     "Upgrade is in progress. Please keep this page open.": "Upgrade laeuft, bitte schliessen Sie diese Seite nicht.",
-    "Submitting upgrade job...": "Upgrade-Aufgabe wird eingereicht...",
-    "Upgrade job queued and running.": "Upgrade-Aufgabe eingereiht, wird ausgefuehrt.",
-    "An upgrade task is already running, or auto-upgrade is unsupported in current environment.": "Es laeuft bereits ein Upgrade oder Auto-Upgrade wird nicht unterstuetzt.",
+    "Submitting update job...": "Upgrade-Aufgabe wird eingereicht...",
+    "Update job queued and running.": "Upgrade-Aufgabe eingereiht, wird ausgefuehrt.",
+    "An update task is already running, or auto-update is unsupported in current environment.": "Es laeuft bereits ein Upgrade oder Auto-Upgrade wird nicht unterstuetzt.",
     "Key file is too large (max 1MB)": "Key-Datei zu gross (maximal 1MB)",
     "Unable to read key filename": "Key-Dateiname kann nicht gelesen werden",
     "Key file uploaded: ": "Key-Datei hochgeladen:",
@@ -793,7 +793,7 @@
       "to": "Upgrade fehlgeschlagen: $1"
     },
     {
-      "re": "^自动升级不可用：(.+)$",
+      "re": "^自动更新不可用：(.+)$",
       "to": "Auto-Upgrade nicht verfuegbar: $1"
     },
     {
@@ -825,7 +825,7 @@
       "to": "Beendet: $1"
     },
     {
-      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "re": "^确认执行自动更新？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
       "to": "Auto-Upgrade bestaetigen? $2 wird von $1 abgerufen und install.sh ausgefuehrt (Dienst wird moeglicherweise neu gestartet)."
     },
     {
@@ -841,11 +841,11 @@
       "to": "Upgrade abgeschlossen: $1"
     },
     {
-      "re": "^Upgrade failed: (.+)$",
+      "re": "^Update failed: (.+)$",
       "to": "Upgrade fehlgeschlagen: $1"
     },
     {
-      "re": "^Auto upgrade unavailable: (.+)$",
+      "re": "^Auto update unavailable: (.+)$",
       "to": "Auto-Upgrade nicht verfuegbar: $1"
     },
     {
@@ -877,11 +877,11 @@
       "to": "Beendet: $1"
     },
     {
-      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "re": "^Confirm auto update\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
       "to": "Auto-Upgrade bestaetigen? $1 wird von $2 abgerufen und install.sh ausgefuehrt (Dienst wird moeglicherweise neu gestartet)."
     },
     {
-      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "re": "^Leave empty to update to the latest release of selected branch$",
       "to": "Leer lassen, um auf das neueste Release des ausgewaehlten Branches zu aktualisieren"
     },
     {

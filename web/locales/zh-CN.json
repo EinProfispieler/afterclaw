@@ -439,26 +439,26 @@
     "Save Unified Config": "保存统一配置",
     "Refresh upgrade status": "刷新升级状态",
     "Check Server Version": "检查服务器版本",
-    "Auto Upgrade": "自动升级",
-    "Auto Upgrade (GitHub Release)": "自动升级",
-    "自动升级（GitHub Release）": "自动升级",
+    "Auto Update": "自动更新",
+    "Auto Update (GitHub Release)": "自动更新",
+    "自动更新（GitHub Release）": "自动更新",
     "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。",
     "Repository (owner/repo)": "仓库（owner/repo）",
-    "Upgrade Branch": "升级分支",
+    "Update Branch": "更新分支",
     "stable (Stable)": "stable（稳定版）",
     "main (Stable)": "main（稳定版）",
     "nightly (Development)": "nightly（开发版）",
     "Target Tag (optional)": "目标 Tag（可选）",
-    "Run Auto Upgrade": "执行自动升级",
+    "Run Auto Update": "执行自动更新",
     "Refresh Upgrade Status": "刷新升级状态",
-    "Auto upgrade unavailable": "自动升级不可用",
-    "Upgrade in progress": "升级进行中",
-    "Upgrade failed": "升级失败",
-    "Waiting to run upgrade": "等待执行升级",
-    "Submitting upgrade task...": "正在提交升级任务...",
-    "Upgrade task queued, running now.": "升级任务已入队，正在执行。",
-    "An upgrade task is already running or auto upgrade is not supported.": "已有升级任务在执行或当前环境不支持自动升级。",
-    "Upgrade in progress, please do not close this page.": "升级任务进行中，请勿关闭页面。",
+    "Auto update unavailable": "自动更新不可用",
+    "Update in progress": "升级进行中",
+    "Update failed": "升级失败",
+    "Waiting to run update": "等待执行更新",
+    "Submitting upgrade task...": "正在提交更新任务...",
+    "Update task queued, running now.": "更新任务已入队，正在执行。",
+    "An update task is already running or auto update is not supported.": "已有更新任务在执行或当前环境不支持自动更新。",
+    "Update in progress, please do not close this page.": "升级任务进行中，请勿关闭页面。",
     "Please enter repository owner/repo first": "请先填写仓库 owner/repo",
     "Controls the homepage \"Current HTTP Service\" card and HTTP monitoring area. Disabling it forcibly interrupts one upload connection and turns uploads off.": "控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制断开一次连接并关闭上传。",
     "Fetches release package from GitHub and runs local <code>install.sh</code>. During upgrade, service may restart and temporary disconnection is expected.": "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。",
@@ -475,9 +475,9 @@
     "Maintain source pools with one IP/CIDR per line. Matched IPs are labeled by source before UA/Referer keyword matching.": "按“每行一个 IP/CIDR”维护来源池。命中后优先标记为对应来源（高于 UA/Referer 关键词）。",
     "Config directory: ": "配置目录：",
     "Current runtime port: ": "当前运行端口：1288",
-    "Upgrade job queued and running.": "升级任务已入队，正在执行。",
-    "An upgrade task is already running, or auto-upgrade is unsupported in current environment.": "已有升级任务在执行或当前环境不支持自动升级。",
-    "Submitting upgrade job...": "正在提交升级任务...",
+    "Update job queued and running.": "更新任务已入队，正在执行。",
+    "An update task is already running, or auto-update is unsupported in current environment.": "已有更新任务在执行或当前环境不支持自动更新。",
+    "Submitting update job...": "正在提交更新任务...",
     "Key file is too large (max 1MB)": "key 文件过大（最大 1MB）",
     "Unable to read key filename": "无法读取 key 文件名",
     "Key file uploaded: ": "key 文件已上传：",
@@ -686,12 +686,12 @@
       "to": "升级完成：$1"
     },
     {
-      "re": "^Upgrade failed: (.+)$",
+      "re": "^Update failed: (.+)$",
       "to": "升级失败：$1"
     },
     {
-      "re": "^Auto upgrade unavailable: (.+)$",
-      "to": "自动升级不可用：$1"
+      "re": "^Auto update unavailable: (.+)$",
+      "to": "自动更新不可用：$1"
     },
     {
       "re": "^Server version: (.+)$",
@@ -722,11 +722,11 @@
       "to": "结束：$1"
     },
     {
-      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
-      "to": "确认执行自动升级？将从 $2 拉取 $1 并执行 install.sh（过程中服务可能重启）。"
+      "re": "^Confirm auto update\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "to": "确认执行自动更新？将从 $2 拉取 $1 并执行 install.sh（过程中服务可能重启）。"
     },
     {
-      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "re": "^Leave empty to update to the latest release of selected branch$",
       "to": "留空则升级到所选分支的 latest release"
     },
     {
