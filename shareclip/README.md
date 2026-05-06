@@ -37,7 +37,7 @@ Notes:
 Linux:
 
 ```bash
-cd /home/randy/shareclip
+cd /home/<user>/shareclip
 python3 -m pip install -r requirements.txt
 python3 app.py
 ```
@@ -56,7 +56,7 @@ Use this before first run (or before switching storage root):
 
 ```bash
 chmod +x ./scripts/setup_storage.sh
-./scripts/setup_storage.sh --root /var/lib/shareclip --user randy --group randy --apply-systemd
+./scripts/setup_storage.sh --root /var/lib/shareclip --user <service-user> --group <service-group> --apply-systemd
 ```
 
 What it does:

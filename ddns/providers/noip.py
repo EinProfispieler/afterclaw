@@ -19,7 +19,13 @@ def update(cfg: dict, ipv4: Optional[str], ipv6: Optional[str]) -> Tuple[bool, s
         raise ValueError("No-IP 需要至少一个公网地址")
     creds = b64encode(f"{username}:{password}".encode()).decode()
     url = f"https://dynupdate.no-ip.com/nic/update?hostname={hostname}&myip={ip}"
-    req = urllib.request.Request(url, headers={"Authorization": f"Basic {creds}", "User-Agent": "storage-ctrl-ddns/2 randypku@github"})
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Basic {creds}",
+            "User-Agent": "afterclaw-ddns/2",
+        },
+    )
     with urllib.request.urlopen(req, timeout=25) as r:
         body = r.read().decode("utf-8", errors="replace").strip()
     if body.startswith("good") or body.startswith("nochg"):

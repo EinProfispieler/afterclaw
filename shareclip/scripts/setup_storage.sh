@@ -23,8 +23,8 @@ Options:
   -h, --help              Show this help
 
 Examples:
-  ./scripts/setup_storage.sh --root /var/lib/shareclip --user randy --group randy --apply-systemd
-  ./scripts/setup_storage.sh --root /home/randy/shareclip/storage --user randy --port 8888 --default-id pub
+  ./scripts/setup_storage.sh --root /var/lib/shareclip --user <service-user> --group <service-group> --apply-systemd
+  ./scripts/setup_storage.sh --root /home/<user>/shareclip/storage --user <service-user> --port 8888 --default-id pub
 EOF
 }
 
