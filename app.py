@@ -3698,11 +3698,11 @@ def build_config_html() -> str:
         <p id="generalStatus" class="cfg-status"></p>
       </div>
       <div class="card">
-        <span class="card-title">Auto Upgrade</span>
+        <span class="card-title">Auto Update</span>
         <p class="cfg-help">Fetches release package from GitHub and runs local <code>install.sh</code>. During upgrade, service may restart and temporary disconnection is expected.</p>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
-            <div class="title">Upgrade Branch</div>
+            <div class="title">Update Branch</div>
             <select id="upgradeBranchSelect">
               <option value="main">main (Stable)</option>
               <option value="nightly">nightly (Development)</option>
@@ -3710,7 +3710,7 @@ def build_config_html() -> str:
           </label>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="runUpgradeBtn">Run Auto Upgrade</button>
+          <button type="button" id="runUpgradeBtn">Run Auto Update</button>
           <button type="button" id="refreshUpgradeStatusBtn" class="secondary">Check Server Version</button>
         </div>
         <p id="upgradeStatus" class="cfg-status"></p>
@@ -4278,19 +4278,19 @@ def build_config_html() -> str:
       var statusText = "";
       var isErr = false;
       if (!upgradeState.supported) {
-        statusText = "Auto-upgrade unavailable" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
+        statusText = "Auto-update unavailable" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
         isErr = true;
       } else if (upgradeState.running) {
-        statusText = "Upgrade in progress";
+        statusText = "Update in progress";
         if (upgradeState.target_tag) statusText += "：" + upgradeState.target_tag;
         if (upgradeState.message) statusText += " · " + upgradeState.message;
       } else if (upgradeState.state === "success") {
-        statusText = upgradeState.message || ("Upgrade completed: " + (upgradeState.target_tag || "latest"));
+        statusText = upgradeState.message || ("Update completed: " + (upgradeState.target_tag || "latest"));
       } else if (upgradeState.state === "error") {
-        statusText = upgradeState.error ? ("Upgrade failed: " + upgradeState.error) : "Upgrade failed";
+        statusText = upgradeState.error ? ("Update failed: " + upgradeState.error) : "Update failed";
         isErr = true;
       } else {
-        statusText = upgradeState.message || "Waiting to run upgrade";
+        statusText = upgradeState.message || "Waiting to run update";
       }
       var statusEl = byId("upgradeStatus");
       if (statusEl) {
@@ -4298,7 +4298,7 @@ def build_config_html() -> str:
         statusEl.className = isErr ? "cfg-status err" : "cfg-status";
       }
       var meta = [];
-      if (upgradeState.branch) meta.push("Upgrade branch: " + upgradeState.branch);
+      if (upgradeState.branch) meta.push("Update branch: " + upgradeState.branch);
       if (upgradeState.target_tag) meta.push("Target tag: " + upgradeState.target_tag);
       if (s.started_at) meta.push("Started: " + String(s.started_at));
       if (s.finished_at) meta.push("Finished: " + String(s.finished_at));
@@ -4364,10 +4364,10 @@ def build_config_html() -> str:
     async function runAutoUpgrade(){
       var branch = normalizeUpgradeBranchInput(byId("upgradeBranchSelect") ? byId("upgradeBranchSelect").value : "main");
       var branchLabel = branch === "nightly" ? "nightly branch" : "main branch";
-      if (!window.confirm("Confirm auto-upgrade? Will pull " + branchLabel + " from default repository and run install.sh (service may restart).")) {
+      if (!window.confirm("Confirm auto-update? Will pull " + branchLabel + " from default repository and run install.sh (service may restart).")) {
         return null;
       }
-      setStatus("upgradeStatus", "Submitting upgrade job...");
+      setStatus("upgradeStatus", "Submitting update job...");
       var d = await apiJson("/api/upgrade/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4375,9 +4375,9 @@ def build_config_html() -> str:
       });
       renderUpgradeStatus((d && d.status) || {});
       if (d && d.queued) {
-        setStatus("upgradeStatus", "Upgrade job queued and running.");
+        setStatus("upgradeStatus", "Update job queued and running.");
       } else {
-        setStatus("upgradeStatus", "An upgrade task is already running, or auto-upgrade is unsupported in current environment.", true);
+        setStatus("upgradeStatus", "An update task is already running, or auto-update is unsupported in current environment.", true);
       }
       if (upgradeState.running) {
         stopUpgradePolling();
@@ -4957,7 +4957,7 @@ def build_config_html() -> str:
         try {
           await runAutoUpgrade();
         } catch (err) {
-          setStatus("upgradeStatus", "Failed to start upgrade: " + err.message, true);
+          setStatus("upgradeStatus", "Failed to start update: " + err.message, true);
         }
       });
     }
@@ -7672,14 +7672,14 @@ class AppHandler(BaseHTTPRequestHandler):
     @classmethod
     def _upgrade_supported(cls) -> tuple[bool, str]:
         if os.name != "posix":
-            return False, "当前仅支持 Linux 自动升级"
+            return False, "当前仅支持 Linux 自动更新"
         if not shutil.which("systemctl"):
-            return False, "当前环境未检测到 systemctl，暂不支持自动升级"
+            return False, "当前环境未检测到 systemctl，暂不支持自动更新"
         try:
             if os.geteuid() != 0:
                 return False, "当前服务无 root 权限，无法执行 install.sh"
         except Exception:
-            return False, "无法确认当前权限，暂不支持自动升级"
+            return False, "无法确认当前权限，暂不支持自动更新"
         return True, ""
 
     @classmethod
@@ -7694,7 +7694,7 @@ class AppHandler(BaseHTTPRequestHandler):
             status["state"] = "running"
         elif stale_running and str(status.get("state", "")) == "running":
             status["state"] = "unknown"
-            status["message"] = "Upgrade task triggered a service restart; please verify current version manually."
+            status["message"] = "Update task triggered a service restart; please verify current version manually."
             status["finished_at"] = _utc_now_iso()
             _write_upgrade_status(status, _APP_ROOT_DIR)
         status["supported"] = bool(ok)
@@ -7762,7 +7762,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "supported": False,
                     "running": False,
                     "state": "error",
-                    "message": "Auto-upgrade unavailable",
+                    "message": "Auto-update unavailable",
                     "error": str(reason or "当前环境不支持"),
                     "branch": _normalize_upgrade_branch(branch_raw, DEFAULT_UPGRADE_BRANCH),
                 },
@@ -7897,7 +7897,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "requested_tag": tag,
                         "target_tag": target_tag,
                         "release_url": release_url,
-                        "message": f"Upgrade completed: {target_tag}",
+                        "message": f"Update completed: {target_tag}",
                         "error": "",
                         "finished_at": _utc_now_iso(),
                     },
@@ -7912,7 +7912,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "repo": repo,
                         "branch": branch,
                         "requested_tag": tag,
-                        "message": "自动Upgrade failed",
+                        "message": "自动更新失败",
                         "error": str(exc),
                         "finished_at": _utc_now_iso(),
                     }
@@ -9297,7 +9297,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
                 return
             except Exception as exc:
-                self._error(f"Failed to start upgrade: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Failed to start update: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"queued": bool(queued), "status": status})
             return
