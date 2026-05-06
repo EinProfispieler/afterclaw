@@ -353,43 +353,43 @@
     "Save Unified Config": "統合設定を保存",
     "Refresh upgrade status": "アップグレード状態を更新",
     "Check Server Version": "サーバーバージョンを確認",
-    "Auto Upgrade": "自動アップグレード",
-    "自动升级（GitHub Release）": "自動アップグレード",
+    "Auto Update": "自動アップグレード",
+    "自动更新（GitHub Release）": "自動アップグレード",
     "从 GitHub 拉取发布包并执行本地 install.sh。升级过程中服务可能重启，页面短暂断开属于正常现象。": "GitHub からリリースを取得し、ローカルの install.sh を実行します。アップグレード中にサービスが再起動する場合があります。一時的な切断は正常です。",
     "仓库（owner/repo）": "リポジトリ（owner/repo）",
-    "升级分支": "アップグレードブランチ",
+    "更新分支": "アップグレードブランチ",
     "stable（稳定版）": "stable（安定版）",
     "nightly（开发版）": "nightly（開発版）",
     "目标 Tag（可选）": "ターゲット Tag（任意）",
-    "执行自动升级": "自動アップグレードを実行",
+    "执行自动更新": "自動アップグレードを実行",
     "刷新升级状态": "アップグレード状態を更新",
-    "自动升级不可用": "自動アップグレード利用不可",
+    "自动更新不可用": "自動アップグレード利用不可",
     "升级进行中": "アップグレード中",
     "升级失败": "アップグレード失敗",
-    "等待执行升级": "アップグレード待機中",
-    "正在提交升级任务...": "アップグレードタスクを送信中...",
-    "升级任务已入队，正在执行。": "アップグレードタスクがキューに入り、実行中です。",
-    "已有升级任务在执行或当前环境不支持自动升级。": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
+    "等待执行更新": "アップグレード待機中",
+    "正在提交更新任务...": "アップグレードタスクを送信中...",
+    "更新任务已入队，正在执行。": "アップグレードタスクがキューに入り、実行中です。",
+    "已有更新任务在执行或当前环境不支持自动更新。": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
     "升级任务进行中，请勿关闭页面。": "アップグレード中です。このページを閉じないでください。",
     "请先填写仓库 owner/repo": "リポジトリ owner/repo を入力してください",
-    "Auto Upgrade (GitHub Release)": "自動アップグレード",
+    "Auto Update (GitHub Release)": "自動アップグレード",
     "Fetch release from GitHub and run local install.sh. The service may restart during upgrade; brief disconnection is normal.": "GitHub からリリースを取得し、ローカルの install.sh を実行します。アップグレード中にサービスが再起動する場合があります。一時的な切断は正常です。",
     "Repository (owner/repo)": "リポジトリ（owner/repo）",
-    "Upgrade Branch": "アップグレードブランチ",
+    "Update Branch": "アップグレードブランチ",
     "stable (Stable)": "stable（安定版）",
     "main (Stable)": "main（安定版）",
     "nightly (Development)": "nightly（開発版）",
     "Target Tag (optional)": "ターゲット Tag（任意）",
-    "Run Auto Upgrade": "自動アップグレードを実行",
+    "Run Auto Update": "自動アップグレードを実行",
     "Refresh Upgrade Status": "アップグレード状態を更新",
-    "Auto upgrade unavailable": "自動アップグレード利用不可",
-    "Upgrade in progress": "アップグレード中",
-    "Upgrade failed": "アップグレード失敗",
-    "Waiting to run upgrade": "アップグレード待機中",
+    "Auto update unavailable": "自動アップグレード利用不可",
+    "Update in progress": "アップグレード中",
+    "Update failed": "アップグレード失敗",
+    "Waiting to run update": "アップグレード待機中",
     "Submitting upgrade task...": "アップグレードタスクを送信中...",
-    "Upgrade task queued, running now.": "アップグレードタスクがキューに入り、実行中です。",
-    "An upgrade task is already running or auto upgrade is not supported.": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
-    "Upgrade in progress, please do not close this page.": "アップグレード中です。このページを閉じないでください。",
+    "Update task queued, running now.": "アップグレードタスクがキューに入り、実行中です。",
+    "An update task is already running or auto update is not supported.": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
+    "Update in progress, please do not close this page.": "アップグレード中です。このページを閉じないでください。",
     "Please enter repository owner/repo first": "リポジトリ owner/repo を入力してください",
     "Key mode is recommended. Make sure the target host has your public key authorized.": "key モードを推奨します。対象ホストで公開鍵が許可されていることを確認してください。",
     "Please fill host/user and connection info first": "先に Host/User などの接続情報を入力してください。",
@@ -412,9 +412,9 @@
     "Config directory: ": "設定ディレクトリ：",
     "Uses this path when \"Key filename in config directory\" is empty.": "「設定ディレクトリ key ファイル名」が未入力のときにこのパスを使用します。",
     "Upgrade is in progress. Please keep this page open.": "アップグレード中です。このページを閉じないでください。",
-    "Submitting upgrade job...": "アップグレードタスクを送信中...",
-    "Upgrade job queued and running.": "アップグレードタスクがキューに入り、実行中です。",
-    "An upgrade task is already running, or auto-upgrade is unsupported in current environment.": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
+    "Submitting update job...": "アップグレードタスクを送信中...",
+    "Update job queued and running.": "アップグレードタスクがキューに入り、実行中です。",
+    "An update task is already running, or auto-update is unsupported in current environment.": "アップグレードタスクが既に実行中か、自動アップグレードがサポートされていません。",
     "Key file is too large (max 1MB)": "key ファイルが大きすぎます（最大 1MB）",
     "Unable to read key filename": "key ファイル名を読み取れません",
     "Key file uploaded: ": "key ファイルをアップロードしました：",
@@ -793,7 +793,7 @@
       "to": "アップグレード失敗：$1"
     },
     {
-      "re": "^自动升级不可用：(.+)$",
+      "re": "^自动更新不可用：(.+)$",
       "to": "自動アップグレード利用不可：$1"
     },
     {
@@ -825,7 +825,7 @@
       "to": "終了：$1"
     },
     {
-      "re": "^确认执行自动升级？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
+      "re": "^确认执行自动更新？将从 (.+) 拉取 (.+) 并执行 install\\.sh（过程中服务可能重启）。$",
       "to": "自動アップグレードを実行しますか？$1 から $2 を取得し install.sh を実行します（サービスが再起動する場合があります）。"
     },
     {
@@ -841,11 +841,11 @@
       "to": "アップグレード完了：$1"
     },
     {
-      "re": "^Upgrade failed: (.+)$",
+      "re": "^Update failed: (.+)$",
       "to": "アップグレード失敗：$1"
     },
     {
-      "re": "^Auto upgrade unavailable: (.+)$",
+      "re": "^Auto update unavailable: (.+)$",
       "to": "自動アップグレード利用不可：$1"
     },
     {
@@ -877,11 +877,11 @@
       "to": "終了：$1"
     },
     {
-      "re": "^Confirm auto upgrade\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
+      "re": "^Confirm auto update\\? Will fetch (.+) from (.+) and run install\\.sh \\(service may restart\\)\\.$",
       "to": "自動アップグレードを実行しますか？$2 から $1 を取得し install.sh を実行します（サービスが再起動する場合があります）。"
     },
     {
-      "re": "^Leave empty to upgrade to the latest release of selected branch$",
+      "re": "^Leave empty to update to the latest release of selected branch$",
       "to": "空欄にすると選択したブランチの最新リリースにアップグレードします"
     },
     {
