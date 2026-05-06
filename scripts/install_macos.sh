@@ -14,15 +14,54 @@ QBT_API_PASSWORD="${QBT_API_PASSWORD:-}"
 DDNS_SERVICE="${DDNS_SERVICE:-ddns-go.service}"
 SHARECLIP_STORAGE_ROOT="${SHARECLIP_STORAGE_ROOT:-${APP_ROOT}/shareclip/storage}"
 PLIST="${HOME}/Library/LaunchAgents/com.fcc.afterclaw.plist"
+PYTHON_BIN="${PYTHON_BIN:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if ! command -v python3 >/dev/null 2>&1; then
+if [[ -z "${PYTHON_BIN}" ]] && command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+
+if [[ -z "${PYTHON_BIN}" ]]; then
   if ! command -v brew >/dev/null 2>&1; then
     echo "未检测到 python3，且 brew 不可用，请先安装 Homebrew 或 Python3" >&2
     exit 1
   fi
   brew install python
+  PYTHON_BIN="$(command -v python3)"
+fi
+
+if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
+  echo "未找到可执行 Python 解释器，请通过 PYTHON_BIN 指定" >&2
+  exit 1
+fi
+
+PY_OK="$("${PYTHON_BIN}" - <<'PY'
+import sys
+print("1" if sys.version_info >= (3, 10) else "0")
+PY
+)"
+if [[ "${PY_OK}" != "1" ]]; then
+  for candidate in python3.13 python3.12 python3.11 python3.10; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      cbin="$(command -v "${candidate}")"
+      PY_OK="$("${cbin}" - <<'PY'
+import sys
+print("1" if sys.version_info >= (3, 10) else "0")
+PY
+)"
+      if [[ "${PY_OK}" == "1" ]]; then
+        PYTHON_BIN="${cbin}"
+        break
+      fi
+    fi
+  done
+fi
+
+if [[ "${PY_OK}" != "1" ]]; then
+  echo "需要 Python 3.10+，当前解释器不满足：${PYTHON_BIN}" >&2
+  echo "可通过环境变量指定，例如：PYTHON_BIN=\$HOME/.local/bin/python3.11 bash install.sh" >&2
+  exit 1
 fi
 
 mkdir -p "${APP_ROOT}" "${STORAGE_ROOT}" "${HOME}/Library/LaunchAgents"
@@ -42,8 +81,7 @@ cat > "${PLIST}" <<EOF
     <key>Label</key><string>com.fcc.afterclaw</string>
     <key>ProgramArguments</key>
     <array>
-      <string>/usr/bin/env</string>
-      <string>python3</string>
+      <string>${PYTHON_BIN}</string>
       <string>${APP_ROOT}/app.py</string>
     </array>
     <key>EnvironmentVariables</key>
@@ -74,4 +112,5 @@ launchctl load "${PLIST}"
 
 echo "安装完成。"
 echo "管理页面: http://127.0.0.1:${WEB_PORT}"
+echo "Python: ${PYTHON_BIN}"
 echo "launchctl 状态: launchctl list | grep com.fcc.afterclaw"
