@@ -141,6 +141,9 @@ DEFAULT_UPGRADE_GITHUB_REPO = (
 DEFAULT_UPGRADE_BRANCH = (
     os.environ.get("UPGRADE_BRANCH", "").strip().lower() or "main"
 )
+DEFAULT_NIGHTLY_LOCAL_ROOT = (
+    os.environ.get("UPGRADE_NIGHTLY_LOCAL_ROOT", "").strip() or "/opt/afterclaw-nightly"
+)
 UPGRADE_HTTP_TIMEOUT = float(
     os.environ.get("UPGRADE_HTTP_TIMEOUT", "20").strip() or "20"
 )
@@ -847,6 +850,37 @@ def _github_branch_version_payload(repo: str, branch: str = "nightly") -> dict:
         "version_text": _to_version_text(version_raw),
         "html_url": tree_url,
         "raw_url": raw_url,
+    }
+
+
+def _local_branch_version_payload(repo: str, branch: str = "nightly") -> dict:
+    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
+    safe_branch = _normalize_upgrade_branch(branch, "nightly")
+    if safe_branch != "nightly":
+        raise RuntimeError("本地版本读取仅支持 nightly 分支")
+    owner, name = safe_repo.split("/", 1)
+    tree_url = (
+        f"https://github.com/{quote(owner)}/{quote(name)}"
+        f"/tree/{quote(safe_branch)}"
+    )
+    local_root = Path(DEFAULT_NIGHTLY_LOCAL_ROOT).expanduser()
+    init_file = local_root / "fcc" / "__init__.py"
+    if not init_file.exists() or not init_file.is_file():
+        raise RuntimeError(f"本地 nightly 版本文件不存在：{init_file}")
+    try:
+        text = init_file.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        raise RuntimeError(f"读取本地 nightly 版本文件失败：{exc}") from exc
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', str(text or ""))
+    version_raw = str(match.group(1) if match else "").strip()
+    if not version_raw:
+        raise RuntimeError(f"未在本地 nightly 文件解析到 __version__：{init_file}")
+    return {
+        "branch": safe_branch,
+        "version_raw": version_raw,
+        "version_text": _to_version_text(version_raw),
+        "html_url": tree_url,
+        "raw_url": str(init_file),
     }
 
 
@@ -7699,10 +7733,14 @@ class AppHandler(BaseHTTPRequestHandler):
         }
         try:
             if branch == "nightly":
-                info = _github_branch_version_payload(repo, "nightly")
+                try:
+                    info = _local_branch_version_payload(repo, "nightly")
+                    payload["source"] = "nightly-local-file"
+                except Exception:
+                    info = _github_branch_version_payload(repo, "nightly")
+                    payload["source"] = "nightly-branch-head"
                 payload["available_version"] = str(info.get("version_text") or "")
                 payload["release_url"] = str(info.get("html_url") or "")
-                payload["source"] = "nightly-branch-head"
             else:
                 release = _github_release_payload(repo, "")
                 payload["available_version"] = _to_version_text(
