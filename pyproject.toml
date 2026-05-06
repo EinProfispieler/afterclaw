@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "afterclaw"
-version = "0.9.7"
+version = "0.9.8"
 description = "AfterClaw - single-port home server control panel"
 readme = "README.md"
 requires-python = ">=3.9"
