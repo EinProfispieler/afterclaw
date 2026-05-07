@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import base64
 import configparser
 import http.cookiejar
@@ -30,8 +32,15 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 import ddns
 from fcc import __version__ as FCC_APP_VERSION
 from fcc.modules.monitor.process_net import ProcessSourceSpeedSampler
+from fcc.modules import REGISTRY as MODULE_REGISTRY
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
+
+# Import backup module to register routes
+try:
+    import fcc.modules.backup.web
+except ImportError:
+    pass
 
 _CODE_DIR = Path(__file__).resolve().parent
 _LEGACY_APP_ROOT_DIR = _CODE_DIR.parent
@@ -5780,6 +5789,37 @@ class AppHandler(BaseHTTPRequestHandler):
             return True
         return False
 
+    def _dispatch_module_route(self, parsed, method: str) -> bool:
+        """Dispatch request to registered modules.
+        
+        Args:
+            parsed: Parsed URL
+            method: HTTP method (GET, POST, etc.)
+        
+        Returns:
+            True if route was handled, False otherwise
+        """
+        for module in MODULE_REGISTRY.values():
+            for route in module.routes:
+                params = route.match(method, parsed.path)
+                if params is not None:
+                    # Route matched, check LAN access
+                    if not self._require_lan():
+                        return True
+                    
+                    # Call handler
+                    try:
+                        body = None
+                        if method in {"POST", "PUT", "PATCH"}:
+                            body = self._parse_body()
+                        route.handler(self, parsed.path, params, body)
+                        return True
+                    except Exception as e:
+                        self._error(f"Module route error: {e}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                        return True
+        
+        return False
+
     def _dispatch_shareclip_flask(self, parsed, command: str, send_body: bool) -> bool:
         path = parsed.path or "/"
         target_path = "/config" if path == "/clip-config" else path
@@ -8200,6 +8240,11 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if self._dispatch_shareclip_flask(parsed, "GET", True):
             return
+        
+        # Try module routes
+        if self._dispatch_module_route(parsed, "GET"):
+            return
+        
         if parsed.path == "/":
             if not self._require_lan():
                 return
@@ -8521,6 +8566,10 @@ class AppHandler(BaseHTTPRequestHandler):
         if self._dispatch_ddnsgo_proxy(parsed, "POST", True):
             return
         if self._dispatch_shareclip_flask(parsed, "POST", True):
+            return
+        
+        # Try module routes
+        if self._dispatch_module_route(parsed, "POST"):
             return
 
         if parsed.path == "/api/terminal/start":
