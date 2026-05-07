@@ -3606,6 +3606,7 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.qb" data-i18n-fallback="qB">qB</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
+        <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup">Backup</button>
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
@@ -3874,6 +3875,78 @@ def build_config_html() -> str:
         <div class="ddns-frame-wrap">
           <iframe id="ddnsFrame" src="/ddns?embed=1" title="DDNS Config"></iframe>
         </div>
+      </div>
+    </section>
+
+    <section id="panel-backup" class="cfg-panel">
+      <div class="card">
+        <span class="card-title">Backup Configuration</span>
+        <p class="cfg-help">Configure backup sources, targets, and retention policies. Config file: <code id="backupCfgPath">-</code></p>
+        
+        <div class="cfg-grid" style="margin-top:16px;">
+          <label class="cfg-item">
+            <div class="title">Backup Target Path</div>
+            <input id="backupTargetPath" placeholder="e.g. ~/.afterclaw/backup or /mnt/backup" />
+            <div class="cfg-help">Local directory to store backup snapshots</div>
+          </label>
+        </div>
+        
+        <div class="cfg-grid">
+          <label class="cfg-item">
+            <div class="title">Source Directories (one per line)</div>
+            <textarea id="backupSourceDirs" rows="4" placeholder="~/Projects&#10;~/Documents&#10;/opt/data"></textarea>
+            <div class="cfg-help">Directories to backup, one per line. Use ~ for home directory.</div>
+          </label>
+        </div>
+        
+        <div class="cfg-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <label class="cfg-item">
+            <div class="title">Daily Retention</div>
+            <input type="number" id="backupRetentionDaily" min="0" max="365" value="7" />
+            <div class="cfg-help">Keep daily snapshots (days)</div>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Weekly Retention</div>
+            <input type="number" id="backupRetentionWeekly" min="0" max="52" value="4" />
+            <div class="cfg-help">Keep weekly snapshots (weeks)</div>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Monthly Retention</div>
+            <input type="number" id="backupRetentionMonthly" min="0" max="120" value="12" />
+            <div class="cfg-help">Keep monthly snapshots (months)</div>
+          </label>
+        </div>
+        
+        <div class="cfg-actions">
+          <button type="button" id="saveBackupConfigBtn">Save Backup Config</button>
+          <button type="button" id="loadBackupConfigBtn" class="secondary">Load Current Config</button>
+          <button type="button" id="testBackupBtn" class="secondary">Test Backup Now</button>
+        </div>
+        <p id="backupCfgStatus" class="cfg-status"></p>
+        
+        <details class="card-fold" style="margin-top:20px;">
+          <summary class="card-collapse-btn">
+            <span class="card-title" style="margin-bottom:0;">Advanced Settings</span>
+            <span class="card-collapse-arrow" aria-hidden="true">▶</span>
+          </summary>
+          <div class="card-fold-body">
+            <div class="cfg-grid">
+              <label class="cfg-item">
+                <div class="title">Exclude Patterns (one per line)</div>
+                <textarea id="backupExcludePatterns" rows="4" placeholder="**/node_modules/**&#10;**/.venv/**&#10;**/__pycache__/**"></textarea>
+                <div class="cfg-help">Glob patterns to exclude from backup</div>
+              </label>
+            </div>
+            <label class="cfg-module-item" style="margin-top:12px;">
+              <input type="checkbox" id="backupCompressionEnabled" class="cfg-switch-input" checked />
+              <span class="cfg-switch" aria-hidden="true"></span>
+              <div>
+                <p class="cfg-module-title">Enable Compression</p>
+                <p class="cfg-module-desc">Compress backup files to save space</p>
+              </div>
+            </label>
+          </div>
+        </details>
       </div>
     </section>
 
