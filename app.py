@@ -1600,6 +1600,7 @@ def build_frontend_html() -> str:
     <div class="tabs">
       <button id="tabMonitorBtn" class="tab-btn active" type="button">Control</button>
       <button id="tabDirBtn" class="tab-btn" type="button">Directory Service</button>
+      <button id="tabBackupBtn" class="tab-btn" type="button">Backup</button>
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
     <div class="tabs-actions">
@@ -1676,6 +1677,34 @@ def build_frontend_html() -> str:
   <div class="card">
     <span class="card-title">Bulk Text (one HTTP link per line)</span>
     <textarea id="bulkText" readonly></textarea>
+  </div>
+  </div>
+
+  <div id="tabBackupPanel" class="tab-panel">
+  <div class="card">
+    <span class="card-title">Backup Management</span>
+    <div class="kv-line"><strong>Config Path</strong><span id="backupConfigPath">-</span></div>
+    <div class="kv-line"><strong>Database</strong><span id="backupDbStatus">-</span></div>
+    <div class="kv-line"><strong>Snapshots</strong><span id="backupSnapshotCount">-</span></div>
+    <div class="kv-line"><strong>Total Size</strong><span id="backupTotalSize">-</span></div>
+    <div class="kv-line"><strong>Last Backup</strong><span id="backupLastTime">-</span></div>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button id="backupRunBtn">Run Backup Now</button>
+        <button id="backupRefreshBtn" class="secondary">Refresh Status</button>
+        <button id="backupConfigBtn" class="secondary">Edit Config</button>
+      </div>
+    </div>
+    <div id="backupResult" class="status-bar muted" style="margin-top:10px;"></div>
+    <details class="card-fold" style="margin-top:20px;">
+      <summary class="card-collapse-btn">
+        <span class="card-title" style="margin-bottom:0;">Snapshot History</span>
+        <span class="card-collapse-arrow" aria-hidden="true">▶</span>
+      </summary>
+      <div class="card-fold-body">
+        <div id="backupSnapshotList" style="max-height:400px;overflow-y:auto;"></div>
+      </div>
+    </details>
   </div>
   </div>
 
@@ -1806,9 +1835,11 @@ def build_frontend_html() -> str:
       : Promise.resolve();
     const tabDirBtn = document.getElementById("tabDirBtn");
     const tabMonitorBtn = document.getElementById("tabMonitorBtn");
+    const tabBackupBtn = document.getElementById("tabBackupBtn");
     const tabPubBtn = document.getElementById("tabPubBtn");
     const tabDirPanel = document.getElementById("tabDirPanel");
     const tabMonitorPanel = document.getElementById("tabMonitorPanel");
+    const tabBackupPanel = document.getElementById("tabBackupPanel");
     const tabPubPanel = document.getElementById("tabPubPanel");
     const storageText = document.getElementById("storageText");
     const publicBaseText = document.getElementById("publicBaseText");
@@ -1858,6 +1889,18 @@ def build_frontend_html() -> str:
     const clipRefreshHistoryBtn = document.getElementById("clipRefreshHistoryBtn");
     const terminalQuickLink = document.getElementById("terminalQuickLink");
     const langSelect = document.getElementById("langSelect");
+    
+    // Backup elements
+    const backupConfigPath = document.getElementById("backupConfigPath");
+    const backupDbStatus = document.getElementById("backupDbStatus");
+    const backupSnapshotCount = document.getElementById("backupSnapshotCount");
+    const backupTotalSize = document.getElementById("backupTotalSize");
+    const backupLastTime = document.getElementById("backupLastTime");
+    const backupResult = document.getElementById("backupResult");
+    const backupSnapshotList = document.getElementById("backupSnapshotList");
+    const backupRunBtn = document.getElementById("backupRunBtn");
+    const backupRefreshBtn = document.getElementById("backupRefreshBtn");
+    const backupConfigBtn = document.getElementById("backupConfigBtn");
     let currentDir = ".";
     let defaultHttpDir = ".";
     let lastCleanMoves = null;
@@ -2186,15 +2229,22 @@ def build_frontend_html() -> str:
     }
 
     function switchTab(which) {
-      const showMonitor = which === "monitor";
-      const showDir = which === "dir";
-      const showPub = which === "pub";
-      tabDirBtn.classList.toggle("active", showDir);
-      tabMonitorBtn.classList.toggle("active", showMonitor);
-      tabPubBtn.classList.toggle("active", showPub);
-      tabDirPanel.classList.toggle("active", showDir);
-      tabMonitorPanel.classList.toggle("active", showMonitor);
-      tabPubPanel.classList.toggle("active", showPub);
+      [tabDirBtn, tabMonitorBtn, tabBackupBtn, tabPubBtn].forEach((b) => b.classList.remove("active"));
+      [tabDirPanel, tabMonitorPanel, tabBackupPanel, tabPubPanel].forEach((p) => p.classList.remove("active"));
+      if (which === "dir") {
+        tabDirBtn.classList.add("active");
+        tabDirPanel.classList.add("active");
+      } else if (which === "backup") {
+        tabBackupBtn.classList.add("active");
+        tabBackupPanel.classList.add("active");
+        loadBackupStatus();
+      } else if (which === "pub") {
+        tabPubBtn.classList.add("active");
+        tabPubPanel.classList.add("active");
+      } else {
+        tabMonitorBtn.classList.add("active");
+        tabMonitorPanel.classList.add("active");
+      }
     }
 
     async function getJson(url, options = {}) {
@@ -2973,6 +3023,7 @@ def build_frontend_html() -> str:
     clipIdInput.addEventListener("change", () => applyClipIdFromInput(false));
     tabDirBtn.addEventListener("click", () => switchTab("dir"));
     tabMonitorBtn.addEventListener("click", () => switchTab("monitor"));
+    tabBackupBtn.addEventListener("click", () => switchTab("backup"));
     tabPubBtn.addEventListener("click", () => switchTab("pub"));
     xferSortButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -3184,6 +3235,110 @@ def build_frontend_html() -> str:
         });
       }
       tick();
+    }
+
+    // Backup functions
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    async function loadBackupStatus() {
+      try {
+        const data = await getJson('/api/backup/status');
+        if (data.success) {
+          if (backupConfigPath) backupConfigPath.textContent = data.config_path || '-';
+          if (backupDbStatus) backupDbStatus.textContent = data.db_exists ? '✓ Exists' : '✗ Not initialized';
+          if (data.storage_stats) {
+            if (backupSnapshotCount) backupSnapshotCount.textContent = data.storage_stats.snapshot_count || '0';
+            if (backupTotalSize) backupTotalSize.textContent = formatBytes(data.storage_stats.total_size || 0);
+            if (backupLastTime) {
+              if (data.storage_stats.newest_snapshot) {
+                backupLastTime.textContent = new Date(data.storage_stats.newest_snapshot).toLocaleString();
+              } else {
+                backupLastTime.textContent = 'Never';
+              }
+            }
+          }
+          await loadBackupSnapshots();
+        }
+      } catch (err) {
+        console.error('Failed to load backup status:', err);
+      }
+    }
+
+    async function loadBackupSnapshots() {
+      try {
+        const data = await getJson('/api/backup/list');
+        if (data.success && backupSnapshotList) {
+          if (data.snapshots.length === 0) {
+            backupSnapshotList.innerHTML = '<p style="color:var(--text-muted);padding:10px;">No snapshots found</p>';
+            return;
+          }
+          let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border);">';
+          html += '<th style="text-align:left;padding:8px;">Snapshot ID</th>';
+          html += '<th style="text-align:left;padding:8px;">Time</th>';
+          html += '<th style="text-align:right;padding:8px;">Files</th>';
+          html += '<th style="text-align:right;padding:8px;">Size</th>';
+          html += '</tr></thead><tbody>';
+          data.snapshots.forEach(s => {
+            html += '<tr style="border-bottom:1px solid var(--border);">';
+            html += '<td style="padding:8px;"><code>' + s.id + '</code></td>';
+            html += '<td style="padding:8px;">' + new Date(s.timestamp).toLocaleString() + '</td>';
+            html += '<td style="padding:8px;text-align:right;">' + s.file_count + '</td>';
+            html += '<td style="padding:8px;text-align:right;">' + formatBytes(s.total_size) + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+          backupSnapshotList.innerHTML = html;
+        }
+      } catch (err) {
+        console.error('Failed to load snapshots:', err);
+      }
+    }
+
+    if (backupRunBtn) {
+      backupRunBtn.addEventListener('click', async () => {
+        backupRunBtn.disabled = true;
+        backupRunBtn.textContent = 'Running...';
+        if (backupResult) backupResult.textContent = 'Backup in progress...';
+        try {
+          const data = await getJson('/api/backup/run', { method: 'POST' });
+          if (data.success) {
+            if (backupResult) {
+              backupResult.textContent = `✓ Backup completed: ${data.files_processed} files, ${formatBytes(data.bytes_transferred)}`;
+              backupResult.style.color = 'var(--success)';
+            }
+            await loadBackupStatus();
+          } else {
+            if (backupResult) {
+              backupResult.textContent = `✗ Backup failed: ${data.error || 'Unknown error'}`;
+              backupResult.style.color = 'var(--error)';
+            }
+          }
+        } catch (err) {
+          if (backupResult) {
+            backupResult.textContent = `✗ Error: ${err.message || err}`;
+            backupResult.style.color = 'var(--error)';
+          }
+        } finally {
+          backupRunBtn.disabled = false;
+          backupRunBtn.textContent = 'Run Backup Now';
+        }
+      });
+    }
+
+    if (backupRefreshBtn) {
+      backupRefreshBtn.addEventListener('click', () => loadBackupStatus());
+    }
+
+    if (backupConfigBtn) {
+      backupConfigBtn.addEventListener('click', () => {
+        window.location.href = '/config#backup';
+      });
     }
 
     Promise.resolve(i18nReady).finally(() => {
