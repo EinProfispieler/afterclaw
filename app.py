@@ -6602,7 +6602,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
 
-            tmp = conf_path.parent / f"{conf_path.name}.tmp.codex"
+            tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
                 if prev_stat is not None:
@@ -6786,7 +6786,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
 
-            tmp = conf_path.parent / f"{conf_path.name}.tmp.codex"
+            tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
                 if prev_stat is not None:
