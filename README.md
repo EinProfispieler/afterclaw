@@ -72,10 +72,6 @@ Workflow file: `.github/workflows/installers.yml`
 - Platforms: Linux, macOS, Windows
 - Output: packaged installers uploaded as Actions artifacts
 
-## Docs
-
-- Deployment and migration guide: `DEPLOY.md`
-
 ---
 
 ## 简体中文
@@ -144,18 +140,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 - 平台：Linux / macOS / Windows
 - 产物：自动上传安装包到 Actions Artifacts
 
-### 文档
-
-- 部署与迁移：`DEPLOY.md`
-
 </details>
-
-## Nightly Workflow / Nightly 开发规则
-
-- Follow the Nightly-first policy documented in [NIGHTLY.md](NIGHTLY.md).
-- 新功能先在 `nightly` 开发与验证，确认满意后再推进到 `main`。
-- Nightly-only features: `测试进度条展示` and `切换到1288正式版`.
-- Any promotion from `nightly` to `main` must remove the two nightly-only features.
 
 ## Versioning / 版本命名规则
 

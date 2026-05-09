@@ -30,7 +30,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import ddns
-from fcc import __version__ as FCC_APP_VERSION
+from fcc import __version__ as FCC_APP_VERSION, __branch__ as FCC_APP_BRANCH
 from fcc.modules.monitor.process_net import ProcessSourceSpeedSampler
 from fcc.modules import REGISTRY as MODULE_REGISTRY
 from ddns.web import load_ddns_settings_page
@@ -79,8 +79,8 @@ DEFAULT_WEB_PORT = int(os.environ.get("WEB_PORT", "1288"))
 ACTIVE_WEB_PORT = DEFAULT_WEB_PORT
 DEFAULT_PUBLIC_SCHEME = os.environ.get("PUBLIC_SCHEME", "http").strip() or "http"
 DEFAULT_PUBLIC_HOST = (
-    os.environ.get("PUBLIC_HOST", f"home.rxotc.cn:{DEFAULT_WEB_PORT}").strip()
-    or f"home.rxotc.cn:{DEFAULT_WEB_PORT}"
+    os.environ.get("PUBLIC_HOST", f"127.0.0.1:{DEFAULT_WEB_PORT}").strip()
+    or f"127.0.0.1:{DEFAULT_WEB_PORT}"
 )
 DEFAULT_QBT_SERVICE = os.environ.get("QBT_SERVICE", "").strip()
 DEFAULT_QBT_API_URL = (
@@ -105,7 +105,6 @@ THEME_HERO_PRESETS = (
     "sunset",
     "frost",
     "afterclaw_clouds",
-    "custom",
 )
 THEME_BG_ALLOWED_EXTENSIONS = {
     ".png",
@@ -148,6 +147,12 @@ SOURCE_POOL_REMOTE_TIMEOUT = float(
 DEFAULT_UPGRADE_GITHUB_REPO = (
     os.environ.get("UPGRADE_GITHUB_REPO", "").strip() or "EinProfispieler/afterclaw"
 )
+DEFAULT_UPGRADE_BRANCH = (
+    os.environ.get("UPGRADE_BRANCH", "").strip().lower() or "main"
+)
+DEFAULT_NIGHTLY_LOCAL_ROOT = (
+    os.environ.get("UPGRADE_NIGHTLY_LOCAL_ROOT", "").strip() or "/opt/afterclaw-nightly"
+)
 UPGRADE_HTTP_TIMEOUT = float(
     os.environ.get("UPGRADE_HTTP_TIMEOUT", "20").strip() or "20"
 )
@@ -159,11 +164,23 @@ APP_VERSION_TEXT = (
     if APP_VERSION and APP_VERSION.lower() != "unknown"
     else str(APP_VERSION or "unknown")
 )
+_raw_app_branch = str(FCC_APP_BRANCH or "").strip().lower()
+if _raw_app_branch in {"main", "stable"}:
+    APP_BRANCH = "main"
+elif _raw_app_branch == "nightly":
+    APP_BRANCH = "nightly"
+elif ".dev" in APP_VERSION:
+    APP_BRANCH = "nightly"
+else:
+    APP_BRANCH = "main"
+DEFAULT_TRANSFER_RECENT_TTL_SEC = float(
+    os.environ.get("TRANSFER_RECENT_TTL_SEC", "15").strip() or "15"
+)
 
 
 def _page_title_with_version(title: str) -> str:
     base = str(title or "").strip() or "AfterClaw"
-    return f"{base} · {APP_VERSION_TEXT}"
+    return base
 
 
 def _inject_page_title(html: str, title: str) -> str:
@@ -249,6 +266,28 @@ def _normalize_upgrade_tag(value) -> str:
     return raw
 
 
+def _normalize_upgrade_branch(value, default: str = DEFAULT_UPGRADE_BRANCH) -> str:
+    raw = str(value or default).strip().lower()
+    if raw in {"stable", "main"}:
+        return "main"
+    if raw == "nightly":
+        return "nightly"
+    if str(default).strip().lower() in {"stable", "main"}:
+        return "main"
+    if str(default).strip().lower() == "nightly":
+        return "nightly"
+    return "main"
+
+
+def _to_version_text(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.lower().startswith("v"):
+        return raw
+    return f"v{raw}"
+
+
 def _default_upgrade_status() -> dict:
     return {
         "supported": bool(os.name == "posix"),
@@ -256,6 +295,7 @@ def _default_upgrade_status() -> dict:
         "state": "idle",
         "current_version": APP_VERSION_TEXT,
         "repo": DEFAULT_UPGRADE_GITHUB_REPO,
+        "branch": _normalize_upgrade_branch(DEFAULT_UPGRADE_BRANCH, "main"),
         "requested_tag": "",
         "target_tag": "",
         "release_url": "",
@@ -284,6 +324,7 @@ def _read_upgrade_status(app_root: Path = _APP_ROOT_DIR) -> dict:
         base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+    base["branch"] = _normalize_upgrade_branch(base.get("branch"), DEFAULT_UPGRADE_BRANCH)
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
     base["running"] = bool(base.get("running"))
@@ -299,6 +340,7 @@ def _write_upgrade_status(status: dict, app_root: Path = _APP_ROOT_DIR) -> dict:
         base["repo"] = _normalize_upgrade_repo(base.get("repo"), DEFAULT_UPGRADE_GITHUB_REPO)
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+    base["branch"] = _normalize_upgrade_branch(base.get("branch"), DEFAULT_UPGRADE_BRANCH)
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
     base["running"] = bool(base.get("running"))
@@ -429,22 +471,11 @@ def _ui_theme_payload(cfg: dict | None, app_root: Path = _APP_ROOT_DIR) -> dict:
     if not isinstance(ui, dict):
         ui = {}
     preset = _normalize_ui_hero_preset(ui.get("hero_preset", "default"))
-    custom_file = _normalize_theme_bg_file_name(ui.get("hero_custom_bg_file", ""))
+    custom_file = ""
     custom_url = ""
-    if custom_file:
-        try:
-            assets_dir = theme_assets_dir(app_root).resolve()
-            target = ensure_under_root(assets_dir, assets_dir / custom_file)
-            if target.exists() and target.is_file():
-                ver = int(target.stat().st_mtime)
-                custom_url = f"/{THEME_ASSETS_DIR_NAME}/{quote(custom_file)}?v={ver}"
-        except Exception:
-            custom_url = ""
-    if preset == "custom" and not custom_url:
-        preset = "default"
     return {
         "hero_preset": preset,
-        "hero_custom_bg_file": custom_file if custom_url else "",
+        "hero_custom_bg_file": custom_file,
         "hero_custom_bg_url": custom_url,
         "hero_presets": list(THEME_HERO_PRESETS),
     }
@@ -776,6 +807,92 @@ def _github_release_payload(repo: str, tag: str = "") -> dict:
     return data
 
 
+def _github_branch_payload(repo: str, branch: str = "main") -> dict:
+    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
+    safe_branch = _normalize_upgrade_branch(branch, "main")
+    owner, name = safe_repo.split("/", 1)
+    tarball_url = (
+        f"https://api.github.com/repos/{quote(owner)}/{quote(name)}"
+        f"/tarball/{quote(safe_branch)}"
+    )
+    html_url = (
+        f"https://github.com/{quote(owner)}/{quote(name)}/tree/{quote(safe_branch)}"
+    )
+    return {
+        "tag_name": f"{safe_branch}-branch",
+        "tarball_url": tarball_url,
+        "html_url": html_url,
+    }
+
+
+def _github_branch_version_payload(repo: str, branch: str = "nightly") -> dict:
+    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
+    safe_branch = _normalize_upgrade_branch(branch, "nightly")
+    owner, name = safe_repo.split("/", 1)
+    raw_url = (
+        f"https://raw.githubusercontent.com/{quote(owner)}/{quote(name)}"
+        f"/{quote(safe_branch)}/fcc/__init__.py"
+    )
+    tree_url = (
+        f"https://github.com/{quote(owner)}/{quote(name)}"
+        f"/tree/{quote(safe_branch)}"
+    )
+    try:
+        text = _http_fetch_text(
+            raw_url,
+            timeout=max(float(UPGRADE_HTTP_TIMEOUT), 30.0),
+            headers={"User-Agent": "afterclaw-updater/1.0"},
+        )
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"读取 {safe_branch} 分支版本失败（HTTP {exc.code}）") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"连接 GitHub 失败: {exc}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"读取 {safe_branch} 分支版本失败: {exc}") from exc
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', str(text or ""))
+    version_raw = str(match.group(1) if match else "").strip()
+    if not version_raw:
+        raise RuntimeError(f"未在 {safe_branch} 分支解析到 __version__")
+    return {
+        "branch": safe_branch,
+        "version_raw": version_raw,
+        "version_text": _to_version_text(version_raw),
+        "html_url": tree_url,
+        "raw_url": raw_url,
+    }
+
+
+def _local_branch_version_payload(repo: str, branch: str = "nightly") -> dict:
+    safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
+    safe_branch = _normalize_upgrade_branch(branch, "nightly")
+    if safe_branch != "nightly":
+        raise RuntimeError("本地版本读取仅支持 nightly 分支")
+    owner, name = safe_repo.split("/", 1)
+    tree_url = (
+        f"https://github.com/{quote(owner)}/{quote(name)}"
+        f"/tree/{quote(safe_branch)}"
+    )
+    local_root = Path(DEFAULT_NIGHTLY_LOCAL_ROOT).expanduser()
+    init_file = local_root / "fcc" / "__init__.py"
+    if not init_file.exists() or not init_file.is_file():
+        raise RuntimeError(f"本地 nightly 版本文件不存在：{init_file}")
+    try:
+        text = init_file.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        raise RuntimeError(f"读取本地 nightly 版本文件失败：{exc}") from exc
+    match = re.search(r'__version__\s*=\s*"([^"]+)"', str(text or ""))
+    version_raw = str(match.group(1) if match else "").strip()
+    if not version_raw:
+        raise RuntimeError(f"未在本地 nightly 文件解析到 __version__：{init_file}")
+    return {
+        "branch": safe_branch,
+        "version_raw": version_raw,
+        "version_text": _to_version_text(version_raw),
+        "html_url": tree_url,
+        "raw_url": str(init_file),
+    }
+
+
 def _parse_github_source_spec(source: str) -> dict:
     raw = str(source or "").strip()
     if not raw.lower().startswith("github:"):
@@ -976,6 +1093,17 @@ def _normalize_web_port(value, default: int = DEFAULT_WEB_PORT) -> int:
     return p
 
 
+def _normalize_transfer_recent_ttl(value, default: float = DEFAULT_TRANSFER_RECENT_TTL_SEC) -> float:
+    try:
+        sec = float(value)
+    except Exception:
+        sec = float(default)
+    if sec != sec or sec in (float("inf"), float("-inf")):
+        sec = float(default)
+    sec = max(0.0, min(sec, 600.0))
+    return round(sec, 1)
+
+
 def _build_terminal_launch_meta(cfg: dict) -> dict:
     term = ((cfg or {}).get("terminal") or {}) if isinstance(cfg, dict) else {}
     enabled = bool(term.get("enabled", True))
@@ -1080,11 +1208,14 @@ def default_app_config() -> dict:
             "default_dir": ".",
             "source_ip_pools": _default_source_ip_pools(),
             "source_ip_pool_source": _default_source_ip_pool_source(),
+            "transfer_recent_ttl_sec": _normalize_transfer_recent_ttl(
+                DEFAULT_TRANSFER_RECENT_TTL_SEC
+            ),
         },
         "terminal": {
             "enabled": True,
-            "host": os.environ.get("TERMINAL_SSH_HOST", "192.168.1.30").strip()
-            or "192.168.1.30",
+            "host": os.environ.get("TERMINAL_SSH_HOST", "127.0.0.1").strip()
+            or "127.0.0.1",
             "port": _normalize_ssh_port(os.environ.get("TERMINAL_SSH_PORT", "22"), 22),
             "user": os.environ.get("TERMINAL_SSH_USER", "root").strip() or "root",
             "auth_mode": (
@@ -1148,6 +1279,15 @@ def normalize_app_config(raw) -> dict:
                         http_service.get("source_ip_pool_source")
                     )
                 )
+            if "transfer_recent_ttl_sec" in http_service:
+                base["http_service"]["transfer_recent_ttl_sec"] = (
+                    _normalize_transfer_recent_ttl(
+                        http_service.get("transfer_recent_ttl_sec"),
+                        base["http_service"].get(
+                            "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC
+                        ),
+                    )
+                )
         elif "http_root_dir" in raw:
             base["http_service"]["root_dir"] = _normalize_abs_dir_setting(
                 raw.get("http_root_dir"), str(DEFAULT_STORAGE_ROOT)
@@ -1190,10 +1330,6 @@ def normalize_app_config(raw) -> dict:
                 base["ui"]["hero_preset"] = _normalize_ui_hero_preset(
                     ui.get("hero_preset")
                 )
-            if "hero_custom_bg_file" in ui:
-                base["ui"]["hero_custom_bg_file"] = _normalize_theme_bg_file_name(
-                    ui.get("hero_custom_bg_file")
-                )
         nd = raw.get("netdisk_sources")
         if isinstance(nd, dict):
             nd_cfg = base.setdefault("netdisk_sources", {})
@@ -1215,6 +1351,12 @@ def normalize_app_config(raw) -> dict:
     base["http_service"]["source_ip_pool_source"] = _normalize_source_ip_pool_source(
         base["http_service"].get("source_ip_pool_source")
     )
+    base["http_service"]["transfer_recent_ttl_sec"] = _normalize_transfer_recent_ttl(
+        base["http_service"].get(
+            "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC
+        ),
+        DEFAULT_TRANSFER_RECENT_TTL_SEC,
+    )
     base["terminal"]["port"] = _normalize_ssh_port(base["terminal"]["port"], 22)
     base["terminal"]["key_file"] = _normalize_terminal_key_file_name(
         base["terminal"].get("key_file", "")
@@ -1225,9 +1367,7 @@ def normalize_app_config(raw) -> dict:
     base["ui"]["hero_preset"] = _normalize_ui_hero_preset(
         (base.get("ui") or {}).get("hero_preset", "default")
     )
-    base["ui"]["hero_custom_bg_file"] = _normalize_theme_bg_file_name(
-        (base.get("ui") or {}).get("hero_custom_bg_file", "")
-    )
+    base["ui"]["hero_custom_bg_file"] = ""
     base["version"] = 1
     return base
 
@@ -1571,7 +1711,7 @@ def build_frontend_html() -> str:
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>File Control Center</title>
+  <title>AfterClaw</title>
   <script>
     (function(){
       try {
@@ -1591,7 +1731,7 @@ def build_frontend_html() -> str:
   <header class="page-head page-head-dashboard">
     <div class="head-row head-row-dashboard">
       <div class="head-main">
-        <h1>File Control Center</h1>
+        <h1>AfterClaw</h1>
       </div>
     </div>
   </header>
@@ -1604,9 +1744,9 @@ def build_frontend_html() -> str:
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
     <div class="tabs-actions">
-      <a id="terminalQuickLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect><path d="M7.5 10.5 L10 12.5 L7.5 14.5"></path><line x1="11.5" y1="14.5" x2="15.8" y2="14.5"></line><line x1="9" y1="19.5" x2="15" y2="19.5"></line></svg></a>
-      <a href="/config" class="gear-btn" title="Config" aria-label="Config">⚙️</a>
-      <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme">🌓</button>
+      <a id="terminalQuickLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
+      <a href="/config" class="gear-btn" title="Config" aria-label="Config"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .74 1.7 1.7 0 0 0-.2 1v.2a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-.2-1 1.7 1.7 0 0 0-1-.74 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.74-1 1.7 1.7 0 0 0-1-.2h-.2a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1-.2 1.7 1.7 0 0 0 .74-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.74 1.7 1.7 0 0 0 .2-1v-.2a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 .2 1 1.7 1.7 0 0 0 1 .74 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .74 1 1.7 1.7 0 0 0 1 .2h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1 .2 1.7 1.7 0 0 0-.74 1z"></path></svg></a>
+      <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
       <select id="langSelect" class="lang-select" title="Language">
         <option value="zh-CN">简体中文</option>
         <option value="zh-TW">繁體中文</option>
@@ -1767,20 +1907,20 @@ def build_frontend_html() -> str:
         </div>
       </div>
       <div class="svc-card" id="ddnsSvcCard">
-        <div class="svc-name">DDNS 服务</div>
+        <div class="svc-name">DDNS Service</div>
         <div id="ddnsStatusText" class="svc-meta">加载中...</div>
         <div class="row">
           <button id="ddnsToggleBtn" class="secondary">Toggle</button>
           <button id="ddnsRestartBtn" class="secondary">Restart</button>
-          <button id="ddnsConfigBtn" class="secondary">CONFIG</button>
+          <button id="ddnsConfigBtn" class="secondary">Settings</button>
         </div>
       </div>
       <div class="svc-card" id="httpSvcCard">
-        <div class="svc-name">当前 HTTP 服务</div>
+        <div class="svc-name">Current HTTP Service</div>
         <div id="selfStatusText" class="svc-meta">加载中...</div>
         <div class="row">
           <button id="toggleDownloadBtn" class="secondary">Toggle upload switch</button>
-          <button id="restartServiceBtn" class="secondary">Restart service and interrupt uploads</button>
+          <button id="restartServiceBtn" class="secondary">Restart Service</button>
         </div>
       </div>
     </div>
@@ -1802,9 +1942,9 @@ def build_frontend_html() -> str:
   <div class="card" id="netdiskCard">
     <div id="ndTabBarWrap" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;"></div>
 
-    <span class="card-title">Real-time Public Transfer</span>
+    <span id="netdiskTransferCardTitle" class="card-title">All Netdisk HTTP Connections</span>
     <div class="xfer-head">
-      <div id="xferSummary" class="xfer-summary">活跃 0 个</div>
+      <div id="xferSummary" class="xfer-summary">Active 0</div>
       <div class="xfer-toolbar">
         <span class="xfer-sort-label">Sort</span>
         <div class="xfer-sort-group">
@@ -1822,12 +1962,7 @@ def build_frontend_html() -> str:
   </div>
   </div>
 
-  <footer class="global-footer">
-    AfterClaw by
-    <a href="mailto:mengke@pku.org.cn">Support</a>
-    · Apache License 2.0 ·
-    <a href="https://github.com/EinProfispieler/afterclaw" target="_blank" rel="noopener">GitHub</a>
-  </footer>
+  <footer class="global-footer">AfterClaw __APP_VERSION_TEXT__ by RandyPKU</footer>
   </div>
 
   <div id="toastContainer"></div>
@@ -1851,7 +1986,9 @@ def build_frontend_html() -> str:
     const sourceSpeedText = document.getElementById("sourceSpeedText");
     const httpSvcCard = document.getElementById("httpSvcCard");
     const httpSpeedCard = document.getElementById("httpSpeedCard");
+    const httpSpeedCardTitle = document.getElementById("httpSpeedCardTitle");
     const netdiskCard = document.getElementById("netdiskCard");
+    const netdiskTransferCardTitle = document.getElementById("netdiskTransferCardTitle");
     const toggleDownloadBtn = document.getElementById("toggleDownloadBtn");
     const qbtStatusText = document.getElementById("qbtStatusText");
     const ddnsStatusText = document.getElementById("ddnsStatusText");
@@ -1972,29 +2109,21 @@ def build_frontend_html() -> str:
 
     function normalizeHeroPreset(v) {
       const x = String(v || "").trim().toLowerCase();
-      if (x === "aurora" || x === "sunset" || x === "frost" || x === "afterclaw_clouds" || x === "custom") return x;
+      if (x === "aurora" || x === "sunset" || x === "frost" || x === "afterclaw_clouds") return x;
       return "default";
     }
 
     function applyHeroTheme(uiTheme) {
       const t = uiTheme || {};
       const preset = normalizeHeroPreset(t.hero_preset || "default");
-      const customUrl = String(t.hero_custom_bg_url || "").trim();
-      const customFile = String(t.hero_custom_bg_file || "").trim();
-      const effectivePreset = (preset === "custom" && !customUrl) ? "default" : preset;
       heroTheme = {
-        hero_preset: effectivePreset,
-        hero_custom_bg_file: customFile,
-        hero_custom_bg_url: customUrl,
+        hero_preset: preset,
+        hero_custom_bg_file: "",
+        hero_custom_bg_url: "",
       };
-      document.documentElement.setAttribute("data-hero-preset", effectivePreset);
-      try { localStorage.setItem(HERO_THEME_KEY, effectivePreset); } catch (e) {}
-      if (customUrl) {
-        const safeUrl = customUrl.replace(/"/g, '\\"');
-        document.documentElement.style.setProperty("--hero-custom-url", `url("${safeUrl}")`);
-      } else {
-        document.documentElement.style.removeProperty("--hero-custom-url");
-      }
+      document.documentElement.setAttribute("data-hero-preset", preset);
+      try { localStorage.setItem(HERO_THEME_KEY, preset); } catch (e) {}
+      document.documentElement.style.removeProperty("--hero-custom-url");
     }
 
     function clipUrl(path) {
@@ -2640,7 +2769,7 @@ def build_frontend_html() -> str:
       const fileTotalBytes = Number(it.file_total_bytes || 0);
       const fileTotalHuman = it.file_total_human || "0B";
       if (it.is_partial && fileTotalBytes > 0) {
-        return `${ip} | 片段 ${sent} / ${total} (${pct.toFixed(1)}%) | 文件总长 ${fileTotalHuman}`;
+        return `${ip} | Chunk ${sent} / ${total} (${pct.toFixed(1)}%) | File total ${fileTotalHuman}`;
       }
       return `${ip} | ${sent} / ${total} | ${pct.toFixed(1)}%`;
     }
@@ -2662,7 +2791,7 @@ def build_frontend_html() -> str:
       const count = Number(data.count || items.length || 0);
       const recentCount = Number(data.recent_count || 0);
       const overall = Number(data.overall_progress_pct || 0);
-      xferSummary.textContent = `Active ${count} · Recent done ${recentCount} · Overall ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
+      xferSummary.textContent = `Active ${count} · Recently completed ${recentCount} · Overall ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
       xferList.innerHTML = "";
       if (!items.length) {
         const empty = document.createElement("div");
@@ -2769,8 +2898,8 @@ def build_frontend_html() -> str:
     function renderControlStatus(data) {
       sysStatus.className = "sys-strip";
       const s = data.system || {};
-      const cpuText = `CPU负载(1m): ${Number(s.load1 || 0).toFixed(2)}`;
-      const restText = `内存: ${s.mem_used_human || "-"} / ${s.mem_total_human || "-"} | 磁盘: ${s.disk_used_human || "-"} / ${s.disk_total_human || "-"} | 运行: ${s.uptime_human || "-"}`;
+      const cpuText = `CPU Load (1m): ${Number(s.load1 || 0).toFixed(2)}`;
+      const restText = `Memory: ${s.mem_used_human || "-"} / ${s.mem_total_human || "-"} | Disk: ${s.disk_used_human || "-"} / ${s.disk_total_human || "-"} | Uptime: ${s.uptime_human || "-"}`;
       sysStatus.innerHTML = `<div class="sys-status-line">${cpuText}</div><div class="sys-status-line">${restText}</div>`;
       qbtStatusText.innerHTML = svcText(data.qbt);
       ddnsStatusText.innerHTML = svcText(data.ddns);
@@ -2800,6 +2929,7 @@ def build_frontend_html() -> str:
         if (ndActiveTab && !enabledKeys[ndActiveTab]) ndActiveTab = "";
         ndRenderTabs();
       }
+      ndUpdateSectionTitles();
       const qbtActive = data.qbt && data.qbt.active_state === "active";
       qbtControlOn = !!qbtActive;
       const ddnsBuiltin = data.ddns && data.ddns.source === "builtin";
@@ -3157,6 +3287,7 @@ def build_frontend_html() -> str:
     let ndLastSourceStats = [];
     let ndLastItems = [];
     let ndEnabledSources = { baidu: true, ali: true, guangya: true, dropbox: false, mega: false, onedrive: false, gdrive: false };
+    const ndShowAllBySource = {};
 
     function ndSourceLabelToKey(label) {
       const sl = String(label || "").toLowerCase();
@@ -3167,6 +3298,21 @@ def build_frontend_html() -> str:
     }
     function ndGetEnabledList() {
       return ND_ALL_SOURCES.filter(s => ndEnabledSources[s.key] !== false);
+    }
+    function ndUpdateSectionTitles() {
+      const activeSource = ndActiveTab
+        ? ND_ALL_SOURCES.find((s) => s.key === ndActiveTab)
+        : null;
+      if (httpSpeedCardTitle) {
+        httpSpeedCardTitle.textContent = activeSource
+          ? activeSource.label + " HTTP Throughput"
+          : "All Netdisk HTTP Throughput";
+      }
+      if (netdiskTransferCardTitle) {
+        netdiskTransferCardTitle.textContent = activeSource
+          ? activeSource.label + " HTTP Connections"
+          : "All Netdisk HTTP Connections";
+      }
     }
 
     function ndEsc(v) {
@@ -3191,6 +3337,7 @@ def build_frontend_html() -> str:
       ndTabBarWrap.querySelectorAll(".nd-filter-tab[data-ndtab]").forEach(btn => {
         btn.addEventListener("click", () => {
           ndActiveTab = btn.dataset.ndtab || "";
+          ndUpdateSectionTitles();
           ndRenderTabs();
           ndRenderCombined();
           reRenderFilteredTransfers();
@@ -3205,6 +3352,10 @@ def build_frontend_html() -> str:
       if (!ndDetailArea) return;
       const sourceStats = Array.isArray(ndLastSourceStats) ? ndLastSourceStats : [];
       const items = Array.isArray(ndLastItems) ? ndLastItems : [];
+      const activeText = trRaw("Active");
+      const deactiveText = trRaw("Deactive");
+      const showAllText = trRaw("Show All");
+      const estabText = trRaw("Estab");
       const enabled = ndGetEnabledList();
       let sourcesToShow = ndActiveTab
         ? enabled.filter(s => s.key === ndActiveTab)
@@ -3216,56 +3367,73 @@ def build_frontend_html() -> str:
         return;
       }
       const cardStyle = 'margin:12px 0;padding:14px 16px;background:var(--surface-soft);border:1px solid var(--border);border-radius:12px;';
-      const headerStyle = 'display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);';
+      const headerStyle = 'display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border);';
       const titleStyle = 'font-weight:750;font-size:15px;color:var(--text);letter-spacing:0.2px;';
-      const badgeStyle = 'display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:color-mix(in srgb, var(--accent) 14%, transparent);color:var(--accent);font-size:11px;font-weight:600;';
-      const statRowStyle = 'display:flex;align-items:center;gap:18px;font-size:12px;color:var(--text-muted);margin-left:auto;';
+      const badgeStyle = 'display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:color-mix(in srgb, #16a34a 18%, transparent);color:#22c55e;font-size:11px;font-weight:600;';
+      const deactivedBadgeStyle = 'display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:999px;background:color-mix(in srgb, #ef4444 16%, transparent);color:#ef4444;font-size:11px;font-weight:600;';
+      const statRowStyle = 'display:flex;align-items:center;gap:18px;font-size:12px;color:var(--text-muted);';
       const statItemStyle = 'display:inline-flex;align-items:center;gap:4px;';
       const valStyle = 'color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;';
-      const tableWrapStyle = 'border:1px solid var(--border);border-radius:10px;overflow:auto;background:var(--bg-card,var(--surface));';
+      const tableWrapStyle = 'border:1px solid var(--border);border-radius:10px;max-height:360px;overflow:auto;background:var(--bg-card,var(--surface));';
       const tableStyle = 'width:100%;border-collapse:collapse;min-width:860px;';
       const thStyle = 'border-bottom:1px solid var(--border);padding:9px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);background:var(--surface-soft);';
       const tdStyle = 'border-bottom:1px solid var(--border);padding:9px 12px;font-size:13px;color:var(--text);vertical-align:middle;';
       const monoFont = 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace';
       const emptyStyle = 'color:var(--text-muted);font-size:13px;padding:16px;text-align:center;font-style:italic;';
+      const isCloseWaitState = (stateVal) => {
+        const norm = String(stateVal || "").toUpperCase().replace(/[-\s]/g, "_");
+        return norm === "CLOSE_WAIT";
+      };
       let html = '';
       for (const src of sourcesToShow) {
         const stat = sourceStats.find(s => ndSourceLabelToKey(s.source) === src.key);
-        const conns = items.filter(x => ndSourceLabelToKey(x.source) === src.key);
-        const connCount = stat ? Number(stat.conn_count || 0) : conns.length;
+        const rawConns = items.filter(x => ndSourceLabelToKey(x.source) === src.key);
+        const showAll = !!ndShowAllBySource[src.key];
+        const conns = showAll
+          ? rawConns
+          : rawConns.filter((x) => !isCloseWaitState((x || {}).state));
+        const connCount = conns.length;
         const estab = stat ? Number(stat.estab_count || 0) : 0;
         const dl = stat ? ndFmt(stat.download_mibps, 2) : "0.00";
         const ul = stat ? ndFmt(stat.upload_mibps, 2) : "0.00";
         const isActive = (Number(dl) > 0 || Number(ul) > 0 || estab > 0);
+        const hasAppRuntime = rawConns.length > 0;
         html += '<div style="' + cardStyle + '">';
         html += '<div style="' + headerStyle + '">';
-        html += '<span style="' + titleStyle + '">' + ndEsc(src.label) + ' <span style="opacity:0.55;font-weight:600;font-size:12px;">APP</span></span>';
-        if (isActive) html += '<span style="' + badgeStyle + '">● 活跃</span>';
+        html += '<span style="' + titleStyle + '">' + ndEsc(src.label) + ' <span style="opacity:0.55;font-weight:600;font-size:12px;">HTTP</span></span>';
+        if (isActive) html += '<span style="' + badgeStyle + '"><span style="color:#22c55e;">●</span> ' + ndEsc(activeText) + '</span>';
+        else if (!hasAppRuntime) html += '<span style="' + deactivedBadgeStyle + '"><span style="color:#ef4444;">●</span> ' + ndEsc(deactiveText) + '</span>';
+        html += '<label style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;border:1px solid var(--border);font-size:11px;color:var(--text-muted);white-space:nowrap;cursor:pointer;">';
+        html += '<input type="checkbox" class="nd-show-all-toggle" data-ndsrc="' + ndEsc(src.key) + '" ' + (showAll ? "checked" : "") + ' style="margin:0;" />';
+        html += '<span>' + ndEsc(showAllText) + '</span>';
+        html += '</label>';
+        html += '<span style="flex:1 1 auto;"></span>';
         html += '<span style="' + statRowStyle + '">';
         html += '<span style="' + statItemStyle + '">Connect <span style="' + valStyle + '">' + connCount + '</span></span>';
-        html += '<span style="' + statItemStyle + '">ESTAB <span style="' + valStyle + '">' + estab + '</span></span>';
+        html += '<span style="' + statItemStyle + '">' + ndEsc(estabText) + ' <span style="' + valStyle + '">' + estab + '</span></span>';
         html += '<span style="' + statItemStyle + '">↓ <span style="' + valStyle + '">' + dl + '</span> MiB/s</span>';
         html += '<span style="' + statItemStyle + '">↑ <span style="' + valStyle + '">' + ul + '</span> MiB/s</span>';
         html += '</span>';
         html += '</div>';
         if (!conns.length) {
-          html += '<div style="' + emptyStyle + '">暂无 TCP Connect</div>';
+          html += '<div style="' + emptyStyle + '">No active TCP connections</div>';
         } else {
           html += '<div style="' + tableWrapStyle + '">';
           html += '<table style="' + tableStyle + '">';
           html += '<thead><tr>';
           html += '<th style="' + thStyle + 'text-align:left;">Source</th>';
-          html += '<th style="' + thStyle + 'text-align:left;">进程</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">Process</th>';
           html += '<th style="' + thStyle + 'text-align:right;">PID</th>';
-          html += '<th style="' + thStyle + 'text-align:left;">状态</th>';
-          html += '<th style="' + thStyle + 'text-align:left;">本地端点</th>';
-          html += '<th style="' + thStyle + 'text-align:left;">对端端点</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">State</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">Local endpoint</th>';
+          html += '<th style="' + thStyle + 'text-align:left;">Remote endpoint</th>';
           html += '<th style="' + thStyle + 'text-align:right;">↓ MiB/s</th>';
           html += '<th style="' + thStyle + 'text-align:right;">↑ MiB/s</th>';
           html += '</tr></thead><tbody>';
           for (const r of conns) {
             const state = String(r.state || "-").toUpperCase();
             const isEstab = state === 'ESTAB';
+            const displayState = isEstab ? estabText : state;
             const stateBadge = isEstab
               ? 'display:inline-block;padding:2px 8px;border-radius:6px;background:color-mix(in srgb, #16a34a 18%, transparent);color:#16a34a;font-size:11px;font-weight:700;font-family:' + monoFont + ';letter-spacing:0.3px;'
               : 'display:inline-block;padding:2px 8px;border-radius:6px;background:color-mix(in srgb, var(--text-muted) 14%, transparent);color:var(--text-muted);font-size:11px;font-weight:700;font-family:' + monoFont + ';letter-spacing:0.3px;';
@@ -3277,7 +3445,7 @@ def build_frontend_html() -> str:
             html += '<td style="' + tdStyle + '">' + ndEsc(r.source || "-") + '</td>';
             html += '<td style="' + tdStyle + 'font-weight:500;">' + ndEsc(r.process || "-") + '</td>';
             html += '<td style="' + tdStyle + 'text-align:right;font-variant-numeric:tabular-nums;color:var(--text-muted);">' + Number(r.pid || 0) + '</td>';
-            html += '<td style="' + tdStyle + '"><span style="' + stateBadge + '">' + ndEsc(state) + '</span></td>';
+            html += '<td style="' + tdStyle + '"><span style="' + stateBadge + '">' + ndEsc(displayState) + '</span></td>';
             html += '<td style="' + tdStyle + 'font-family:' + monoFont + ';font-size:12px;color:var(--text-muted);">' + ndEsc(r.local_ep || "-") + '</td>';
             html += '<td style="' + tdStyle + 'font-family:' + monoFont + ';font-size:12px;">' + ndEsc(r.peer_ep || "-") + '</td>';
             html += '<td style="' + tdStyle + 'text-align:right;font-variant-numeric:tabular-nums;' + dlEm + '">' + dlR + '</td>';
@@ -3289,6 +3457,14 @@ def build_frontend_html() -> str:
         html += '</div>';
       }
       ndDetailArea.innerHTML = html;
+      ndDetailArea.querySelectorAll(".nd-show-all-toggle").forEach((el) => {
+        el.addEventListener("change", () => {
+          const key = String(el.getAttribute("data-ndsrc") || "");
+          if (!key) return;
+          ndShowAllBySource[key] = !!el.checked;
+          ndRenderCombined();
+        });
+      });
     }
     async function ndLoadData() {
       const res = await fetch(location.origin + "/api/process-net", { cache: "no-store" });
@@ -3309,6 +3485,7 @@ def build_frontend_html() -> str:
     function startNdPolling() {
       if (ndPolling) return;
       ndPolling = true;
+      ndUpdateSectionTitles();
       ndRenderTabs();
       function tick() {
         ndLoadData().catch(err => {
@@ -3460,7 +3637,8 @@ def build_frontend_html() -> str:
 </body>
 </html>
 """
-    return _inject_page_title(html, "File Control Center")
+    html = html.replace("__APP_VERSION_TEXT__", APP_VERSION_TEXT)
+    return _inject_page_title(html, "AfterClaw")
 
 
 def build_ddns_settings_html() -> str:
@@ -3515,19 +3693,19 @@ def build_config_html() -> str:
     }
     .cfg-tabs-actions .secondary { white-space: nowrap; }
     .cfg-tab {
-      border: 1px solid var(--border);
+      border: 1px solid var(--tab-chip-border, var(--border));
       border-radius: 12px;
       padding: 10px 14px;
-      background: var(--surface-soft);
+      background: var(--tab-chip-bg, var(--surface-soft));
       cursor: pointer;
       font-weight: 600;
-      color: var(--text);
+      color: var(--tab-chip-text, var(--text));
     }
     .cfg-tab.active {
-      background: color-mix(in srgb, var(--hero-tone-soft, var(--accent-soft)) 82%, transparent);
-      color: var(--hero-tone, var(--accent));
-      border-color: color-mix(in srgb, var(--hero-tone, var(--accent)) 68%, var(--border) 32%);
-      box-shadow: 0 0 0 1px color-mix(in srgb, var(--hero-tone, var(--accent)) 32%, transparent);
+      background: var(--tab-chip-active-bg, var(--accent));
+      color: var(--tab-chip-active-text, #fff);
+      border-color: var(--tab-chip-active-border, var(--accent));
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--tab-chip-active-bg, var(--accent)) 38%, transparent);
     }
     .cfg-panel { display:none; }
     .cfg-panel.active { display:block; }
@@ -3538,10 +3716,16 @@ def build_config_html() -> str:
     }
     .cfg-module-list { display:flex; flex-direction:column; gap:14px; margin-top:14px; }
     .cfg-module-item {
-      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--panel-border-accent, var(--accent-soft)) 42%, var(--border) 58%);
       border-radius: 12px;
       padding: 14px 16px;
-      background: var(--surface-soft);
+      background:
+        linear-gradient(
+          145deg,
+          color-mix(in srgb, var(--panel-tint-strong, var(--accent-soft)) 34%, transparent) 0%,
+          transparent 68%
+        ),
+        color-mix(in srgb, var(--surface-soft) 84%, var(--panel-tint, var(--accent-soft)) 16%);
       display: grid;
       grid-template-columns: auto 1fr;
       gap: 12px;
@@ -3598,10 +3782,16 @@ def build_config_html() -> str:
     .cfg-module-title { font-weight: 700; font-size: 15px; color: var(--text); margin: 0; }
     .cfg-module-desc { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); line-height: 1.45; }
     .cfg-item {
-      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--panel-border-accent, var(--accent-soft)) 36%, var(--border) 64%);
       border-radius: 10px;
       padding: 12px;
-      background: var(--surface-soft);
+      background:
+        linear-gradient(
+          142deg,
+          color-mix(in srgb, var(--panel-tint, var(--accent-soft)) 24%, transparent) 0%,
+          transparent 72%
+        ),
+        var(--surface-soft);
     }
     .cfg-item .title { font-weight: 700; margin-bottom: 6px; }
     .cfg-actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
@@ -3629,10 +3819,16 @@ def build_config_html() -> str:
       opacity: 0.55;
     }
     .ddns-frame-wrap {
-      border: 1px solid var(--border);
+      border: 1px solid color-mix(in srgb, var(--panel-border-accent, var(--accent-soft)) 34%, var(--border) 66%);
       border-radius: 12px;
       overflow: hidden;
-      background: var(--surface-soft);
+      background:
+        linear-gradient(
+          140deg,
+          color-mix(in srgb, var(--panel-tint, var(--accent-soft)) 22%, transparent) 0%,
+          transparent 72%
+        ),
+        var(--surface-soft);
       min-height: 70vh;
     }
     #ddnsFrame {
@@ -3696,8 +3892,8 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
-        <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="12" rx="2"></rect><path d="M7.5 10.5 L10 12.5 L7.5 14.5"></path><line x1="11.5" y1="14.5" x2="15.8" y2="14.5"></line><line x1="9" y1="19.5" x2="15" y2="19.5"></line></svg></a>
-        <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme">🌓</button>
+        <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
+        <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
         <select id="langSelect" class="lang-select" title="Language">
           <option value="zh-CN">简体中文</option>
           <option value="zh-TW">繁體中文</option>
@@ -3718,7 +3914,7 @@ def build_config_html() -> str:
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
               <p class="cfg-module-title">HTTP Module</p>
-              <p class="cfg-module-desc">控制主页面“当前 HTTP 服务”与 HTTP 监控区域。关闭时会强制Disconnect一次Connect并关闭上传。</p>
+              <p class="cfg-module-desc">Controls the homepage "Current HTTP Service" card and HTTP monitoring area. Disabling it forcibly interrupts one upload connection and turns uploads off.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -3726,7 +3922,7 @@ def build_config_html() -> str:
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
               <p class="cfg-module-title">qB Module</p>
-              <p class="cfg-module-desc">主页面显示 qB 状态卡及 qB 相关控制入口。</p>
+              <p class="cfg-module-desc">Shows qB status card and qB control actions on homepage.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -3734,7 +3930,7 @@ def build_config_html() -> str:
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
               <p class="cfg-module-title">DDNS Module</p>
-              <p class="cfg-module-desc">主页面显示 DDNS 状态卡，并保留 Config 内 DDNS Settings入口。</p>
+              <p class="cfg-module-desc">Shows DDNS status card on homepage and keeps DDNS settings entry in Config.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -3742,7 +3938,7 @@ def build_config_html() -> str:
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
               <p class="cfg-module-title">ShareClip Module</p>
-              <p class="cfg-module-desc">控制主页面 ShareClip 标签页显示。</p>
+              <p class="cfg-module-desc">Controls ShareClip tab visibility on homepage.</p>
             </div>
           </label>
         </div>
@@ -3753,22 +3949,20 @@ def build_config_html() -> str:
         <p id="generalStatus" class="cfg-status"></p>
       </div>
       <div class="card">
-        <span class="card-title">Auto Upgrade (GitHub Release)</span>
-        <p class="cfg-help">从 GitHub 拉取发布包并执行本地 <code>install.sh</code>。升级过程中服务可能Restart，页面短暂Disconnect属于正常现象。</p>
-        <p class="cfg-help" style="margin-top:6px;">当前服务器版本：<code id="upgradeCurrentVersion">-</code></p>
+        <span class="card-title">Auto Update</span>
+        <p class="cfg-help">Fetches release package from GitHub and runs local <code>install.sh</code>. During upgrade, service may restart and temporary disconnection is expected.</p>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
-            <div class="title">Repository (owner/repo)</div>
-            <input id="upgradeRepoInput" placeholder="e.g. EinProfispieler/afterclaw" />
-          </label>
-          <label class="cfg-item">
-            <div class="title">Target Tag (optional)</div>
-            <input id="upgradeTagInput" placeholder="Leave empty to upgrade to latest release" />
+            <div class="title">Update Branch</div>
+            <select id="upgradeBranchSelect">
+              <option value="main">main (Stable)</option>
+              <option value="nightly">nightly (Development)</option>
+            </select>
           </label>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="runUpgradeBtn">Run Auto Upgrade</button>
-          <button type="button" id="refreshUpgradeStatusBtn" class="secondary">Refresh upgrade status</button>
+          <button type="button" id="runUpgradeBtn">Run Auto Update</button>
+          <button type="button" id="refreshUpgradeStatusBtn" class="secondary">Check Server Version</button>
         </div>
         <p id="upgradeStatus" class="cfg-status"></p>
         <p id="upgradeMeta" class="cfg-help"></p>
@@ -3776,9 +3970,8 @@ def build_config_html() -> str:
       <div class="card">
         <span class="card-title">
           <svg class="brush-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 4.2l5.6 5.6-9.8 9.8-6.7 1 1-6.7 9.9-9.7z"></path><path d="M12.1 6.3l5.6 5.6"></path></svg>
-          Theme背景
+          Theme
         </span>
-        <p class="cfg-help">这里设置主页顶栏背景，不再在主页常驻显示配置面板。</p>
         <div class="theme-panel" style="margin-top:10px;">
           <div class="theme-preset-group">
             <button type="button" class="theme-preset-btn" data-hero-preset="default">Default</button>
@@ -3786,15 +3979,9 @@ def build_config_html() -> str:
             <button type="button" class="theme-preset-btn" data-hero-preset="sunset">Sunset</button>
             <button type="button" class="theme-preset-btn" data-hero-preset="frost">Frost</button>
             <button type="button" class="theme-preset-btn" data-hero-preset="afterclaw_clouds">Clouds at Dusk</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="custom">Custom</button>
           </div>
-          <div class="theme-upload-row">
-            <input id="cfgThemeBgFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif" />
-            <button type="button" id="cfgThemeBgUploadBtn" class="secondary">Upload & Apply</button>
-            <button type="button" id="cfgThemeBgClearBtn" class="secondary">Restore Default</button>
-          </div>
-          <p id="cfgThemeMeta" class="cfg-help">当前背景：Default</p>
-          <p id="cfgThemeStatus" class="cfg-help">支持 PNG/JPG/WEBP/GIF/AVIF，最大 12MB。</p>
+          <p id="cfgThemeMeta" class="cfg-help">Current theme: Default</p>
+          <p id="cfgThemeStatus" class="cfg-help">Presets only switch tab background colors.</p>
         </div>
       </div>
     </section>
@@ -3805,16 +3992,28 @@ def build_config_html() -> str:
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
             <div class="title">Service Port</div>
-            <p class="cfg-help">Default 1288。Save HTTP Configuration后需Restart程序才会切换监听端口。</p>
+            <p class="cfg-help">Default is 1288. Restart service after saving HTTP settings to switch listening port.</p>
             <input id="webPortInput" type="number" min="1" max="65535" placeholder="1288" />
-            <p id="webPortHint" class="cfg-help" style="margin-top:8px;">当前运行端口：1288</p>
+            <p id="webPortHint" class="cfg-help" style="margin-top:8px;">Current runtime port: 1288</p>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Completed transfer retention</div>
+            <p class="cfg-help">Real-time Public Transfer keeps completed items for this many seconds. Recommended default: 15s.</p>
+            <select id="transferRecentTtlSec">
+              <option value="5">5s</option>
+              <option value="10">10s</option>
+              <option value="15">15s (Recommended)</option>
+              <option value="30">30s</option>
+              <option value="60">60s</option>
+              <option value="120">120s</option>
+            </select>
           </label>
         </div>
-        <p class="cfg-help">当前 HTTP 根目录：<strong id="httpStorageRoot">-</strong></p>
+        <p class="cfg-help">Current HTTP root: <strong id="httpStorageRoot">-</strong></p>
         <div class="cfg-grid" style="margin-top:12px;">
           <label class="cfg-item">
             <div class="title">HTTP Root Directory (any path under / is allowed)</div>
-            <p class="cfg-help">填写绝对路径，e.g. <code>/</code>、<code>/srv/Storage</code>、<code>/home/user</code>。</p>
+            <p class="cfg-help">Use an absolute path, e.g. <code>/</code>, <code>/srv/Storage</code>, <code>/home/user</code>.</p>
             <input id="httpRootDir" placeholder="e.g. /srv/Storage or /" />
             <div class="row" style="margin-top:8px;">
               <button type="button" id="httpScanRootBtn" class="secondary">Validate (scan)</button>
@@ -3823,12 +4022,12 @@ def build_config_html() -> str:
           </label>
           <label class="cfg-item">
             <div class="title">Default directory (relative to HTTP root)</div>
-            <p class="cfg-help">主页面“Directory Service”打开时会Default跳转到此目录。</p>
+            <p class="cfg-help">When opening "Directory Service" on homepage, it jumps to this default directory.</p>
             <input id="httpDefaultDir" placeholder="e.g. BT/TV or ." />
           </label>
           <div class="cfg-item" style="grid-column: 1 / -1;">
             <div class="title">Source IP pools (1288 training)</div>
-            <p class="cfg-help">按“每行一个 IP/CIDR”维护Source池。命中后优先标记为对应Source（高于 UA/Referer 关键词）。</p>
+            <p class="cfg-help">Maintain source pools with one IP/CIDR per line. Matched IPs are labeled by source before UA/Referer keyword matching.</p>
             <div class="cfg-grid" style="margin-top:10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
               <label class="cfg-item">
                 <div class="title">Baidu Netdisk IP Pool</div>
@@ -3845,7 +4044,7 @@ def build_config_html() -> str:
             </div>
             <div class="cfg-item" style="margin-top:10px;">
               <div class="title">Updatable sources (GitHub/URL)</div>
-              <p class="cfg-help">支持 <code>github:owner/repo/path</code>，e.g. <code>github:EinProfispieler/afterclaw/data/vendor-ip-pools</code>。</p>
+              <p class="cfg-help">Supports <code>github:owner/repo/path</code>, e.g. <code>github:EinProfispieler/afterclaw/data/vendor-ip-pools</code>.</p>
               <div class="row" style="margin-top:8px;">
                 <input id="httpPoolSource" class="grow" placeholder="e.g. github:EinProfispieler/afterclaw/data/vendor-ip-pools" />
                 <button type="button" id="syncHttpPoolSourceBtn" class="secondary">Update IP pools from source</button>
@@ -3860,7 +4059,7 @@ def build_config_html() -> str:
               <button type="button" id="httpBrowseLoadBtn" class="secondary">Load subdirectories</button>
               <button type="button" id="httpBrowseParentBtn" class="secondary">Parent</button>
             </div>
-            <p class="cfg-help" style="margin-top:8px;">点击下方子目录可快速设为Default目录。</p>
+            <p class="cfg-help" style="margin-top:8px;">Click a subdirectory below to set it as default quickly.</p>
             <div id="httpDirList" class="dir-list" style="max-height:230px;"></div>
           </div>
         </div>
@@ -3901,7 +4100,7 @@ def build_config_html() -> str:
           </label>
           <label class="cfg-item">
             <div class="title">Host</div>
-            <input id="termHost" placeholder="e.g. 192.168.1.30" />
+            <input id="termHost" placeholder="e.g. 127.0.0.1" />
           </label>
           <label class="cfg-item">
             <div class="title">User</div>
@@ -3914,26 +4113,26 @@ def build_config_html() -> str:
           <label class="cfg-item">
             <div class="title">Authentication mode</div>
             <select id="termAuthMode">
-              <option value="key">key（推荐）</option>
-              <option value="password">password（不Save密码）</option>
+              <option value="key">key (recommended)</option>
+              <option value="password">password (not stored)</option>
             </select>
           </label>
           <label class="cfg-item" id="termKeyFileItem">
             <div class="title">Key filename in config directory (optional)</div>
             <input id="termKeyFile" list="termKeyFileList" placeholder="e.g. id_ed25519" />
             <datalist id="termKeyFileList"></datalist>
-            <p class="cfg-help" style="margin-top:6px;">配置目录：<code id="termKeyDirText">terminal_keys</code></p>
+            <p class="cfg-help" style="margin-top:6px;">Config directory: <code id="termKeyDirText">terminal_keys</code></p>
             <div class="row" style="margin-top:8px;">
               <button type="button" id="termPickKeyBtn" class="secondary">Select & Upload key</button>
               <button type="button" id="termRefreshKeyListBtn" class="secondary">Refresh key list</button>
               <input id="termKeyUploadInput" type="file" accept=".pem,.key,.txt,application/x-pem-file,application/octet-stream,text/plain" style="display:none;" />
             </div>
-            <p class="cfg-help" style="margin-top:6px;">可从当前设备选择私钥文件并上传到配置目录。</p>
+            <p class="cfg-help" style="margin-top:6px;">You can select a private key file from this device and upload it to the config directory.</p>
           </label>
           <label class="cfg-item" id="termKeyPathItem">
             <div class="title">Private key path (key mode)</div>
             <input id="termKeyPath" placeholder="e.g. ~/.ssh/id_ed25519" />
-            <p class="cfg-help" style="margin-top:6px;">未填“配置目录 Key 文件名”时使用此路径。</p>
+            <p class="cfg-help" style="margin-top:6px;">Uses this path when "Key filename in config directory" is empty.</p>
           </label>
         </div>
         <div class="cfg-item" style="margin-top:12px;">
@@ -3942,8 +4141,8 @@ def build_config_html() -> str:
           <p class="cfg-help" style="margin-top:8px;">Terminal Link:
             <a id="terminalPreviewLink" href="#terminal" target="_blank" rel="noopener">Not configured</a>
           </p>
-          <p class="cfg-help" style="margin-top:6px;">网页终端入口：
-            <a id="terminalWebLink" href="/terminal">打开 /terminal</a>
+          <p class="cfg-help" style="margin-top:6px;">Web terminal entry:
+            <a id="terminalWebLink" href="/terminal">Open /terminal</a>
           </p>
           <div id="terminalPreviewCmd" class="cfg-code">Not configured</div>
         </div>
@@ -4038,8 +4237,8 @@ def build_config_html() -> str:
 
     <section id="panel-netdisk" class="cfg-panel">
       <div class="card">
-        <span class="card-title">NetdiskSource</span>
-        <p class="card-desc" style="margin:0 0 12px;font-size:13px;color:var(--text-muted);">选择需要监控的NetdiskSource。启用后，主页面和进程网络明细将显示对应Source的Connect与Speed信息。</p>
+        <span class="card-title">Netdisk Sources</span>
+        <p class="card-desc" style="margin:0 0 12px;font-size:13px;color:var(--text-muted);">Select netdisk sources to monitor. Once enabled, homepage and process-network details will show per-source connection and throughput stats.</p>
         <div class="cfg-module-list">
           <label class="cfg-module-item">
             <input type="checkbox" id="ndBaidu" class="cfg-switch-input" checked />
@@ -4103,7 +4302,8 @@ def build_config_html() -> str:
         root_dir: "/srv/Storage",
         default_dir: ".",
         source_ip_pools: { baidu: [], guangya: [], aliyun: [] },
-        source_ip_pool_source: "github:EinProfispieler/afterclaw/data/vendor-ip-pools"
+        source_ip_pool_source: "github:EinProfispieler/afterclaw/data/vendor-ip-pools",
+        transfer_recent_ttl_sec: 15
       },
       ui: {
         hero_preset: "default",
@@ -4111,7 +4311,7 @@ def build_config_html() -> str:
       },
       terminal: {
         enabled: true,
-        host: "192.168.1.30",
+        host: "127.0.0.1",
         user: "root",
         port: 22,
         auth_mode: "key",
@@ -4130,7 +4330,7 @@ def build_config_html() -> str:
     };
     var runtimeWebPort = 1288;
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
-    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", repo: "EinProfispieler/afterclaw", requested_tag: "", target_tag: "", release_url: "", message: "", error: "" };
+    var upgradeState = { supported: false, running: false, state: "idle", current_version: "", branch: "main", target_tag: "", release_url: "", message: "", error: "" };
     var upgradePollTimer = 0;
 
     function byId(id){ return document.getElementById(id); }
@@ -4190,7 +4390,7 @@ def build_config_html() -> str:
     }
     function normalizeHeroPreset(v){
       var x = String(v || "").trim().toLowerCase();
-      if (x === "aurora" || x === "sunset" || x === "frost" || x === "afterclaw_clouds" || x === "custom") return x;
+      if (x === "aurora" || x === "sunset" || x === "frost" || x === "afterclaw_clouds") return x;
       return "default";
     }
     function setHeroThemeStatus(msg, isErr){
@@ -4211,26 +4411,18 @@ def build_config_html() -> str:
     function applyHeroTheme(uiTheme){
       var t = uiTheme || {};
       var preset = normalizeHeroPreset(t.hero_preset || "default");
-      var customUrl = String(t.hero_custom_bg_url || "").trim();
-      var customFile = String(t.hero_custom_bg_file || "").trim();
-      var effective = (preset === "custom" && !customUrl) ? "default" : preset;
       heroTheme = {
-        hero_preset: effective,
-        hero_custom_bg_file: customFile,
-        hero_custom_bg_url: customUrl
+        hero_preset: preset,
+        hero_custom_bg_file: "",
+        hero_custom_bg_url: ""
       };
-      document.documentElement.setAttribute("data-hero-preset", effective);
-      try { localStorage.setItem(HERO_THEME_KEY, effective); } catch (e) {}
-      if (customUrl) {
-        var safeUrl = customUrl.replace(/"/g, '\\"');
-        document.documentElement.style.setProperty("--hero-custom-url", 'url("' + safeUrl + '")');
-      } else {
-        document.documentElement.style.removeProperty("--hero-custom-url");
-      }
+      document.documentElement.setAttribute("data-hero-preset", preset);
+      try { localStorage.setItem(HERO_THEME_KEY, preset); } catch (e) {}
+      document.documentElement.style.removeProperty("--hero-custom-url");
       var meta = byId("cfgThemeMeta");
       if (meta) {
-        var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
-        meta.textContent = "Current background: " + (labels[effective] || "Default");
+        var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk" };
+        meta.textContent = trRaw("Current theme: ") + trRaw(labels[preset] || "Default");
       }
       syncHeroPresetButtons();
     }
@@ -4305,7 +4497,7 @@ def build_config_html() -> str:
       var sourceInput = byId("httpPoolSource");
       var source = normalizeSourceIpPoolSource(sourceInput ? sourceInput.value : "");
       if (sourceInput) sourceInput.value = source;
-      setStatus("httpStatus", "正在从Source同步 IP 池...");
+      setStatus("httpStatus", "Syncing source IP pools...");
       var d = await apiJson("/api/http/source-ip-pools/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4315,18 +4507,18 @@ def build_config_html() -> str:
       var counts = (d && d.counts) || {};
       var remoteCounts = (d && d.remote_counts) || {};
       var mode = String((d && d.mode) || "merge");
-      var summary = "Source同步完成：百度 " + Number(counts.baidu || 0)
-        + " · 光鸭 " + Number(counts.guangya || 0)
-        + " · 阿里云 " + Number(counts.aliyun || 0);
+      var summary = "Source sync completed: Baidu " + Number(counts.baidu || 0)
+        + " · Guangya " + Number(counts.guangya || 0)
+        + " · Aliyun " + Number(counts.aliyun || 0);
       var files = (d && Array.isArray(d.files_used)) ? d.files_used : [];
-      var meta = "当前Source：" + source;
+      var meta = "Current source: " + source;
       if (files.length) {
-        meta += " | 命中文件 " + files.length + " 个";
+        meta += " | matched files " + files.length;
       }
       if (mode === "merge") {
-        meta += " | 合并模式（远端新增：百度 " + Number(remoteCounts.baidu || 0)
-          + " · 光鸭 " + Number(remoteCounts.guangya || 0)
-          + " · 阿里云 " + Number(remoteCounts.aliyun || 0) + "）";
+        meta += " | merge mode (remote additions: Baidu " + Number(remoteCounts.baidu || 0)
+          + " · Guangya " + Number(remoteCounts.guangya || 0)
+          + " · Aliyun " + Number(remoteCounts.aliyun || 0) + ")";
       }
       renderSourceIpPoolMeta(meta);
       setStatus("httpStatus", summary);
@@ -4356,24 +4548,32 @@ def build_config_html() -> str:
     function parseWebPort(raw, fallback){
       return normalizePort(raw, fallback || 1288);
     }
+    function parseTransferRecentTtlSec(raw, fallback){
+      var f = Number(fallback);
+      if (!Number.isFinite(f)) f = 15;
+      var n = Number(raw);
+      if (!Number.isFinite(n)) n = f;
+      n = Math.round(n * 10) / 10;
+      if (n < 0) n = 0;
+      if (n > 600) n = 600;
+      return n;
+    }
     function updateWebPortHint(){
       var hint = byId("webPortHint");
       if (!hint) return;
       var desired = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : cfg.web_port, cfg.web_port || 1288);
-      var msg = "当前运行端口：" + String(runtimeWebPort) + "。";
+      var msg = "Current runtime port: " + String(runtimeWebPort) + ".";
       if (desired !== runtimeWebPort) {
-        msg += " Save后需Restart程序，Restart后切换到：" + String(desired) + "。";
+        msg += " Restart required after save; will switch to: " + String(desired) + ".";
       } else {
-        msg += " 当前Save值与运行端口一致。";
+        msg += " Saved value matches the runtime port.";
       }
       hint.textContent = msg;
     }
-    function normalizeUpgradeRepoInput(raw){
-      var v = String(raw || "").trim().replace(/^https?:\/\/github\.com\//i, "").replace(/\/+$/g, "");
-      return v;
-    }
-    function normalizeUpgradeTagInput(raw){
-      return String(raw || "").trim();
+    function normalizeUpgradeBranchInput(raw){
+      var v = String(raw || "").trim().toLowerCase();
+      if (v === "nightly") return "nightly";
+      return "main";
     }
     function stopUpgradePolling(){
       if (upgradePollTimer) {
@@ -4388,57 +4588,43 @@ def build_config_html() -> str:
         running: !!s.running,
         state: String(s.state || (s.running ? "running" : "idle")),
         current_version: String(s.current_version || ""),
-        repo: String(s.repo || "EinProfispieler/afterclaw"),
-        requested_tag: String(s.requested_tag || ""),
+        branch: normalizeUpgradeBranchInput(s.branch || "main"),
         target_tag: String(s.target_tag || ""),
         release_url: String(s.release_url || ""),
         message: String(s.message || ""),
         error: String(s.error || ""),
         support_reason: String(s.support_reason || "")
       };
-      if (byId("upgradeRepoInput")) {
-        if (!String(byId("upgradeRepoInput").value || "").trim()) {
-          byId("upgradeRepoInput").value = upgradeState.repo;
-        }
-      }
-      if (byId("upgradeTagInput")) {
-        var preferredTag = upgradeState.requested_tag || upgradeState.target_tag || "";
-        if (!String(byId("upgradeTagInput").value || "").trim() && preferredTag) {
-          byId("upgradeTagInput").value = preferredTag;
-        }
+      if (byId("upgradeBranchSelect")) {
+        byId("upgradeBranchSelect").value = normalizeUpgradeBranchInput(upgradeState.branch || "main");
       }
       var statusText = "";
       var isErr = false;
       if (!upgradeState.supported) {
-        statusText = "Auto-upgrade unavailable" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
+        statusText = "Auto-update unavailable" + (upgradeState.support_reason ? "：" + upgradeState.support_reason : "");
         isErr = true;
       } else if (upgradeState.running) {
-        statusText = "Upgrade in progress";
+        statusText = "Update in progress";
         if (upgradeState.target_tag) statusText += "：" + upgradeState.target_tag;
         if (upgradeState.message) statusText += " · " + upgradeState.message;
       } else if (upgradeState.state === "success") {
-        statusText = upgradeState.message || ("Upgrade completed: " + (upgradeState.target_tag || "latest"));
+        statusText = upgradeState.message || ("Update completed: " + (upgradeState.target_tag || "latest"));
       } else if (upgradeState.state === "error") {
-        statusText = upgradeState.error ? ("Upgrade failed: " + upgradeState.error) : "Upgrade failed";
+        statusText = upgradeState.error ? ("Update failed: " + upgradeState.error) : "Update failed";
         isErr = true;
       } else {
-        statusText = upgradeState.message || "Waiting to run upgrade";
+        statusText = upgradeState.message || "Waiting to run update";
       }
       var statusEl = byId("upgradeStatus");
       if (statusEl) {
         statusEl.textContent = statusText;
         statusEl.className = isErr ? "cfg-status err" : "cfg-status";
       }
-      if (byId("upgradeCurrentVersion")) {
-        byId("upgradeCurrentVersion").textContent = upgradeState.current_version || "-";
-      }
       var meta = [];
-      if (upgradeState.current_version) meta.push("当前服务器版本：" + upgradeState.current_version);
-      if (upgradeState.repo) meta.push("仓库：" + upgradeState.repo);
-      if (upgradeState.requested_tag) meta.push("请求 Tag：" + upgradeState.requested_tag);
-      if (upgradeState.target_tag) meta.push("目标版本：" + upgradeState.target_tag);
-      if (s.started_at) meta.push("开始：" + String(s.started_at));
-      if (s.finished_at) meta.push("结束：" + String(s.finished_at));
+      if (upgradeState.branch) meta.push("Update branch: " + upgradeState.branch);
+      if (upgradeState.target_tag) meta.push("Target tag: " + upgradeState.target_tag);
+      if (s.started_at) meta.push("Started: " + String(s.started_at));
+      if (s.finished_at) meta.push("Finished: " + String(s.finished_at));
       if (upgradeState.release_url) meta.push("Release：" + upgradeState.release_url);
       if (byId("upgradeMeta")) byId("upgradeMeta").textContent = meta.join(" | ");
       if (byId("runUpgradeBtn")) {
@@ -4452,7 +4638,7 @@ def build_config_html() -> str:
       var d = await apiJson("/api/upgrade/status");
       renderUpgradeStatus(d || {});
       if (!silent && upgradeState.running) {
-        setStatus("upgradeStatus", "升级任务进行中，请勿关闭页面。");
+        setStatus("upgradeStatus", "Upgrade is in progress. Please keep this page open.");
       }
       if (upgradeState.running) {
         stopUpgradePolling();
@@ -4464,27 +4650,57 @@ def build_config_html() -> str:
       }
       return d || {};
     }
-    async function runAutoUpgrade(){
-      var repo = normalizeUpgradeRepoInput(byId("upgradeRepoInput") ? byId("upgradeRepoInput").value : "");
-      var tag = normalizeUpgradeTagInput(byId("upgradeTagInput") ? byId("upgradeTagInput").value : "");
-      if (!repo) {
-        throw new Error("请先填写仓库 owner/repo");
+    async function checkServerVersion(){
+      var branch = normalizeUpgradeBranchInput(byId("upgradeBranchSelect") ? byId("upgradeBranchSelect").value : "main");
+      var d = await apiJson("/api/upgrade/check-version?branch=" + encodeURIComponent(branch));
+      var latest = String((d && d.available_version) || "-");
+      var running = String((d && d.current_version) || "-");
+      var currentBranch = normalizeUpgradeBranchInput((d && d.current_branch) || "");
+      var selectedLabel = branch === "nightly" ? "nightly" : "main";
+      var currentLabel = currentBranch === "nightly" ? "nightly" : "main";
+      if (d && d.ok === false) {
+        setStatus("upgradeStatus", "Version check failed: " + String(d.error || "unknown error"), true);
+      } else if (currentBranch !== branch) {
+        setStatus(
+          "upgradeStatus",
+          "Selected " + selectedLabel + " latest: " + latest + ". Current server is " + currentLabel + ": " + running + ".",
+          false
+        );
+      } else {
+        setStatus(
+          "upgradeStatus",
+          "Selected " + selectedLabel + " latest: " + latest + ". Current server: " + running + ".",
+          false
+        );
       }
-      var hintTag = tag ? ("Tag " + tag) : "latest release";
-      if (!window.confirm("Confirm auto-upgrade? Will pull from " + repo + " tag " + hintTag + " and run install.sh (service may restart).")) {
+      var meta = [];
+      meta.push("Selected branch: " + branch);
+      meta.push("Selected latest: " + latest);
+      meta.push("Current branch: " + currentLabel);
+      meta.push("Current server: " + running);
+      if (currentBranch !== branch) meta.push("Note: current branch differs from selected branch");
+      if (d && d.release_url) meta.push("URL: " + String(d.release_url));
+      if (d && d.checked_at) meta.push("Checked: " + String(d.checked_at));
+      if (byId("upgradeMeta")) byId("upgradeMeta").textContent = meta.join(" | ");
+      return d || {};
+    }
+    async function runAutoUpgrade(){
+      var branch = normalizeUpgradeBranchInput(byId("upgradeBranchSelect") ? byId("upgradeBranchSelect").value : "main");
+      var branchLabel = branch === "nightly" ? "nightly branch" : "main branch";
+      if (!window.confirm("Confirm auto-update? Will pull " + branchLabel + " from default repository and run install.sh (service may restart).")) {
         return null;
       }
-      setStatus("upgradeStatus", "正在提交升级任务...");
+      setStatus("upgradeStatus", "Submitting update job...");
       var d = await apiJson("/api/upgrade/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo: repo, tag: tag })
+        body: JSON.stringify({ branch: branch })
       });
       renderUpgradeStatus((d && d.status) || {});
       if (d && d.queued) {
-        setStatus("upgradeStatus", "升级任务已入队，正在执行。");
+        setStatus("upgradeStatus", "Update job queued and running.");
       } else {
-        setStatus("upgradeStatus", "已有升级任务在执行或当前环境不支持自动升级。", true);
+        setStatus("upgradeStatus", "An update task is already running, or auto-update is unsupported in current environment.", true);
       }
       if (upgradeState.running) {
         stopUpgradePolling();
@@ -4575,17 +4791,17 @@ def build_config_html() -> str:
       });
       applyCfg((d && d.config) || d);
       applyHeroTheme((d && d.ui_theme) || uiThemeFromConfigPayload(d));
-      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
-      setHeroThemeStatus("Switched background: " + (labels[p] || "Default"));
+      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk" };
+      setHeroThemeStatus(trRaw("Switched theme: ") + trRaw(labels[p] || "Default"));
     }
     async function uploadHeroImageFromFile(file){
-      if (!file) throw new Error("请先选择一张本地图片");
+      if (!file) throw new Error("Please select a local image first");
       var name = String(file.name || "").trim();
       if (!/\\.(png|jpe?g|webp|gif|avif)$/i.test(name)) {
-        throw new Error("仅支持 PNG/JPG/WEBP/GIF/AVIF");
+        throw new Error("Only PNG/JPG/WEBP/GIF/AVIF are supported");
       }
       var maxBytes = 12 * 1024 * 1024;
-      if (file.size > maxBytes) throw new Error("图片过大（最大 12MB）");
+      if (file.size > maxBytes) throw new Error("Image is too large (max 12MB)");
       var bytes = new Uint8Array(await file.arrayBuffer());
       var b64 = bytesToBase64(bytes);
       var d = await apiJson("/api/ui/theme-background", {
@@ -4595,7 +4811,7 @@ def build_config_html() -> str:
       });
       applyCfg((d && d.config) || d);
       applyHeroTheme((d && d.ui_theme) || uiThemeFromConfigPayload(d));
-      setHeroThemeStatus("背景已更新：" + name);
+      setHeroThemeStatus("Background updated: " + name);
     }
     async function resetHeroToDefault(){
       var d = await apiJson("/api/app-config", {
@@ -4606,17 +4822,17 @@ def build_config_html() -> str:
       applyCfg((d && d.config) || d);
       applyHeroTheme((d && d.ui_theme) || uiThemeFromConfigPayload(d));
       if (byId("cfgThemeBgFileInput")) byId("cfgThemeBgFileInput").value = "";
-      setHeroThemeStatus("已Restore Default背景");
+      setHeroThemeStatus("Background restored to default");
     }
     async function uploadTerminalKeyFromFile(file){
       if (!file) return;
       var maxBytes = 1024 * 1024;
       if (file.size > maxBytes) {
-        throw new Error("key 文件过大（最大 1MB）");
+        throw new Error("Key file is too large (max 1MB)");
       }
       var fileName = String(file.name || "").trim();
       if (!fileName) {
-        throw new Error("无法读取 key 文件名");
+        throw new Error("Unable to read key filename");
       }
       var bytes = new Uint8Array(await file.arrayBuffer());
       var b64 = bytesToBase64(bytes);
@@ -4636,7 +4852,7 @@ def build_config_html() -> str:
         byId("termKeyFile").value = String(d.file_name || fileName);
       }
       refreshTerminalPreview();
-      setStatus("terminalStatus", "key 文件已上传：" + String(d.file_name || fileName));
+      setStatus("terminalStatus", "Key file uploaded: " + String(d.file_name || fileName));
     }
     function collectTerminalDraft(){
       return {
@@ -4687,8 +4903,8 @@ def build_config_html() -> str:
         link: link,
         command: command,
         tip: auth === "password"
-          ? "密码模式不会Save密码，点击后在终端中手工输入。"
-          : (keyFile ? ("使用配置目录 key：" + keyFile) : "推荐使用 key 模式；确保目标主机已授权你的公钥。")
+          ? "Password mode does not store password. Enter it manually in terminal."
+          : (keyFile ? ("Using config-directory key: " + keyFile) : "Key mode is recommended. Make sure your public key is authorized on target host.")
       };
     }
     function renderTerminalLinks(meta){
@@ -4730,7 +4946,7 @@ def build_config_html() -> str:
         }
         head.title = m.enabled
           ? (m.command ? ("Terminal: " + m.command) : "Terminal")
-          : "Terminal（未启用）";
+          : "Terminal (disabled)";
       }
     }
     function refreshTerminalPreview(){
@@ -4771,9 +4987,9 @@ def build_config_html() -> str:
         btn.addEventListener("click", function(){
           byId("httpDefaultDir").value = dir;
           loadHttpDirBrowser(dir, true).catch(function(err){
-            setStatus("httpStatus", "加载失败：" + err.message, true);
+            setStatus("httpStatus", "Load failed: " + err.message, true);
           });
-          setStatus("httpStatus", "已选择Default目录：" + dir);
+          setStatus("httpStatus", "Selected default directory: " + dir);
         });
         wrap.appendChild(btn);
       });
@@ -4783,26 +4999,26 @@ def build_config_html() -> str:
       if (!el) return;
       if (!d) { el.textContent = ""; return; }
       var parts = [];
-      parts.push("路径：" + String(d.path || "-"));
+      parts.push("Path: " + String(d.path || "-"));
       if (!d.exists) {
-        parts.push("不存在");
+        parts.push("Not found");
       } else if (!d.is_dir) {
-        parts.push("不是目录");
+        parts.push("Not a directory");
       } else {
         var perm = (d.can_read ? "r" : "-") + (d.can_write ? "w" : "-") + (d.can_exec ? "x" : "-");
-        parts.push("权限(" + perm + ")");
+        parts.push("Permissions(" + perm + ")");
         if (d.can_list) {
-          parts.push("子目录 " + String(d.child_dir_count || 0) + " · 文件 " + String(d.child_file_count || 0) + (d.truncated ? "（已截断）" : ""));
+          parts.push("Subdirs " + String(d.child_dir_count || 0) + " · Files " + String(d.child_file_count || 0) + (d.truncated ? " (truncated)" : ""));
         } else {
-          parts.push("无法列目录");
+          parts.push("Cannot list directory");
         }
         if (d.fs_total_human && d.fs_avail_human) {
-          parts.push("可用 " + d.fs_avail_human + " / 总 " + d.fs_total_human);
+          parts.push("Available " + d.fs_avail_human + " / Total " + d.fs_total_human);
         }
       }
-      if (d.error) parts.push("提示：" + String(d.error));
+      if (d.error) parts.push("Note: " + String(d.error));
       if (Array.isArray(d.sample_dirs) && d.sample_dirs.length) {
-        parts.push("示例子目录：" + d.sample_dirs.slice(0, 6).join(", "));
+        parts.push("Sample subdirectories: " + d.sample_dirs.slice(0, 6).join(", "));
       }
       el.textContent = parts.join(" | ");
     }
@@ -4814,8 +5030,8 @@ def build_config_html() -> str:
       byId("httpStorageRoot").textContent = scanned;
       renderHttpScanResult(d);
       if (!silent) {
-        if (d && d.ok) setStatus("httpStatus", "路径验证通过，可用于 HTTP 根目录");
-        else setStatus("httpStatus", "路径验证失败：" + String((d && d.error) || "不可访问"), true);
+        if (d && d.ok) setStatus("httpStatus", "Path validation passed, usable as HTTP root");
+        else setStatus("httpStatus", "Path validation failed: " + String((d && d.error) || "inaccessible"), true);
       }
       return d || {};
     }
@@ -4829,7 +5045,7 @@ def build_config_html() -> str:
         if (target !== ".") {
           target = ".";
           d = await apiJson("/api/directories?stats=0&root_dir=" + encodeURIComponent(root) + "&dir=" + encodeURIComponent(target));
-          setStatus("httpStatus", "Default目录不可访问，已回退到根目录。", true);
+          setStatus("httpStatus", "Default directory is inaccessible, fallback to root.", true);
         } else {
           throw err;
         }
@@ -4840,7 +5056,7 @@ def build_config_html() -> str:
       if (byId("httpRootDir")) byId("httpRootDir").value = effectiveRoot;
       byId("httpBrowseDir").value = cur;
       renderHttpDirList(cur, (d && d.directories) || []);
-      if (!silent) setStatus("httpStatus", "已加载目录：" + effectiveRoot + " / " + cur);
+      if (!silent) setStatus("httpStatus", "Loaded directory: " + effectiveRoot + " / " + cur);
     }
     function applyCfg(data){
       var c = data || {};
@@ -4859,9 +5075,13 @@ def build_config_html() -> str:
       byId("qbtMonitorEnabled").checked = cfg.qbt.monitor_enabled !== false;
       byId("httpRootDir").value = normalizeRootInput((cfg.http_service || {}).root_dir || "/srv/Storage");
       byId("httpDefaultDir").value = normalizeDirInput((cfg.http_service || {}).default_dir || ".");
+      cfg.http_service.transfer_recent_ttl_sec = parseTransferRecentTtlSec((cfg.http_service || {}).transfer_recent_ttl_sec, 15);
+      if (byId("transferRecentTtlSec")) {
+        byId("transferRecentTtlSec").value = String(cfg.http_service.transfer_recent_ttl_sec);
+      }
       applySourceIpPoolsInputs((cfg.http_service || {}).source_ip_pools || {});
       applySourceIpPoolSourceInput((cfg.http_service || {}).source_ip_pool_source || "");
-      renderSourceIpPoolMeta("当前Source：" + normalizeSourceIpPoolSource((cfg.http_service || {}).source_ip_pool_source || ""));
+      renderSourceIpPoolMeta("Current source: " + normalizeSourceIpPoolSource((cfg.http_service || {}).source_ip_pool_source || ""));
       byId("httpBrowseDir").value = byId("httpDefaultDir").value;
       var term = cfg.terminal || {};
       byId("termEnabled").checked = term.enabled !== false;
@@ -4918,7 +5138,7 @@ def build_config_html() -> str:
       try {
         var d = await apiJson("/api/control/status");
         var q = d.qbt || {};
-        var line = (q.active_state === "active" ? "运行中" : "未运行") + " | " + (q.unit || "-");
+        var line = (q.active_state === "active" ? "Running" : "Stopped") + " | " + (q.unit || "-");
         if (q.detail) line += " | " + q.detail;
         byId("qbtRuntimeStatus").textContent = trRaw(line);
       } catch (err) {
@@ -4954,7 +5174,7 @@ def build_config_html() -> str:
         try {
           await setHeroPresetFromConfig(btn.getAttribute("data-hero-preset"));
         } catch (err) {
-          setHeroThemeStatus("切换失败：" + err.message, true);
+          setHeroThemeStatus("Switch failed: " + err.message, true);
         }
       });
     });
@@ -4967,7 +5187,7 @@ def build_config_html() -> str:
             : null;
           await uploadHeroImageFromFile(file);
         } catch (err) {
-          setHeroThemeStatus("上传失败：" + err.message, true);
+          setHeroThemeStatus("Upload failed: " + err.message, true);
         }
       });
     }
@@ -4976,7 +5196,7 @@ def build_config_html() -> str:
         try {
           await resetHeroToDefault();
         } catch (err) {
-          setHeroThemeStatus("恢复失败：" + err.message, true);
+          setHeroThemeStatus("Restore failed: " + err.message, true);
         }
       });
     }
@@ -5000,14 +5220,14 @@ def build_config_html() -> str:
         updateWebPortHint();
         var actionSummary = summarizeModuleActions((d && d.module_actions) || []);
         if (actionSummary.text) {
-          setStatus("generalStatus", "综合配置已Save：" + actionSummary.text, actionSummary.has_error);
+          setStatus("generalStatus", "General settings saved: " + actionSummary.text, actionSummary.has_error);
         } else if (payload.modules.http === false) {
-          setStatus("generalStatus", d.http_disconnect_triggered ? "综合配置已Save：HTTP module is disabled，已中断本程序上传Connect并关闭上传。" : "综合配置已Save：HTTP module is disabled，上传已禁用。", false);
+          setStatus("generalStatus", d.http_disconnect_triggered ? "General settings saved: HTTP module is disabled. One upload connection was interrupted and uploads were turned off." : "General settings saved: HTTP module is disabled and uploads are turned off.", false);
         } else {
-          setStatus("generalStatus", "综合配置已Save", false);
+          setStatus("generalStatus", "General settings saved", false);
         }
       } catch (err) {
-        setStatus("generalStatus", "Save失败：" + err.message, true);
+        setStatus("generalStatus", "Save failed: " + err.message, true);
       }
     });
 
@@ -5030,28 +5250,28 @@ def build_config_html() -> str:
           body: JSON.stringify(payload)
         });
         applyCfg(d.config || d);
-        setStatus("netdiskStatus", "Netdisk配置已Save", false);
+        setStatus("netdiskStatus", "Netdisk settings saved", false);
       } catch (err) {
-        setStatus("netdiskStatus", "Save失败：" + err.message, true);
+        setStatus("netdiskStatus", "Save failed: " + err.message, true);
       }
     });
 
     byId("restartCfgServiceBtn").addEventListener("click", async function(){
       if (!window.confirm(trRaw("Confirm restarting service? Port changes take effect after restart."))) return;
       try {
-        setStatus("generalStatus", "正在发送Restart指令...");
+        setStatus("generalStatus", "Sending restart command...");
         var d = await apiJson("/api/control/restart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason: "config-page-restart" })
         });
         if (d && d.queued === false) {
-          setStatus("generalStatus", "Restart任务未入队，请稍后重试。", true);
+          setStatus("generalStatus", "Restart job was not queued. Please try again.", true);
           return;
         }
-        setStatus("generalStatus", "已发送Restart命令，端口等变更将在Restart后生效。");
+        setStatus("generalStatus", "Restart command sent. Port-related changes will take effect after restart.");
       } catch (err) {
-        setStatus("generalStatus", "Restart失败：" + err.message, true);
+        setStatus("generalStatus", "Restart failed: " + err.message, true);
       }
     });
 
@@ -5060,27 +5280,17 @@ def build_config_html() -> str:
         try {
           await runAutoUpgrade();
         } catch (err) {
-          setStatus("upgradeStatus", "Failed to start upgrade: " + err.message, true);
+          setStatus("upgradeStatus", "Failed to start update: " + err.message, true);
         }
       });
     }
     if (byId("refreshUpgradeStatusBtn")) {
       byId("refreshUpgradeStatusBtn").addEventListener("click", async function(){
         try {
-          await loadUpgradeStatus(false);
+          await checkServerVersion();
         } catch (err) {
-          setStatus("upgradeStatus", "Refresh失败：" + err.message, true);
+          setStatus("upgradeStatus", "Version check failed: " + err.message, true);
         }
-      });
-    }
-    if (byId("upgradeRepoInput")) {
-      byId("upgradeRepoInput").addEventListener("blur", function(){
-        this.value = normalizeUpgradeRepoInput(this.value);
-      });
-    }
-    if (byId("upgradeTagInput")) {
-      byId("upgradeTagInput").addEventListener("blur", function(){
-        this.value = normalizeUpgradeTagInput(this.value);
       });
     }
 
@@ -5088,26 +5298,30 @@ def build_config_html() -> str:
       try {
         var webPort = parseWebPort(byId("webPortInput") ? byId("webPortInput").value : cfg.web_port, cfg.web_port || 1288);
         var scan = await scanHttpRootPath(true);
-        if (!scan.ok) throw new Error(String(scan.error || "HTTP 根目录不可访问"));
+        if (!scan.ok) throw new Error(String(scan.error || "HTTP root directory is inaccessible"));
         var root = normalizeRootInput((scan && scan.path) || byId("httpRootDir").value || "/");
         var target = normalizeDirInput(byId("httpDefaultDir").value);
         var pools = collectSourceIpPoolsDraft();
         var source = normalizeSourceIpPoolSource(byId("httpPoolSource").value);
+        var transferRecentTtlSec = parseTransferRecentTtlSec(
+          byId("transferRecentTtlSec") ? byId("transferRecentTtlSec").value : (cfg.http_service || {}).transfer_recent_ttl_sec,
+          (cfg.http_service || {}).transfer_recent_ttl_sec
+        );
         await apiJson("/api/directories?stats=0&root_dir=" + encodeURIComponent(root) + "&dir=" + encodeURIComponent(target));
         var d = await apiJson("/api/app-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ web_port: webPort, http_service: { root_dir: root, default_dir: target, source_ip_pools: pools, source_ip_pool_source: source } })
+          body: JSON.stringify({ web_port: webPort, http_service: { root_dir: root, default_dir: target, source_ip_pools: pools, source_ip_pool_source: source, transfer_recent_ttl_sec: transferRecentTtlSec } })
         });
         applyCfg(d.config || d);
         byId("httpBrowseDir").value = target;
         await loadHttpDirBrowser(target, true);
         var restartMsg = (d && d.web_port_restart_required)
-          ? (" Service Port将在Restart后切换为 " + String(parseWebPort(((d.config || {}).web_port), webPort)) + "。")
+          ? (" Service port will switch to " + String(parseWebPort(((d.config || {}).web_port), webPort)) + " after restart.")
           : "";
-        setStatus("httpStatus", "HTTP Configuration已Save" + restartMsg);
+        setStatus("httpStatus", "HTTP settings saved." + restartMsg);
       } catch (err) {
-        setStatus("httpStatus", "Save失败：" + err.message, true);
+        setStatus("httpStatus", "Save failed: " + err.message, true);
       }
     });
 
@@ -5118,7 +5332,7 @@ def build_config_html() -> str:
           await loadHttpDirBrowser(".", true);
         }
       } catch (err) {
-        setStatus("httpStatus", "路径验证失败：" + err.message, true);
+        setStatus("httpStatus", "Path validation failed: " + err.message, true);
       }
     });
 
@@ -5126,7 +5340,7 @@ def build_config_html() -> str:
       try {
         await loadHttpDirBrowser(byId("httpBrowseDir").value, false);
       } catch (err) {
-        setStatus("httpStatus", "目录加载失败：" + err.message, true);
+        setStatus("httpStatus", "Directory load failed: " + err.message, true);
       }
     });
 
@@ -5136,7 +5350,7 @@ def build_config_html() -> str:
         byId("httpBrowseDir").value = p;
         await loadHttpDirBrowser(p, false);
       } catch (err) {
-        setStatus("httpStatus", "目录加载失败：" + err.message, true);
+        setStatus("httpStatus", "Directory load failed: " + err.message, true);
       }
     });
 
@@ -5155,7 +5369,7 @@ def build_config_html() -> str:
         try {
           await syncSourceIpPoolsFromRemote();
         } catch (err) {
-          setStatus("httpStatus", "Source同步失败：" + err.message, true);
+          setStatus("httpStatus", "Source sync failed: " + err.message, true);
         }
       });
     }
@@ -5177,41 +5391,41 @@ def build_config_html() -> str:
           body: JSON.stringify(payload)
         });
         applyCfg(d.config || d);
-        setStatus("qbtStatus", "qB Configuration已Save");
+        setStatus("qbtStatus", "qB settings saved");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "Save失败：" + err.message, true);
+        setStatus("qbtStatus", "Save failed: " + err.message, true);
       }
     });
 
     byId("qbtOptimizeBtn").addEventListener("click", async function(){
       if (!window.confirm("Will comment current related config and apply optimized parameters. Continue?")) return;
       try {
-        setStatus("qbtStatus", "正在优化 qB Configuration...");
+        setStatus("qbtStatus", "Optimizing qB settings...");
         var d = await apiJson("/api/qbt/optimize-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
-        setStatus("qbtStatus", (d && d.message) || "qB Configuration优化完成");
+        setStatus("qbtStatus", (d && d.message) || "qB optimization completed");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "优化失败：" + err.message, true);
+        setStatus("qbtStatus", "Optimization failed: " + err.message, true);
       }
     });
 
     byId("qbtFixPermBtn").addEventListener("click", async function(){
       try {
-        setStatus("qbtStatus", "正在修复 qB Configuration与权限...");
+        setStatus("qbtStatus", "Fixing qB settings and permissions...");
         var d = await apiJson("/api/qbt/fix-monitor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
-        setStatus("qbtStatus", (d && d.message) || "qB 修复完成");
+        setStatus("qbtStatus", (d && d.message) || "qB fix completed");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "修复失败：" + err.message, true);
+        setStatus("qbtStatus", "Fix failed: " + err.message, true);
       }
     });
 
@@ -5222,10 +5436,10 @@ def build_config_html() -> str:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ service: "qbt", action: "restart" })
         });
-        setStatus("qbtStatus", "qB 服务已Restart");
+        setStatus("qbtStatus", "qB service restarted");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "Restart失败：" + err.message, true);
+        setStatus("qbtStatus", "Restart failed: " + err.message, true);
       }
     });
 
@@ -5237,10 +5451,10 @@ def build_config_html() -> str:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ service: "qbt", action: "quit" })
         });
-        setStatus("qbtStatus", "已发送 Quit qB指令");
+        setStatus("qbtStatus", "Quit qB command sent");
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "退出失败：" + err.message, true);
+        setStatus("qbtStatus", "Quit failed: " + err.message, true);
       }
     });
 
@@ -5254,9 +5468,9 @@ def build_config_html() -> str:
       try {
         await loadBaseInfo();
         refreshTerminalPreview();
-        setStatus("terminalStatus", "key 列表已Refresh");
+        setStatus("terminalStatus", "Key list refreshed");
       } catch (err) {
-        setStatus("terminalStatus", "Refresh失败：" + err.message, true);
+        setStatus("terminalStatus", "Refresh failed: " + err.message, true);
       }
     });
 
@@ -5265,10 +5479,10 @@ def build_config_html() -> str:
       this.value = "";
       if (!file) return;
       try {
-        setStatus("terminalStatus", "正在上传 key 文件...");
+        setStatus("terminalStatus", "Uploading key file...");
         await uploadTerminalKeyFromFile(file);
       } catch (err) {
-        setStatus("terminalStatus", "上传失败：" + err.message, true);
+        setStatus("terminalStatus", "Upload failed: " + err.message, true);
       }
     });
 
@@ -5276,7 +5490,7 @@ def build_config_html() -> str:
       try {
         var draft = collectTerminalDraft();
         if (draft.enabled && !draft.host) {
-          throw new Error("启用 Terminal 时 Host 不能为空");
+          throw new Error("Host cannot be empty when Terminal is enabled");
         }
         var d = await apiJson("/api/app-config", {
           method: "POST",
@@ -5284,23 +5498,23 @@ def build_config_html() -> str:
           body: JSON.stringify({ terminal: draft })
         });
         applyCfg(d.config || d);
-        setStatus("terminalStatus", "Terminal 配置已Save");
+        setStatus("terminalStatus", "Terminal settings saved");
       } catch (err) {
-        setStatus("terminalStatus", "Save失败：" + err.message, true);
+        setStatus("terminalStatus", "Save failed: " + err.message, true);
       }
     });
 
     byId("copyTerminalCmdBtn").addEventListener("click", async function(){
       var m = buildTerminalMetaFromDraft(collectTerminalDraft());
       if (!m.command) {
-        setStatus("terminalStatus", "请先填写 Host/User 等Connect信息", true);
+        setStatus("terminalStatus", "Please fill Host/User connection info first", true);
         return;
       }
       var ok = await copyTextSmart(m.command);
       if (ok) {
-        setStatus("terminalStatus", "SSH 命令已复制");
+        setStatus("terminalStatus", "SSH command copied");
       } else {
-        setStatus("terminalStatus", "复制失败，请手工复制Preview命令", true);
+        setStatus("terminalStatus", "Copy failed, please copy preview command manually", true);
       }
     });
 
@@ -5320,7 +5534,7 @@ def build_config_html() -> str:
     switchTab(initialTab);
     loadCfg()
       .then(function(){ return Promise.all([loadBaseInfo(), scanHttpRootPath(true), loadHttpDirBrowser(byId("httpBrowseDir").value, true), loadQbtRuntime(), loadUpgradeStatus(true)]); })
-      .catch(function(err){ setStatus("generalStatus", "配置加载失败：" + err.message, true); });
+      .catch(function(err){ setStatus("generalStatus", "Config load failed: " + err.message, true); });
     window.addEventListener("beforeunload", stopUpgradePolling);
     window.__cfgMainReady = true;
   })();
@@ -5349,7 +5563,7 @@ def build_config_html() -> str:
     }
     function normalizeHeroPreset(v){
       var x = String(v || "").trim().toLowerCase();
-      if (x === "aurora" || x === "sunset" || x === "frost" || x === "afterclaw_clouds" || x === "custom") return x;
+      if (x === "aurora" || x === "sunset" || x === "frost" || x === "afterclaw_clouds") return x;
       return "default";
     }
     function setStatus(msg, isErr){
@@ -5378,24 +5592,17 @@ def build_config_html() -> str:
     function applyUiTheme(uiTheme){
       var t = uiTheme || {};
       var preset = normalizeHeroPreset(t.hero_preset || "default");
-      var customUrl = String(t.hero_custom_bg_url || "").trim();
-      var effective = (preset === "custom" && !customUrl) ? "default" : preset;
-      document.documentElement.setAttribute("data-hero-preset", effective);
-      try { localStorage.setItem("fc-hero-preset", effective); } catch (e) {}
-      if (customUrl) {
-        var safeUrl = customUrl.replace(/"/g, '\\"');
-        document.documentElement.style.setProperty("--hero-custom-url", 'url("' + safeUrl + '")');
-      } else {
-        document.documentElement.style.removeProperty("--hero-custom-url");
-      }
-      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
+      document.documentElement.setAttribute("data-hero-preset", preset);
+      try { localStorage.setItem("fc-hero-preset", preset); } catch (e) {}
+      document.documentElement.style.removeProperty("--hero-custom-url");
+      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk" };
       var meta = byId("cfgThemeMeta");
       if (meta) {
-        meta.textContent = "Current background: " + (labels[effective] || "Default");
+        meta.textContent = trRaw("Current theme: ") + trRaw(labels[preset] || "Default");
       }
       Array.prototype.slice.call(document.querySelectorAll('#panel-general .theme-preset-btn')).forEach(function(btn){
         var p = normalizeHeroPreset(btn.getAttribute("data-hero-preset"));
-        btn.classList.toggle("active", p === effective);
+        btn.classList.toggle("active", p === preset);
       });
     }
     async function setPreset(preset){
@@ -5406,17 +5613,17 @@ def build_config_html() -> str:
         body: JSON.stringify({ ui: { hero_preset: p } })
       });
       applyUiTheme((d && d.ui_theme) || {});
-      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk", custom: "Custom image" };
-      setStatus("Switched background: " + (labels[p] || "Default"), false);
+      var labels = { default: "Default", aurora: "Aurora", sunset: "Sunset", frost: "Frost", afterclaw_clouds: "Clouds at Dusk" };
+      setStatus(trRaw("Switched theme: ") + trRaw(labels[p] || "Default"), false);
     }
     async function uploadThemeImage(file){
-      if (!file) throw new Error("请先选择一张本地图片");
+      if (!file) throw new Error("Please select a local image first");
       var name = String(file.name || "").trim();
       if (!/\.(png|jpe?g|webp|gif|avif)$/i.test(name)) {
-        throw new Error("仅支持 PNG/JPG/WEBP/GIF/AVIF");
+        throw new Error("Only PNG/JPG/WEBP/GIF/AVIF are supported");
       }
       var maxBytes = 12 * 1024 * 1024;
-      if (file.size > maxBytes) throw new Error("图片过大（最大 12MB）");
+      if (file.size > maxBytes) throw new Error("Image is too large (max 12MB)");
       var bytes = new Uint8Array(await file.arrayBuffer());
       var b64 = bytesToBase64(bytes);
       var d = await apiJson("/api/ui/theme-background", {
@@ -5425,7 +5632,7 @@ def build_config_html() -> str:
         body: JSON.stringify({ file_name: name, content_b64: b64, apply: true })
       });
       applyUiTheme((d && d.ui_theme) || {});
-      setStatus("背景已更新：" + name, false);
+      setStatus("Background updated: " + name, false);
     }
     async function resetThemeDefault(){
       var d = await apiJson("/api/app-config", {
@@ -5436,14 +5643,14 @@ def build_config_html() -> str:
       applyUiTheme((d && d.ui_theme) || {});
       var fileInput = byId("cfgThemeBgFileInput");
       if (fileInput) fileInput.value = "";
-      setStatus("已Restore Default背景", false);
+      setStatus("Background restored to default", false);
     }
     Array.prototype.slice.call(document.querySelectorAll('#panel-general .theme-preset-btn')).forEach(function(btn){
       btn.addEventListener("click", async function(){
         try {
           await setPreset(btn.getAttribute("data-hero-preset"));
         } catch (err) {
-          setStatus("切换失败：" + ((err && err.message) || err), true);
+          setStatus("Switch failed: " + ((err && err.message) || err), true);
         }
       });
     });
@@ -5455,7 +5662,7 @@ def build_config_html() -> str:
           var file = input && input.files ? input.files[0] : null;
           await uploadThemeImage(file);
         } catch (err) {
-          setStatus("上传失败：" + ((err && err.message) || err), true);
+          setStatus("Upload failed: " + ((err && err.message) || err), true);
         }
       });
     }
@@ -5465,7 +5672,7 @@ def build_config_html() -> str:
         try {
           await resetThemeDefault();
         } catch (err) {
-          setStatus("恢复失败：" + ((err && err.message) || err), true);
+          setStatus("Restore failed: " + ((err && err.message) || err), true);
         }
       });
     }
@@ -5534,7 +5741,7 @@ def build_config_html() -> str:
         if (m) msgs.push(m);
         if (item && item.ok === false) hasErr = true;
       });
-      return { text: msgs.join("；"), has_error: hasErr };
+      return { text: msgs.join("; "), has_error: hasErr };
     }
     function parseWebPort(raw, fallback){
       var f = Number(fallback);
@@ -5600,11 +5807,11 @@ def build_config_html() -> str:
       applyModuleConfig((d && d.config) || d || {});
       var actionSummary = summarizeModuleActions((d && d.module_actions) || []);
       if (actionSummary.text) {
-        setStatus("generalStatus", "综合配置已Save：" + actionSummary.text, actionSummary.has_error);
+        setStatus("generalStatus", "General settings saved: " + actionSummary.text, actionSummary.has_error);
       } else if (payload.modules.http === false) {
-        setStatus("generalStatus", d.http_disconnect_triggered ? "综合配置已Save：HTTP module is disabled，已中断本程序上传Connect并关闭上传。" : "综合配置已Save：HTTP module is disabled，上传已禁用。", false);
+        setStatus("generalStatus", d.http_disconnect_triggered ? "General settings saved: HTTP module is disabled. One upload connection was interrupted and uploads were turned off." : "General settings saved: HTTP module is disabled and uploads are turned off.", false);
       } else {
-        setStatus("generalStatus", "综合配置已Save", false);
+        setStatus("generalStatus", "General settings saved", false);
       }
     }
 
@@ -5614,7 +5821,7 @@ def build_config_html() -> str:
     if (byId("saveModulesBtn")) {
       byId("saveModulesBtn").addEventListener("click", function(){
         saveModuleConfig().catch(function(err){
-          setStatus("generalStatus", "Save失败：" + ((err && err.message) || err), true);
+          setStatus("generalStatus", "Save failed: " + ((err && err.message) || err), true);
         });
       });
     }
@@ -5627,18 +5834,18 @@ def build_config_html() -> str:
           body: JSON.stringify({ reason: "config-page-restart" })
         }).then(function(d){
           if (d && d.queued === false) {
-            setStatus("generalStatus", "Restart任务未入队，请稍后重试。", true);
+            setStatus("generalStatus", "Restart job was not queued. Please try again.", true);
             return;
           }
-          setStatus("generalStatus", "已发送Restart命令，端口等变更将在Restart后生效。", false);
+          setStatus("generalStatus", "Restart command sent. Port-related changes will take effect after restart.", false);
         }).catch(function(err){
-          setStatus("generalStatus", "Restart失败：" + ((err && err.message) || err), true);
+          setStatus("generalStatus", "Restart failed: " + ((err && err.message) || err), true);
         });
       });
     }
     switchTab((window.location.hash || "").replace("#", "") || "general");
     loadModuleConfig().catch(function(err){
-      setStatus("generalStatus", "配置加载失败：" + ((err && err.message) || err), true);
+      setStatus("generalStatus", "Config load failed: " + ((err && err.message) || err), true);
     });
   })();
   </script>
@@ -6071,7 +6278,7 @@ class AppHandler(BaseHTTPRequestHandler):
     process_speed_sampler = ProcessSourceSpeedSampler(process_source_rules)
     process_detail_sampler = ProcessSourceSpeedSampler(process_source_rules)
     active_transfers = {}
-    transfer_recent_ttl_sec = 8.0
+    transfer_recent_ttl_sec = DEFAULT_TRANSFER_RECENT_TTL_SEC
     qbt_candidates = [
         DEFAULT_QBT_SERVICE,
         "qbittorrent-nox",
@@ -6749,7 +6956,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
 
-            tmp = conf_path.parent / f"{conf_path.name}.tmp.codex"
+            tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
                 if prev_stat is not None:
@@ -6933,7 +7140,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
 
-            tmp = conf_path.parent / f"{conf_path.name}.tmp.codex"
+            tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
                 if prev_stat is not None:
@@ -7347,7 +7554,7 @@ class AppHandler(BaseHTTPRequestHandler):
             dht_nodes = cls._qbt_to_int(server.get("dht_nodes"))
             detail = (
                 f"↓ {cls._qbt_rate_text(dl_bps)} · ↑ {cls._qbt_rate_text(up_bps)}"
-                f" | 做种 {seeding} · 下载 {downloading} · 活跃 {active} · 总计 {len(torrents)}"
+                f" | Seeding {seeding} · Downloading {downloading} · Active {active} · Total {len(torrents)}"
             )
             if peers > 0:
                 detail += f" · Connect {peers}"
@@ -7432,7 +7639,10 @@ class AppHandler(BaseHTTPRequestHandler):
             active_count = 0
             recent_count = 0
             stale_ids = []
-            recent_ttl = float(getattr(self, "transfer_recent_ttl_sec", 30.0) or 30.0)
+            recent_ttl = float(
+                getattr(self, "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC)
+                or DEFAULT_TRANSFER_RECENT_TTL_SEC
+            )
             for tid, t in self.active_transfers.items():
                 done = bool(t.get("done", False))
                 started_at = float(t.get("started_at", now))
@@ -7816,14 +8026,14 @@ class AppHandler(BaseHTTPRequestHandler):
     @classmethod
     def _upgrade_supported(cls) -> tuple[bool, str]:
         if os.name != "posix":
-            return False, "当前仅支持 Linux 自动升级"
+            return False, "当前仅支持 Linux 自动更新"
         if not shutil.which("systemctl"):
-            return False, "当前环境未检测到 systemctl，暂不支持自动升级"
+            return False, "当前环境未检测到 systemctl，暂不支持自动更新"
         try:
             if os.geteuid() != 0:
                 return False, "当前服务无 root 权限，无法执行 install.sh"
         except Exception:
-            return False, "无法确认当前权限，暂不支持自动升级"
+            return False, "无法确认当前权限，暂不支持自动更新"
         return True, ""
 
     @classmethod
@@ -7838,7 +8048,7 @@ class AppHandler(BaseHTTPRequestHandler):
             status["state"] = "running"
         elif stale_running and str(status.get("state", "")) == "running":
             status["state"] = "unknown"
-            status["message"] = "Upgrade task triggered a service restart; please verify current version manually."
+            status["message"] = "Update task triggered a service restart; please verify current version manually."
             status["finished_at"] = _utc_now_iso()
             _write_upgrade_status(status, _APP_ROOT_DIR)
         status["supported"] = bool(ok)
@@ -7850,10 +8060,55 @@ class AppHandler(BaseHTTPRequestHandler):
             )
         except Exception:
             status["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
+        status["branch"] = _normalize_upgrade_branch(
+            status.get("branch"), DEFAULT_UPGRADE_BRANCH
+        )
         return status
 
     @classmethod
-    def _schedule_upgrade(cls, repo_raw, tag_raw):
+    def _upgrade_branch_version_payload(cls, branch_raw) -> dict:
+        status = cls._upgrade_status_payload()
+        repo = DEFAULT_UPGRADE_GITHUB_REPO
+        branch = _normalize_upgrade_branch(
+            branch_raw if branch_raw is not None else status.get("branch"),
+            DEFAULT_UPGRADE_BRANCH,
+        )
+        payload = {
+            "ok": True,
+            "repo": repo,
+            "branch": branch,
+            "current_version": APP_VERSION_TEXT,
+            "current_branch": APP_BRANCH,
+            "available_version": "",
+            "release_url": "",
+            "source": "",
+            "checked_at": _utc_now_iso(),
+            "error": "",
+        }
+        try:
+            if branch == "nightly":
+                try:
+                    info = _local_branch_version_payload(repo, "nightly")
+                    payload["source"] = "nightly-local-file"
+                except Exception:
+                    info = _github_branch_version_payload(repo, "nightly")
+                    payload["source"] = "nightly-branch-head"
+                payload["available_version"] = str(info.get("version_text") or "")
+                payload["release_url"] = str(info.get("html_url") or "")
+            else:
+                release = _github_release_payload(repo, "")
+                payload["available_version"] = _to_version_text(
+                    str(release.get("tag_name") or "").strip()
+                )
+                payload["release_url"] = str(release.get("html_url") or "").strip()
+                payload["source"] = "main-latest-release"
+        except Exception as exc:
+            payload["ok"] = False
+            payload["error"] = str(exc)
+        return payload
+
+    @classmethod
+    def _schedule_upgrade(cls, branch_raw):
         ok, reason = cls._upgrade_supported()
         if not ok:
             status = _write_upgrade_status(
@@ -7861,15 +8116,17 @@ class AppHandler(BaseHTTPRequestHandler):
                     "supported": False,
                     "running": False,
                     "state": "error",
-                    "message": "Auto-upgrade unavailable",
+                    "message": "Auto-update unavailable",
                     "error": str(reason or "当前环境不支持"),
+                    "branch": _normalize_upgrade_branch(branch_raw, DEFAULT_UPGRADE_BRANCH),
                 },
                 _APP_ROOT_DIR,
             )
             status["support_reason"] = str(reason or "")
             return False, status
-        repo = _normalize_upgrade_repo(repo_raw, DEFAULT_UPGRADE_GITHUB_REPO)
-        tag = _normalize_upgrade_tag(tag_raw)
+        repo = DEFAULT_UPGRADE_GITHUB_REPO
+        branch = _normalize_upgrade_branch(branch_raw, DEFAULT_UPGRADE_BRANCH)
+        tag = ""
         with cls.upgrade_lock:
             if cls.upgrade_running:
                 status = _read_upgrade_status(_APP_ROOT_DIR)
@@ -7882,10 +8139,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     "running": True,
                     "state": "running",
                     "repo": repo,
+                    "branch": branch,
                     "requested_tag": tag,
                     "target_tag": "",
                     "release_url": "",
-                    "message": "升级任务已启动，正在拉取 Release 信息",
+                    "message": f"升级任务已启动，正在拉取 {branch} 信息",
                     "error": "",
                     "started_at": _utc_now_iso(),
                     "finished_at": "",
@@ -7896,7 +8154,10 @@ class AppHandler(BaseHTTPRequestHandler):
         def _worker():
             temp_dir = None
             try:
-                release = _github_release_payload(repo, tag)
+                if branch == "nightly":
+                    release = _github_branch_payload(repo, "nightly")
+                else:
+                    release = _github_release_payload(repo, "")
                 target_tag = str(release.get("tag_name") or "").strip()
                 tarball_url = str(release.get("tarball_url") or "").strip()
                 release_url = str(release.get("html_url") or "").strip()
@@ -7911,10 +8172,11 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": True,
                         "state": "running",
                         "repo": repo,
+                        "branch": branch,
                         "requested_tag": tag,
                         "target_tag": target_tag,
                         "release_url": release_url,
-                        "message": f"已获取 Release {target_tag}，开始下载",
+                        "message": f"已获取 {branch} 版本 {target_tag}，开始下载",
                         "error": "",
                     }
                 )
@@ -7949,7 +8211,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     {
                         "running": True,
                         "state": "running",
-                        "message": f"已下载 {target_tag}，执行安装脚本中",
+                        "message": f"已下载 {target_tag}（{branch}），执行安装脚本中",
                         "error": "",
                     }
                 )
@@ -7985,10 +8247,11 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": False,
                         "state": "success",
                         "repo": repo,
+                        "branch": branch,
                         "requested_tag": tag,
                         "target_tag": target_tag,
                         "release_url": release_url,
-                        "message": f"Upgrade completed: {target_tag}",
+                        "message": f"Update completed: {target_tag}",
                         "error": "",
                         "finished_at": _utc_now_iso(),
                     },
@@ -8001,8 +8264,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "running": False,
                         "state": "error",
                         "repo": repo,
+                        "branch": branch,
                         "requested_tag": tag,
-                        "message": "自动Upgrade failed",
+                        "message": "自动更新失败",
                         "error": str(exc),
                         "finished_at": _utc_now_iso(),
                     }
@@ -8656,6 +8920,14 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(self._upgrade_status_payload())
             return
 
+        if parsed.path == "/api/upgrade/check-version":
+            if not self._require_lan():
+                return
+            query = parse_qs(parsed.query)
+            branch_raw = str(query.get("branch", [""])[0] or "").strip()
+            self._send_json(self._upgrade_branch_version_payload(branch_raw))
+            return
+
         if parsed.path == "/api/ddns/config":
             if not self._require_lan():
                 return
@@ -8992,48 +9264,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/ui/theme-background":
             if not self._require_lan():
                 return
-            body = self._parse_body()
-            if not isinstance(body, dict):
-                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                file_name, size = _save_theme_bg_file(
-                    body.get("file_name", ""),
-                    body.get("content_b64", ""),
-                    _APP_ROOT_DIR,
-                )
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(
-                    f"背景图片Save失败：{exc}",
-                    status=HTTPStatus.INTERNAL_SERVER_ERROR,
-                )
-                return
-            current = load_app_config(_APP_ROOT_DIR)
-            ui_cfg = current.setdefault("ui", {})
-            old_file = _normalize_theme_bg_file_name(ui_cfg.get("hero_custom_bg_file", ""))
-            ui_cfg["hero_custom_bg_file"] = file_name
-            if bool(body.get("apply", True)):
-                ui_cfg["hero_preset"] = "custom"
-            saved = save_app_config(current, _APP_ROOT_DIR)
-            if old_file and old_file != file_name:
-                try:
-                    assets_dir = theme_assets_dir(_APP_ROOT_DIR).resolve()
-                    old_path = ensure_under_root(assets_dir, assets_dir / old_file)
-                    if old_path.exists() and old_path.is_file():
-                        old_path.unlink()
-                except Exception:
-                    pass
-            self._send_json(
-                {
-                    "ok": True,
-                    "file_name": file_name,
-                    "size": int(size),
-                    "config": saved,
-                    "ui_theme": _ui_theme_payload(saved, _APP_ROOT_DIR),
-                }
+            self._error(
+                "Custom background upload is disabled. Use built-in presets only.",
+                status=HTTPStatus.FORBIDDEN,
             )
             return
 
@@ -9163,6 +9396,13 @@ class AppHandler(BaseHTTPRequestHandler):
                     http_cfg["source_ip_pool_source"] = _normalize_source_ip_pool_source(
                         incoming_http.get("source_ip_pool_source")
                     )
+                if "transfer_recent_ttl_sec" in incoming_http:
+                    http_cfg["transfer_recent_ttl_sec"] = _normalize_transfer_recent_ttl(
+                        incoming_http.get("transfer_recent_ttl_sec"),
+                        http_cfg.get(
+                            "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC
+                        ),
+                    )
             if http_path_cfg_changed:
                 http_cfg = current.setdefault("http_service", {})
                 root_for_check = self._http_root_from_raw(
@@ -9210,10 +9450,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     ui_cfg["hero_preset"] = _normalize_ui_hero_preset(
                         incoming_ui.get("hero_preset")
                     )
-                if "hero_custom_bg_file" in incoming_ui:
-                    ui_cfg["hero_custom_bg_file"] = _normalize_theme_bg_file_name(
-                        incoming_ui.get("hero_custom_bg_file")
-                    )
+                ui_cfg["hero_custom_bg_file"] = ""
             if isinstance(body.get("netdisk_sources"), dict):
                 nd_cfg = current.setdefault("netdisk_sources", {})
                 incoming_nd = body["netdisk_sources"]
@@ -9221,6 +9458,13 @@ class AppHandler(BaseHTTPRequestHandler):
                     if k in incoming_nd:
                         nd_cfg[k] = bool(incoming_nd.get(k))
             saved = save_app_config(current, _APP_ROOT_DIR)
+            saved_http_cfg = (saved.get("http_service") or {}) if isinstance(saved, dict) else {}
+            AppHandler.transfer_recent_ttl_sec = _normalize_transfer_recent_ttl(
+                saved_http_cfg.get(
+                    "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC
+                ),
+                DEFAULT_TRANSFER_RECENT_TTL_SEC,
+            )
             web_port_restart_required = (
                 _normalize_web_port(saved.get("web_port"), DEFAULT_WEB_PORT)
                 != ACTIVE_WEB_PORT
@@ -9411,14 +9655,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
                 return
             try:
-                queued, status = self._schedule_upgrade(
-                    body.get("repo"), body.get("tag")
-                )
+                queued, status = self._schedule_upgrade(body.get("branch"))
             except ValueError as exc:
                 self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
                 return
             except Exception as exc:
-                self._error(f"Failed to start upgrade: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                self._error(f"Failed to start update: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"queued": bool(queued), "status": status})
             return
@@ -9659,6 +9901,15 @@ def main():
     startup_cfg = load_app_config(_APP_ROOT_DIR)
     ACTIVE_WEB_PORT = _normalize_web_port(
         (startup_cfg or {}).get("web_port"), DEFAULT_WEB_PORT
+    )
+    startup_http_cfg = (
+        (startup_cfg or {}).get("http_service", {})
+        if isinstance(startup_cfg, dict)
+        else {}
+    )
+    AppHandler.transfer_recent_ttl_sec = _normalize_transfer_recent_ttl(
+        startup_http_cfg.get("transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC),
+        DEFAULT_TRANSFER_RECENT_TTL_SEC,
     )
     AppHandler.storage_root = DEFAULT_STORAGE_ROOT
     AppHandler.storage_root.mkdir(parents=True, exist_ok=True)
