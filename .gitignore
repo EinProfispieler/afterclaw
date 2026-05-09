@@ -22,6 +22,12 @@ ddns_config.json
 .firecrawl/
 .superpowers/
 .worktrees/
+# AI agent rules / docs — must not enter the public tree
+.cursor/
+AGENTS.md
+CLAUDE.md
+docs/AI_WORKFLOW.md
+docs/superpowers/
 # Runtime files
 *.log
 shareclip/shareclip.log
