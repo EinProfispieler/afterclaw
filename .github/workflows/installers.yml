@@ -20,7 +20,8 @@ jobs:
         shell: bash
         run: |
           short_sha="${GITHUB_SHA::7}"
-          echo "VERSION_TAG=${GITHUB_REF_NAME}-${short_sha}" >> "$GITHUB_ENV"
+          ref_safe="${GITHUB_REF_NAME//\//-}"
+          echo "VERSION_TAG=${ref_safe}-${short_sha}" >> "$GITHUB_ENV"
 
       - name: Create Linux bundle
         if: runner.os == 'Linux'

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 import base64
 import configparser
 import http.cookiejar
@@ -30,8 +32,15 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 import ddns
 from fcc import __version__ as FCC_APP_VERSION, __branch__ as FCC_APP_BRANCH
 from fcc.modules.monitor.process_net import ProcessSourceSpeedSampler
+from fcc.modules import REGISTRY as MODULE_REGISTRY
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
+
+# Import backup module to register routes
+try:
+    import fcc.modules.backup.web
+except ImportError:
+    pass
 
 _CODE_DIR = Path(__file__).resolve().parent
 _LEGACY_APP_ROOT_DIR = _CODE_DIR.parent
@@ -1731,6 +1740,7 @@ def build_frontend_html() -> str:
     <div class="tabs">
       <button id="tabMonitorBtn" class="tab-btn active" type="button">Control</button>
       <button id="tabDirBtn" class="tab-btn" type="button">Directory Service</button>
+      <button id="tabBackupBtn" class="tab-btn" type="button">Backup</button>
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
     <div class="tabs-actions">
@@ -1807,6 +1817,34 @@ def build_frontend_html() -> str:
   <div class="card">
     <span class="card-title">Bulk Text (one HTTP link per line)</span>
     <textarea id="bulkText" readonly></textarea>
+  </div>
+  </div>
+
+  <div id="tabBackupPanel" class="tab-panel">
+  <div class="card">
+    <span class="card-title">Backup Management</span>
+    <div class="kv-line"><strong>Config Path</strong><span id="backupConfigPath">-</span></div>
+    <div class="kv-line"><strong>Database</strong><span id="backupDbStatus">-</span></div>
+    <div class="kv-line"><strong>Snapshots</strong><span id="backupSnapshotCount">-</span></div>
+    <div class="kv-line"><strong>Total Size</strong><span id="backupTotalSize">-</span></div>
+    <div class="kv-line"><strong>Last Backup</strong><span id="backupLastTime">-</span></div>
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button id="backupRunBtn">Run Backup Now</button>
+        <button id="backupRefreshBtn" class="secondary">Refresh Status</button>
+        <button id="backupConfigBtn" class="secondary">Edit Config</button>
+      </div>
+    </div>
+    <div id="backupResult" class="status-bar muted" style="margin-top:10px;"></div>
+    <details class="card-fold" style="margin-top:20px;">
+      <summary class="card-collapse-btn">
+        <span class="card-title" style="margin-bottom:0;">Snapshot History</span>
+        <span class="card-collapse-arrow" aria-hidden="true">▶</span>
+      </summary>
+      <div class="card-fold-body">
+        <div id="backupSnapshotList" style="max-height:400px;overflow-y:auto;"></div>
+      </div>
+    </details>
   </div>
   </div>
 
@@ -1890,12 +1928,15 @@ def build_frontend_html() -> str:
   </div>
 
   <div class="card" id="httpSpeedCard">
-    <span id="httpSpeedCardTitle" class="card-title">All Netdisk HTTP Throughput</span>
-    <div class="speed-strip">
-      <span>Speed <span id="speedText" class="hl">-</span></span>
-      <span>Active Connections <span id="connText" class="hl">-</span></span>
+    <div class="speed-card-head">
+      <span id="httpSpeedCardTitle" class="card-title">All Netdisk HTTP Throughput</span>
+      <span class="speed-card-conn">
+        <span id="connText" class="speed-card-conn-num">-</span>
+        <span class="speed-card-conn-label">active connections</span>
+      </span>
     </div>
-    <div id="sourceSpeedText" class="speed-source muted">Loading source speeds...</div>
+    <div id="speedText" class="speed-totals" role="button" tabindex="0" aria-label="Click to switch units">-</div>
+    <div id="sourceSpeedText" class="speed-sources">Loading source speeds...</div>
   </div>
 
   <div class="card" id="netdiskCard">
@@ -1932,9 +1973,11 @@ def build_frontend_html() -> str:
       : Promise.resolve();
     const tabDirBtn = document.getElementById("tabDirBtn");
     const tabMonitorBtn = document.getElementById("tabMonitorBtn");
+    const tabBackupBtn = document.getElementById("tabBackupBtn");
     const tabPubBtn = document.getElementById("tabPubBtn");
     const tabDirPanel = document.getElementById("tabDirPanel");
     const tabMonitorPanel = document.getElementById("tabMonitorPanel");
+    const tabBackupPanel = document.getElementById("tabBackupPanel");
     const tabPubPanel = document.getElementById("tabPubPanel");
     const storageText = document.getElementById("storageText");
     const publicBaseText = document.getElementById("publicBaseText");
@@ -1986,6 +2029,18 @@ def build_frontend_html() -> str:
     const clipRefreshHistoryBtn = document.getElementById("clipRefreshHistoryBtn");
     const terminalQuickLink = document.getElementById("terminalQuickLink");
     const langSelect = document.getElementById("langSelect");
+    
+    // Backup elements
+    const backupConfigPath = document.getElementById("backupConfigPath");
+    const backupDbStatus = document.getElementById("backupDbStatus");
+    const backupSnapshotCount = document.getElementById("backupSnapshotCount");
+    const backupTotalSize = document.getElementById("backupTotalSize");
+    const backupLastTime = document.getElementById("backupLastTime");
+    const backupResult = document.getElementById("backupResult");
+    const backupSnapshotList = document.getElementById("backupSnapshotList");
+    const backupRunBtn = document.getElementById("backupRunBtn");
+    const backupRefreshBtn = document.getElementById("backupRefreshBtn");
+    const backupConfigBtn = document.getElementById("backupConfigBtn");
     let currentDir = ".";
     let defaultHttpDir = ".";
     let lastCleanMoves = null;
@@ -2306,15 +2361,22 @@ def build_frontend_html() -> str:
     }
 
     function switchTab(which) {
-      const showMonitor = which === "monitor";
-      const showDir = which === "dir";
-      const showPub = which === "pub";
-      tabDirBtn.classList.toggle("active", showDir);
-      tabMonitorBtn.classList.toggle("active", showMonitor);
-      tabPubBtn.classList.toggle("active", showPub);
-      tabDirPanel.classList.toggle("active", showDir);
-      tabMonitorPanel.classList.toggle("active", showMonitor);
-      tabPubPanel.classList.toggle("active", showPub);
+      [tabDirBtn, tabMonitorBtn, tabBackupBtn, tabPubBtn].forEach((b) => b.classList.remove("active"));
+      [tabDirPanel, tabMonitorPanel, tabBackupPanel, tabPubPanel].forEach((p) => p.classList.remove("active"));
+      if (which === "dir") {
+        tabDirBtn.classList.add("active");
+        tabDirPanel.classList.add("active");
+      } else if (which === "backup") {
+        tabBackupBtn.classList.add("active");
+        tabBackupPanel.classList.add("active");
+        loadBackupStatus();
+      } else if (which === "pub") {
+        tabPubBtn.classList.add("active");
+        tabPubPanel.classList.add("active");
+      } else {
+        tabMonitorBtn.classList.add("active");
+        tabMonitorPanel.classList.add("active");
+      }
     }
 
     async function getJson(url, options = {}) {
@@ -2457,13 +2519,31 @@ def build_frontend_html() -> str:
       }
     }
 
+    function makeSpeedSpan(cls, text, ariaHidden) {
+      const el = document.createElement("span");
+      el.className = cls;
+      if (text != null) el.textContent = text;
+      if (ariaHidden) el.setAttribute("aria-hidden", "true");
+      return el;
+    }
+    function makeSpeedSide(arrow, num, unit) {
+      const side = document.createElement("span");
+      side.className = "speed-side";
+      side.appendChild(makeSpeedSpan("speed-arrow", arrow, true));
+      side.appendChild(makeSpeedSpan("speed-num", num));
+      side.appendChild(makeSpeedSpan("speed-unit", unit));
+      return side;
+    }
     function renderSpeedValue() {
       if (!speedText) return;
-      if (speedDisplayUnit === "Mbps") {
-        speedText.textContent = `↓ ${latestTotalDownMbps.toFixed(2)} Mbps / ↑ ${latestTotalUpMbps.toFixed(2)} Mbps`;
-      } else {
-        speedText.textContent = `↓ ${latestTotalDownMiBps.toFixed(2)} MiB/s / ↑ ${latestTotalUpMiBps.toFixed(2)} MiB/s`;
-      }
+      const isMbps = speedDisplayUnit === "Mbps";
+      const unit = isMbps ? "Mbps" : "MiB/s";
+      const down = isMbps ? latestTotalDownMbps : latestTotalDownMiBps;
+      const up = isMbps ? latestTotalUpMbps : latestTotalUpMiBps;
+      while (speedText.firstChild) speedText.removeChild(speedText.firstChild);
+      speedText.appendChild(makeSpeedSide("↓", down.toFixed(2), unit));
+      speedText.appendChild(makeSpeedSpan("speed-sep", null, true));
+      speedText.appendChild(makeSpeedSide("↑", up.toFixed(2), unit));
       speedText.title = `Click to switch units (current ${speedDisplayUnit}）`;
       speedText.style.cursor = "pointer";
     }
@@ -2527,6 +2607,58 @@ def build_frontend_html() -> str:
       return raw;
     }
 
+    const SOURCE_LABEL_TO_KEY = {
+      "Baidu Netdisk": "baidu",
+      "Aliyun Drive": "ali",
+      "Guangya Drive": "guangya",
+      "Dropbox": "dropbox",
+      "MEGA": "mega",
+      "OneDrive": "onedrive",
+      "Google Drive": "gdrive",
+    };
+    function isSourceEnabledByConfig(label) {
+      const key = SOURCE_LABEL_TO_KEY[label];
+      if (!key) return true;
+      const map = (typeof ndEnabledSources === "object" && ndEnabledSources) ? ndEnabledSources : null;
+      if (!map) return true;
+      return map[key] !== false;
+    }
+    function makeSourceCard(r) {
+      const isActive = r.down > 0 || r.up > 0 || r.count > 0;
+      const card = document.createElement("div");
+      card.className = "speed-source-card " + (isActive ? "is-active" : "is-zero");
+      const name = document.createElement("div");
+      name.className = "speed-source-card-name";
+      name.textContent = r.name;
+      card.appendChild(name);
+      const stat = document.createElement("div");
+      stat.className = "speed-source-card-stat";
+      const mkRate = (arrow, num) => {
+        const rate = document.createElement("span");
+        rate.className = "speed-source-card-rate";
+        const a = document.createElement("span");
+        a.className = "speed-source-card-arrow";
+        a.setAttribute("aria-hidden", "true");
+        a.textContent = arrow;
+        const v = document.createElement("span");
+        v.className = "speed-source-card-num";
+        v.textContent = num;
+        rate.appendChild(a);
+        rate.appendChild(v);
+        return rate;
+      };
+      stat.appendChild(mkRate("↓", r.down.toFixed(2)));
+      stat.appendChild(mkRate("↑", r.up.toFixed(2)));
+      if (r.count > 0) {
+        const conn = document.createElement("span");
+        conn.className = "speed-source-card-conn";
+        conn.textContent = "· " + r.count;
+        conn.title = r.count + " connection" + (r.count === 1 ? "" : "s");
+        stat.appendChild(conn);
+      }
+      card.appendChild(stat);
+      return card;
+    }
     function renderSourceSpeeds(sourceStats) {
       if (!sourceSpeedText) return;
       const rows = Array.isArray(sourceStats) ? sourceStats : [];
@@ -2549,19 +2681,32 @@ def build_frontend_html() -> str:
       }
       let knownDown = 0;
       let knownUp = 0;
-      const chunks = [];
+      const displayRows = [];
       for (const [name, v] of buckets.entries()) {
-        const countText = v.count > 0 ? `（${Math.floor(v.count)}）` : "";
+        if (!isSourceEnabledByConfig(name)) continue;
         knownDown += v.down;
         knownUp += v.up;
-        chunks.push(`${name}${countText} ↓${v.down.toFixed(2)} ↑${v.up.toFixed(2)} MiB/s`);
+        displayRows.push({ name, down: v.down, up: v.up, count: Math.floor(v.count) });
       }
       const otherDown = Math.max(0, latestTotalDownMiBps - knownDown);
       const otherUp = Math.max(0, latestTotalUpMiBps - knownUp);
-      chunks.push(`Other sources ↓${otherDown.toFixed(2)} ↑${otherUp.toFixed(2)} MiB/s`);
-      const sourceLine = `Source speeds: ${chunks.join(" | ")}`;
-      sourceSpeedText.textContent = sourceLine;
-      sourceSpeedText.title = sourceLine;
+      if (otherDown > 0 || otherUp > 0) {
+        displayRows.push({ name: "Other sources", down: otherDown, up: otherUp, count: 0 });
+      }
+
+      while (sourceSpeedText.firstChild) sourceSpeedText.removeChild(sourceSpeedText.firstChild);
+      if (displayRows.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "speed-sources-empty";
+        empty.textContent = "No netdisks enabled in config";
+        sourceSpeedText.appendChild(empty);
+        return;
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "speed-sources-cards";
+      for (const r of displayRows) wrap.appendChild(makeSourceCard(r));
+      sourceSpeedText.appendChild(wrap);
+      sourceSpeedText.removeAttribute("title");
     }
 
     function sortTransfers(items) {
@@ -3094,6 +3239,7 @@ def build_frontend_html() -> str:
     clipIdInput.addEventListener("change", () => applyClipIdFromInput(false));
     tabDirBtn.addEventListener("click", () => switchTab("dir"));
     tabMonitorBtn.addEventListener("click", () => switchTab("monitor"));
+    tabBackupBtn.addEventListener("click", () => switchTab("backup"));
     tabPubBtn.addEventListener("click", () => switchTab("pub"));
     xferSortButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -3352,6 +3498,110 @@ def build_frontend_html() -> str:
         });
       }
       tick();
+    }
+
+    // Backup functions
+    function formatBytes(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    async function loadBackupStatus() {
+      try {
+        const data = await getJson('/api/backup/status');
+        if (data.success) {
+          if (backupConfigPath) backupConfigPath.textContent = data.config_path || '-';
+          if (backupDbStatus) backupDbStatus.textContent = data.db_exists ? '✓ Exists' : '✗ Not initialized';
+          if (data.storage_stats) {
+            if (backupSnapshotCount) backupSnapshotCount.textContent = data.storage_stats.snapshot_count || '0';
+            if (backupTotalSize) backupTotalSize.textContent = formatBytes(data.storage_stats.total_size || 0);
+            if (backupLastTime) {
+              if (data.storage_stats.newest_snapshot) {
+                backupLastTime.textContent = new Date(data.storage_stats.newest_snapshot).toLocaleString();
+              } else {
+                backupLastTime.textContent = 'Never';
+              }
+            }
+          }
+          await loadBackupSnapshots();
+        }
+      } catch (err) {
+        console.error('Failed to load backup status:', err);
+      }
+    }
+
+    async function loadBackupSnapshots() {
+      try {
+        const data = await getJson('/api/backup/list');
+        if (data.success && backupSnapshotList) {
+          if (data.snapshots.length === 0) {
+            backupSnapshotList.innerHTML = '<p style="color:var(--text-muted);padding:10px;">No snapshots found</p>';
+            return;
+          }
+          let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border);">';
+          html += '<th style="text-align:left;padding:8px;">Snapshot ID</th>';
+          html += '<th style="text-align:left;padding:8px;">Time</th>';
+          html += '<th style="text-align:right;padding:8px;">Files</th>';
+          html += '<th style="text-align:right;padding:8px;">Size</th>';
+          html += '</tr></thead><tbody>';
+          data.snapshots.forEach(s => {
+            html += '<tr style="border-bottom:1px solid var(--border);">';
+            html += '<td style="padding:8px;"><code>' + s.id + '</code></td>';
+            html += '<td style="padding:8px;">' + new Date(s.timestamp).toLocaleString() + '</td>';
+            html += '<td style="padding:8px;text-align:right;">' + s.file_count + '</td>';
+            html += '<td style="padding:8px;text-align:right;">' + formatBytes(s.total_size) + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+          backupSnapshotList.innerHTML = html;
+        }
+      } catch (err) {
+        console.error('Failed to load snapshots:', err);
+      }
+    }
+
+    if (backupRunBtn) {
+      backupRunBtn.addEventListener('click', async () => {
+        backupRunBtn.disabled = true;
+        backupRunBtn.textContent = 'Running...';
+        if (backupResult) backupResult.textContent = 'Backup in progress...';
+        try {
+          const data = await getJson('/api/backup/run', { method: 'POST' });
+          if (data.success) {
+            if (backupResult) {
+              backupResult.textContent = `✓ Backup completed: ${data.files_processed} files, ${formatBytes(data.bytes_transferred)}`;
+              backupResult.style.color = 'var(--success)';
+            }
+            await loadBackupStatus();
+          } else {
+            if (backupResult) {
+              backupResult.textContent = `✗ Backup failed: ${data.error || 'Unknown error'}`;
+              backupResult.style.color = 'var(--error)';
+            }
+          }
+        } catch (err) {
+          if (backupResult) {
+            backupResult.textContent = `✗ Error: ${err.message || err}`;
+            backupResult.style.color = 'var(--error)';
+          }
+        } finally {
+          backupRunBtn.disabled = false;
+          backupRunBtn.textContent = 'Run Backup Now';
+        }
+      });
+    }
+
+    if (backupRefreshBtn) {
+      backupRefreshBtn.addEventListener('click', () => loadBackupStatus());
+    }
+
+    if (backupConfigBtn) {
+      backupConfigBtn.addEventListener('click', () => {
+        window.location.href = '/config#backup';
+      });
     }
 
     Promise.resolve(i18nReady).finally(() => {
@@ -3638,6 +3888,7 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.qb" data-i18n-fallback="qB">qB</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
+        <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup">Backup</button>
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
@@ -3909,6 +4160,78 @@ def build_config_html() -> str:
         <div class="ddns-frame-wrap">
           <iframe id="ddnsFrame" src="/ddns?embed=1" title="DDNS Config"></iframe>
         </div>
+      </div>
+    </section>
+
+    <section id="panel-backup" class="cfg-panel">
+      <div class="card">
+        <span class="card-title">Backup Configuration</span>
+        <p class="cfg-help">Configure backup sources, targets, and retention policies. Config file: <code id="backupCfgPath">-</code></p>
+        
+        <div class="cfg-grid" style="margin-top:16px;">
+          <label class="cfg-item">
+            <div class="title">Backup Target Path</div>
+            <input id="backupTargetPath" placeholder="e.g. ~/.afterclaw/backup or /mnt/backup" />
+            <div class="cfg-help">Local directory to store backup snapshots</div>
+          </label>
+        </div>
+        
+        <div class="cfg-grid">
+          <label class="cfg-item">
+            <div class="title">Source Directories (one per line)</div>
+            <textarea id="backupSourceDirs" rows="4" placeholder="~/Projects&#10;~/Documents&#10;/opt/data"></textarea>
+            <div class="cfg-help">Directories to backup, one per line. Use ~ for home directory.</div>
+          </label>
+        </div>
+        
+        <div class="cfg-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+          <label class="cfg-item">
+            <div class="title">Daily Retention</div>
+            <input type="number" id="backupRetentionDaily" min="0" max="365" value="7" />
+            <div class="cfg-help">Keep daily snapshots (days)</div>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Weekly Retention</div>
+            <input type="number" id="backupRetentionWeekly" min="0" max="52" value="4" />
+            <div class="cfg-help">Keep weekly snapshots (weeks)</div>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Monthly Retention</div>
+            <input type="number" id="backupRetentionMonthly" min="0" max="120" value="12" />
+            <div class="cfg-help">Keep monthly snapshots (months)</div>
+          </label>
+        </div>
+        
+        <div class="cfg-actions">
+          <button type="button" id="saveBackupConfigBtn">Save Backup Config</button>
+          <button type="button" id="loadBackupConfigBtn" class="secondary">Load Current Config</button>
+          <button type="button" id="testBackupBtn" class="secondary">Test Backup Now</button>
+        </div>
+        <p id="backupCfgStatus" class="cfg-status"></p>
+        
+        <details class="card-fold" style="margin-top:20px;">
+          <summary class="card-collapse-btn">
+            <span class="card-title" style="margin-bottom:0;">Advanced Settings</span>
+            <span class="card-collapse-arrow" aria-hidden="true">▶</span>
+          </summary>
+          <div class="card-fold-body">
+            <div class="cfg-grid">
+              <label class="cfg-item">
+                <div class="title">Exclude Patterns (one per line)</div>
+                <textarea id="backupExcludePatterns" rows="4" placeholder="**/node_modules/**&#10;**/.venv/**&#10;**/__pycache__/**"></textarea>
+                <div class="cfg-help">Glob patterns to exclude from backup</div>
+              </label>
+            </div>
+            <label class="cfg-module-item" style="margin-top:12px;">
+              <input type="checkbox" id="backupCompressionEnabled" class="cfg-switch-input" checked />
+              <span class="cfg-switch" aria-hidden="true"></span>
+              <div>
+                <p class="cfg-module-title">Enable Compression</p>
+                <p class="cfg-module-desc">Compress backup files to save space</p>
+              </div>
+            </label>
+          </div>
+        </details>
       </div>
     </section>
 
@@ -5987,6 +6310,37 @@ class AppHandler(BaseHTTPRequestHandler):
             return True
         return False
 
+    def _dispatch_module_route(self, parsed, method: str) -> bool:
+        """Dispatch request to registered modules.
+        
+        Args:
+            parsed: Parsed URL
+            method: HTTP method (GET, POST, etc.)
+        
+        Returns:
+            True if route was handled, False otherwise
+        """
+        for module in MODULE_REGISTRY.values():
+            for route in module.routes:
+                params = route.match(method, parsed.path)
+                if params is not None:
+                    # Route matched, check LAN access
+                    if not self._require_lan():
+                        return True
+                    
+                    # Call handler
+                    try:
+                        body = None
+                        if method in {"POST", "PUT", "PATCH"}:
+                            body = self._parse_body()
+                        route.handler(self, parsed.path, params, body)
+                        return True
+                    except Exception as e:
+                        self._error(f"Module route error: {e}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                        return True
+        
+        return False
+
     def _dispatch_shareclip_flask(self, parsed, command: str, send_body: bool) -> bool:
         path = parsed.path or "/"
         target_path = "/config" if path == "/clip-config" else path
@@ -6602,7 +6956,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
 
-            tmp = conf_path.parent / f"{conf_path.name}.tmp.codex"
+            tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
                 if prev_stat is not None:
@@ -6786,7 +7140,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
 
-            tmp = conf_path.parent / f"{conf_path.name}.tmp.codex"
+            tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
                 if prev_stat is not None:
@@ -8464,6 +8818,11 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if self._dispatch_shareclip_flask(parsed, "GET", True):
             return
+        
+        # Try module routes
+        if self._dispatch_module_route(parsed, "GET"):
+            return
+        
         if parsed.path == "/":
             if not self._require_lan():
                 return
@@ -8793,6 +9152,10 @@ class AppHandler(BaseHTTPRequestHandler):
         if self._dispatch_ddnsgo_proxy(parsed, "POST", True):
             return
         if self._dispatch_shareclip_flask(parsed, "POST", True):
+            return
+        
+        # Try module routes
+        if self._dispatch_module_route(parsed, "POST"):
             return
 
         if parsed.path == "/api/terminal/start":
