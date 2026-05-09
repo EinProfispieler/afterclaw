@@ -1,11 +1,12 @@
 """Backup module for AfterClaw - Web API and UI integration."""
 
+import fnmatch
 import json
 import os
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 from fcc.config import app_root, load_app_config
 from fcc.modules import Module, register
@@ -15,6 +16,47 @@ from fcc.modules.backup.storage.base import FileInfo
 from fcc.modules.backup.storage.local import LocalDiskTarget
 from fcc.modules.backup.config.parser import ConfigParser
 from fcc.modules.backup.utils.logger import setup_logger
+
+
+def _match_segments(parts: List[str], pat_parts: List[str]) -> bool:
+    """Recursive glob match supporting ** as zero-or-more path segments.
+
+    Used by ``_matches_glob``. Each segment is matched with fnmatchcase,
+    so * within a segment matches anything except a path separator
+    (because we already split on /).
+    """
+    if not pat_parts:
+        return not parts
+    pp = pat_parts[0]
+    if pp == "**":
+        rest = pat_parts[1:]
+        if not rest:
+            return True
+        for i in range(len(parts) + 1):
+            if _match_segments(parts[i:], rest):
+                return True
+        return False
+    if not parts:
+        return False
+    if fnmatch.fnmatchcase(parts[0], pp):
+        return _match_segments(parts[1:], pat_parts[1:])
+    return False
+
+
+def _matches_glob(rel_path: str, pattern: str) -> bool:
+    """fnmatch-style glob with `**` recursive segment support.
+
+    Handles the patterns documented in the default backup config:
+        **/*.py            — any .py file at any depth (incl. root)
+        **/node_modules/** — any node_modules dir at any depth
+        *.txt              — txt files at the source root
+    """
+    rel_path = rel_path.replace("\\", "/").lstrip("/")
+    return _match_segments(rel_path.split("/"), pattern.split("/"))
+
+
+def _matches_any(rel_path: str, patterns: List[str]) -> bool:
+    return any(_matches_glob(rel_path, p) for p in (patterns or []))
 
 logger = setup_logger("backup")
 
@@ -131,12 +173,35 @@ def handle_backup_run(handler, path: str, params: dict, body: Any) -> None:
             if not source_path.exists():
                 logger.warning(f"Source path does not exist: {source_path}")
                 continue
-            
+
+            include_patterns = source.get("include") or []
+            exclude_patterns = source.get("exclude") or []
+
             for file_path in source_path.rglob("*"):
-                if file_path.is_file() and not classifier.should_exclude(str(file_path)):
-                    all_files.append(str(file_path))
-        
-        # Detect changes
+                if not file_path.is_file():
+                    continue
+                # Hard-coded classifier excludes (node_modules, .git, etc.) —
+                # always applied regardless of user config.
+                if classifier.should_exclude(str(file_path)):
+                    continue
+
+                # Apply user-configured include / exclude patterns from
+                # backup_config.yaml. Patterns operate on the path
+                # relative to the source root (so `**/*.py` matches files
+                # at any depth under the source).
+                try:
+                    rel_path = str(file_path.relative_to(source_path))
+                except ValueError:
+                    rel_path = str(file_path)
+
+                if exclude_patterns and _matches_any(rel_path, exclude_patterns):
+                    continue
+                if include_patterns and not _matches_any(rel_path, include_patterns):
+                    continue
+
+                all_files.append(str(file_path))
+
+        # Detect changes (read-only — no DB writes yet)
         changed_files = detector.detect_changes(all_files)
         
         if not changed_files:
@@ -169,10 +234,17 @@ def handle_backup_run(handler, path: str, params: dict, body: Any) -> None:
         if cfg["targets"]["local"]["enabled"]:
             target_path = Path(cfg["targets"]["local"]["path"]).expanduser()
             target = LocalDiskTarget(str(target_path))
-            
+
             snapshot_id = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             result = target.backup(file_infos, snapshot_id)
-            
+
+            # Commit hashes ONLY for files the storage layer actually
+            # copied. Files that errored stay marked "changed" so the
+            # next run will retry them, instead of being silently
+            # skipped because the index was advanced prematurely.
+            if result.succeeded_files:
+                detector.commit_hashes(result.succeeded_files)
+
             response = {
                 "success": result.success,
                 "files_processed": result.files_processed,

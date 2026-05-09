@@ -72,6 +72,7 @@ class LocalDiskTarget(BackupTarget):
             )
 
         # Copy files
+        succeeded_files = []
         for file_info in files:
             try:
                 source_path = Path(file_info.path)
@@ -79,13 +80,23 @@ class LocalDiskTarget(BackupTarget):
                     errors.append(f"Source file not found: {file_info.path}")
                     continue
 
-                # Preserve relative structure
-                dest_path = files_dir / source_path.name
+                # Mirror the absolute source path under files/ so that two
+                # files with the same basename in different source dirs do
+                # NOT overwrite each other (e.g. ~/Projects/README.md and
+                # ~/Documents/README.md both used to land at files/README.md).
+                # We strip the path anchor ("/" on Unix, "C:\\" on Windows)
+                # so the destination stays inside files_dir.
+                if source_path.is_absolute():
+                    relative_anchor = Path(*source_path.parts[1:])
+                else:
+                    relative_anchor = source_path
+                dest_path = files_dir / relative_anchor
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
 
                 shutil.copy2(source_path, dest_path)
                 files_processed += 1
                 bytes_transferred += file_info.size
+                succeeded_files.append(file_info.path)
             except Exception as e:
                 errors.append(f"Failed to backup {file_info.path}: {str(e)}")
 
@@ -117,7 +128,8 @@ class LocalDiskTarget(BackupTarget):
             success=(files_processed > 0 and len(errors) == 0),
             files_processed=files_processed,
             bytes_transferred=bytes_transferred,
-            errors=errors
+            errors=errors,
+            succeeded_files=succeeded_files,
         )
 
     def list_snapshots(self) -> List[SnapshotInfo]:

@@ -1,6 +1,6 @@
 # fcc/modules/backup/storage/base.py
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -30,6 +30,10 @@ class BackupResult:
     files_processed: int
     bytes_transferred: int
     errors: List[str]
+    # Source paths that were actually copied to the target. The change-
+    # detection layer must only commit hashes for these — committing for
+    # files that errored would silently mark them as already-backed-up.
+    succeeded_files: List[str] = field(default_factory=list)
 
 
 @dataclass
