@@ -426,20 +426,158 @@ button.secondary:hover { background: var(--secondary-bg-hover); color: var(--tex
   letter-spacing: -0.01em;
 }
 .sys-status-line + .sys-status-line { margin-top: 6px; }
-.speed-strip {
+.speed-card-head {
   display: flex;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px 20px;
-  font-size: 16px;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
 }
-.speed-strip .hl { font-weight: 750; color: var(--hero-tone); font-variant-numeric: tabular-nums; }
-.speed-source {
-  margin-top: 8px;
+.speed-card-head .card-title { margin-bottom: 0; }
+.speed-card-conn {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-muted);
   font-size: 13px;
-  line-height: 1.45;
-  white-space: normal;
-  overflow-wrap: anywhere;
+}
+.speed-card-conn-num {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.speed-totals {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 12px 32px;
+  flex-wrap: wrap;
+  padding: 16px 8px 18px;
+  margin: 6px 0 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.speed-totals .speed-side {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+}
+.speed-totals:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+.speed-totals .speed-arrow {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-right: 2px;
+  line-height: 1;
+}
+.speed-totals .speed-num {
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--hero-tone);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.speed-totals .speed-unit {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-left: 4px;
+  font-weight: 500;
+}
+.speed-totals .speed-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+}
+.speed-sources {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+.speed-sources-empty {
+  text-align: center;
+  padding: 8px 0;
+  color: var(--text-muted);
+}
+.speed-sources-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.speed-source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 55%, transparent);
+  border: 1px solid var(--border);
+  transition: border-color 120ms ease, background-color 120ms ease;
+  min-width: 0;
+}
+.speed-source-card.is-zero { opacity: 0.5; }
+.speed-source-card.is-active {
+  border-color: color-mix(in srgb, var(--hero-tone) 45%, var(--border));
+  background: color-mix(in srgb, var(--hero-tone-soft) 60%, var(--surface-soft) 40%);
+}
+.speed-source-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: -0.005em;
+}
+.speed-source-card-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+.speed-source-card-rate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.speed-source-card.is-active .speed-source-card-rate { color: var(--hero-tone); }
+.speed-source-card-arrow {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.speed-source-card-conn {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0.01em;
+  margin-left: auto;
+}
+@media (max-width: 520px) {
+  .speed-totals { gap: 10px 18px; padding: 12px 4px 14px; }
+  .speed-totals .speed-num { font-size: 22px; }
+  .speed-totals .speed-sep { display: none; }
+  .speed-sources-cards {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 6px;
+  }
+  .speed-source-card { padding: 8px 10px; }
 }
 .dir-list {
   margin-top: 10px;

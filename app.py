@@ -1788,12 +1788,15 @@ def build_frontend_html() -> str:
   </div>
 
   <div class="card" id="httpSpeedCard">
-    <span class="card-title">Real-time Public Transfer</span>
-    <div class="speed-strip">
-      <span>Speed <span id="speedText" class="hl">-</span></span>
-      <span>活跃Connect <span id="connText" class="hl">-</span></span>
+    <div class="speed-card-head">
+      <span id="httpSpeedCardTitle" class="card-title">All Netdisk HTTP Throughput</span>
+      <span class="speed-card-conn">
+        <span id="connText" class="speed-card-conn-num">-</span>
+        <span class="speed-card-conn-label">active connections</span>
+      </span>
     </div>
-    <div id="sourceSpeedText" class="speed-source muted">SourceSpeed加载中...</div>
+    <div id="speedText" class="speed-totals" role="button" tabindex="0" aria-label="Click to switch units">-</div>
+    <div id="sourceSpeedText" class="speed-sources">Loading source speeds...</div>
   </div>
 
   <div class="card" id="netdiskCard">
@@ -2387,13 +2390,31 @@ def build_frontend_html() -> str:
       }
     }
 
+    function makeSpeedSpan(cls, text, ariaHidden) {
+      const el = document.createElement("span");
+      el.className = cls;
+      if (text != null) el.textContent = text;
+      if (ariaHidden) el.setAttribute("aria-hidden", "true");
+      return el;
+    }
+    function makeSpeedSide(arrow, num, unit) {
+      const side = document.createElement("span");
+      side.className = "speed-side";
+      side.appendChild(makeSpeedSpan("speed-arrow", arrow, true));
+      side.appendChild(makeSpeedSpan("speed-num", num));
+      side.appendChild(makeSpeedSpan("speed-unit", unit));
+      return side;
+    }
     function renderSpeedValue() {
       if (!speedText) return;
-      if (speedDisplayUnit === "Mbps") {
-        speedText.textContent = `↓ ${latestTotalDownMbps.toFixed(2)} Mbps / ↑ ${latestTotalUpMbps.toFixed(2)} Mbps`;
-      } else {
-        speedText.textContent = `↓ ${latestTotalDownMiBps.toFixed(2)} MiB/s / ↑ ${latestTotalUpMiBps.toFixed(2)} MiB/s`;
-      }
+      const isMbps = speedDisplayUnit === "Mbps";
+      const unit = isMbps ? "Mbps" : "MiB/s";
+      const down = isMbps ? latestTotalDownMbps : latestTotalDownMiBps;
+      const up = isMbps ? latestTotalUpMbps : latestTotalUpMiBps;
+      while (speedText.firstChild) speedText.removeChild(speedText.firstChild);
+      speedText.appendChild(makeSpeedSide("↓", down.toFixed(2), unit));
+      speedText.appendChild(makeSpeedSpan("speed-sep", null, true));
+      speedText.appendChild(makeSpeedSide("↑", up.toFixed(2), unit));
       speedText.title = `Click to switch units (current ${speedDisplayUnit}）`;
       speedText.style.cursor = "pointer";
     }
@@ -2457,6 +2478,58 @@ def build_frontend_html() -> str:
       return raw;
     }
 
+    const SOURCE_LABEL_TO_KEY = {
+      "Baidu Netdisk": "baidu",
+      "Aliyun Drive": "ali",
+      "Guangya Drive": "guangya",
+      "Dropbox": "dropbox",
+      "MEGA": "mega",
+      "OneDrive": "onedrive",
+      "Google Drive": "gdrive",
+    };
+    function isSourceEnabledByConfig(label) {
+      const key = SOURCE_LABEL_TO_KEY[label];
+      if (!key) return true;
+      const map = (typeof ndEnabledSources === "object" && ndEnabledSources) ? ndEnabledSources : null;
+      if (!map) return true;
+      return map[key] !== false;
+    }
+    function makeSourceCard(r) {
+      const isActive = r.down > 0 || r.up > 0 || r.count > 0;
+      const card = document.createElement("div");
+      card.className = "speed-source-card " + (isActive ? "is-active" : "is-zero");
+      const name = document.createElement("div");
+      name.className = "speed-source-card-name";
+      name.textContent = r.name;
+      card.appendChild(name);
+      const stat = document.createElement("div");
+      stat.className = "speed-source-card-stat";
+      const mkRate = (arrow, num) => {
+        const rate = document.createElement("span");
+        rate.className = "speed-source-card-rate";
+        const a = document.createElement("span");
+        a.className = "speed-source-card-arrow";
+        a.setAttribute("aria-hidden", "true");
+        a.textContent = arrow;
+        const v = document.createElement("span");
+        v.className = "speed-source-card-num";
+        v.textContent = num;
+        rate.appendChild(a);
+        rate.appendChild(v);
+        return rate;
+      };
+      stat.appendChild(mkRate("↓", r.down.toFixed(2)));
+      stat.appendChild(mkRate("↑", r.up.toFixed(2)));
+      if (r.count > 0) {
+        const conn = document.createElement("span");
+        conn.className = "speed-source-card-conn";
+        conn.textContent = "· " + r.count;
+        conn.title = r.count + " connection" + (r.count === 1 ? "" : "s");
+        stat.appendChild(conn);
+      }
+      card.appendChild(stat);
+      return card;
+    }
     function renderSourceSpeeds(sourceStats) {
       if (!sourceSpeedText) return;
       const rows = Array.isArray(sourceStats) ? sourceStats : [];
@@ -2479,19 +2552,32 @@ def build_frontend_html() -> str:
       }
       let knownDown = 0;
       let knownUp = 0;
-      const chunks = [];
+      const displayRows = [];
       for (const [name, v] of buckets.entries()) {
-        const countText = v.count > 0 ? `（${Math.floor(v.count)}）` : "";
+        if (!isSourceEnabledByConfig(name)) continue;
         knownDown += v.down;
         knownUp += v.up;
-        chunks.push(`${name}${countText} ↓${v.down.toFixed(2)} ↑${v.up.toFixed(2)} MiB/s`);
+        displayRows.push({ name, down: v.down, up: v.up, count: Math.floor(v.count) });
       }
       const otherDown = Math.max(0, latestTotalDownMiBps - knownDown);
       const otherUp = Math.max(0, latestTotalUpMiBps - knownUp);
-      chunks.push(`Other sources ↓${otherDown.toFixed(2)} ↑${otherUp.toFixed(2)} MiB/s`);
-      const sourceLine = `SourceSpeed：${chunks.join(" | ")}`;
-      sourceSpeedText.textContent = sourceLine;
-      sourceSpeedText.title = sourceLine;
+      if (otherDown > 0 || otherUp > 0) {
+        displayRows.push({ name: "Other sources", down: otherDown, up: otherUp, count: 0 });
+      }
+
+      while (sourceSpeedText.firstChild) sourceSpeedText.removeChild(sourceSpeedText.firstChild);
+      if (displayRows.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "speed-sources-empty";
+        empty.textContent = "No netdisks enabled in config";
+        sourceSpeedText.appendChild(empty);
+        return;
+      }
+      const wrap = document.createElement("div");
+      wrap.className = "speed-sources-cards";
+      for (const r of displayRows) wrap.appendChild(makeSourceCard(r));
+      sourceSpeedText.appendChild(wrap);
+      sourceSpeedText.removeAttribute("title");
     }
 
     function sortTransfers(items) {
