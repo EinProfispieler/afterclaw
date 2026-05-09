@@ -32,6 +32,8 @@ docs/superpowers/
 NIGHTLY.md
 PLAN.md
 DEPLOY.md
+# Internal recovery / migration snapshots — never enter the public tree
+recovery-docs/
 # Runtime files
 *.log
 shareclip/shareclip.log
