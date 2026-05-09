@@ -330,7 +330,21 @@ tr:last-child td { border-bottom: 0; }
   <script>
   (function(){
     "use strict";
-    var API_BASE = "http://192.168.1.30:1288";
+    // API base resolution order:
+    //   1. ?api=http://host:port query override (for static hosting / file://)
+    //   2. window.location.origin when it is a real http(s) origin
+    //   3. fallback to localhost on the standard AfterClaw port
+    var API_BASE = (function () {
+      try {
+        var qApi = new URLSearchParams(window.location.search).get("api");
+        if (qApi) return qApi.replace(/\/+$/, "");
+      } catch (e) {}
+      var origin = window.location.origin;
+      if (typeof origin === "string" && /^https?:/.test(origin)) {
+        return origin;
+      }
+      return "http://127.0.0.1:1288";
+    })();
 
     var ALL_SOURCES = [
       { key: "baidu",     label: "Baidu Netdisk",   hint: "BaiduNetdisk" },
