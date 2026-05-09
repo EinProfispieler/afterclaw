@@ -13,12 +13,27 @@ __pycache__/
 *.pem
 *.key
 terminal_keys/
+# Never commit personal key material
+**/randy.pem
+**/randy.pem.pub
 ddns_config.json
 # Local tool data
 .claude/
 .firecrawl/
 .superpowers/
 .worktrees/
+# AI agent rules / docs — must not enter the public tree
+.cursor/
+AGENTS.md
+CLAUDE.md
+docs/AI_WORKFLOW.md
+docs/superpowers/
+# Internal dev-planning docs — kept out of the public tree
+NIGHTLY.md
+PLAN.md
+DEPLOY.md
+# Internal recovery / migration snapshots — never enter the public tree
+recovery-docs/
 # Runtime files
 *.log
 shareclip/shareclip.log

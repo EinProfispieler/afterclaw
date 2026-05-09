@@ -7,7 +7,7 @@ set -euo pipefail
 # 3) Commit only these files
 # 4) Push to GitHub
 
-ALLOWED_USER="${FCC_ALLOWED_USER:-randy}"
+ALLOWED_USER="${FCC_ALLOWED_USER:-$(id -un)}"
 if [[ "$(id -un)" != "${ALLOWED_USER}" ]]; then
   echo "This script is restricted to user: ${ALLOWED_USER}" >&2
   exit 1

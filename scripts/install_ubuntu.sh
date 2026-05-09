@@ -4,8 +4,8 @@ set -euo pipefail
 # Ubuntu / Debian installer
 WEB_PORT="${WEB_PORT:-1288}"
 STORAGE_ROOT="${STORAGE_ROOT:-/srv/Storage}"
-APP_ROOT="${APP_ROOT:-/opt/storage-http-link-web}"
-PUBLIC_HOST="${PUBLIC_HOST:-home.rxotc.cn:${WEB_PORT}}"
+APP_ROOT="${APP_ROOT:-/opt/afterclaw}"
+PUBLIC_HOST="${PUBLIC_HOST:-127.0.0.1:${WEB_PORT}}"
 PUBLIC_SCHEME="${PUBLIC_SCHEME:-http}"
 DOWNLOADS_ENABLED="${DOWNLOADS_ENABLED:-1}"
 QBT_SERVICE="${QBT_SERVICE:-qbittorrent-nox}"
