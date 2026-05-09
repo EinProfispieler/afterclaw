@@ -28,6 +28,10 @@ AGENTS.md
 CLAUDE.md
 docs/AI_WORKFLOW.md
 docs/superpowers/
+# Internal dev-planning docs — kept out of the public tree
+NIGHTLY.md
+PLAN.md
+DEPLOY.md
 # Runtime files
 *.log
 shareclip/shareclip.log
