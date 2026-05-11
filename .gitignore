@@ -42,3 +42,6 @@ push_ip_file.sh
 package_to_icloud.sh
 github-coordinator.md
 .recovery/
+
+# Claude × Codex Collab
+.collab/
