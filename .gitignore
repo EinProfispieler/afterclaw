@@ -22,6 +22,7 @@ ddns_config.json
 .firecrawl/
 .superpowers/
 .worktrees/
+ip-tools/
 # AI agent rules / docs — must not enter the public tree
 .cursor/
 AGENTS.md

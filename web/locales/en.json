@@ -473,7 +473,27 @@
     "更新任务已入队，正在执行。": "Update task queued, running now.",
     "已有更新任务在执行或当前环境不支持自动更新。": "An update task is already running or auto update is not supported.",
     "升级任务进行中，请勿关闭页面。": "Update in progress, please do not close this page.",
-    "请先填写仓库 owner/repo": "Please enter repository owner/repo first"
+    "请先填写仓库 owner/repo": "Please enter repository owner/repo first",
+    "BitTorrent Service": "BitTorrent Service",
+    "Clients (show/hide + drag to sort + click to edit)": "Clients (show/hide + drag to sort + click to edit)",
+    "Save BitTorrent settings": "Save BitTorrent settings",
+    "Detect available options": "Detect available options",
+    "Optimize Configuration": "Optimize Configuration",
+    "Fix monitoring permissions": "Fix monitoring permissions",
+    "Restart service": "Restart service",
+    "Optimize target: ": "Optimize target: ",
+    "Optimize": "Optimize",
+    "service": "service",
+    "docker": "docker",
+    "Save settings first, then optimize.": "Save settings first, then optimize.",
+    "Please save current BitTorrent settings before optimization.": "Please save current BitTorrent settings before optimization.",
+    "Will comment current related config and apply optimized parameters. Continue?": "Will comment current related config and apply optimized parameters. Continue?",
+    "Optimizing configuration...": "Optimizing configuration...",
+    "BitTorrent optimization completed": "BitTorrent optimization completed",
+    "Fixing BitTorrent settings and permissions...": "Fixing BitTorrent settings and permissions...",
+    "BitTorrent fix completed": "BitTorrent fix completed",
+    "Confirm restart BitTorrent service? Active tasks may be interrupted.": "Confirm restart BitTorrent service? Active tasks may be interrupted.",
+    "BitTorrent service restarted": "BitTorrent service restarted"
   },
   "patterns": [
     {

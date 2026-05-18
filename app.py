@@ -4073,7 +4073,7 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
-        <a href="/" class="back-link">← Back to AfterClaw</a>
+        <a href="/" class="back-link" data-i18n="← Back to AfterClaw" data-i18n-fallback="← Back to AfterClaw">← Back to AfterClaw</a>
         <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
         <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
         <select id="langSelect" class="lang-select" title="Language">
@@ -4254,10 +4254,10 @@ def build_config_html() -> str:
 
     <section id="panel-qbt" class="cfg-panel">
       <div class="card">
-        <span class="card-title">BitTorrent Service</span>
+        <span class="card-title" data-i18n="BitTorrent Service" data-i18n-fallback="BitTorrent Service">BitTorrent Service</span>
         <div class="cfg-grid" style="margin-top:12px;">
           <div class="cfg-item" style="grid-column: 1 / -1;">
-            <div class="title">Clients (show/hide + drag to sort + click to edit)</div>
+            <div class="title" data-i18n="Clients (show/hide + drag to sort + click to edit)" data-i18n-fallback="Clients (show/hide + drag to sort + click to edit)">Clients (show/hide + drag to sort + click to edit)</div>
             <div id="qbtHomeClientList" class="row" style="gap:10px;flex-wrap:wrap;align-items:center;"></div>
           </div>
           <label class="cfg-item">
@@ -4274,11 +4274,11 @@ def build_config_html() -> str:
           </label>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="saveQbtBtn">Save BitTorrent settings</button>
-          <button type="button" id="qbtDetectBtn" class="secondary">Detect available options</button>
-          <button type="button" id="qbtOptimizeBtn">Optimize Configuration</button>
-          <button type="button" id="qbtFixPermBtn" class="secondary">Fix monitoring permissions</button>
-          <button type="button" id="qbtRestartSvcBtn" class="secondary">Restart service</button>
+          <button type="button" id="saveQbtBtn" data-i18n="Save BitTorrent settings" data-i18n-fallback="Save BitTorrent settings">Save BitTorrent settings</button>
+          <button type="button" id="qbtDetectBtn" class="secondary" data-i18n="Detect available options" data-i18n-fallback="Detect available options">Detect available options</button>
+          <button type="button" id="qbtOptimizeBtn" data-i18n="Optimize Configuration" data-i18n-fallback="Optimize Configuration">Optimize Configuration</button>
+          <button type="button" id="qbtFixPermBtn" class="secondary" data-i18n="Fix monitoring permissions" data-i18n-fallback="Fix monitoring permissions">Fix monitoring permissions</button>
+          <button type="button" id="qbtRestartSvcBtn" class="secondary" data-i18n="Restart service" data-i18n-fallback="Restart service">Restart service</button>
         </div>
         <p id="qbtOptimizeTarget" class="cfg-help"></p>
         <p id="qbtRuntimeStatus" class="cfg-status muted"></p>
@@ -5303,7 +5303,7 @@ def build_config_html() -> str:
       if (!btn) return;
       var dirty = qbtSignatureFromPayload(qbtDraftPayload()) !== qbtSavedSignature;
       btn.dataset.dirty = dirty ? "1" : "0";
-      btn.title = dirty ? "Save settings first, then optimize." : "";
+      btn.title = dirty ? trRaw("Save settings first, then optimize.") : "";
       updateQbtOptimizeTargetText();
     }
     function qbtClientLabel(k){
@@ -5317,8 +5317,8 @@ def build_config_html() -> str:
       var client = String(btConfigClient || "qbittorrent").trim();
       var svc = String((byId("qbtServiceUnit") && byId("qbtServiceUnit").value) || "").trim() || "auto";
       var docker = String((byId("qbtDockerContainer") && byId("qbtDockerContainer").value) || "").trim() || "auto";
-      el.textContent = "Optimize target: " + qbtClientLabel(client) + " | service " + svc + " | docker " + docker;
-      btn.textContent = "Optimize " + qbtClientLabel(client);
+      el.textContent = trRaw("Optimize target: ") + qbtClientLabel(client) + " | " + trRaw("service") + " " + svc + " | " + trRaw("docker") + " " + docker;
+      btn.textContent = trRaw("Optimize") + " " + qbtClientLabel(client);
     }
     function normalizeQbtHomeOrder(orderRaw){
       var allowed = ["qbittorrent","deluge","transmission","rtorrent"];
@@ -5817,42 +5817,42 @@ def build_config_html() -> str:
     byId("qbtOptimizeBtn").addEventListener("click", async function(){
       updateQbtOptimizeState();
       if (String(byId("qbtOptimizeBtn").dataset.dirty || "0") === "1") {
-        setStatus("qbtStatus", "Please save current BitTorrent settings before optimization.", true);
+        setStatus("qbtStatus", trRaw("Please save current BitTorrent settings before optimization."), true);
         return;
       }
-      if (!window.confirm("Will comment current related config and apply optimized parameters. Continue?")) return;
+      if (!window.confirm(trRaw("Will comment current related config and apply optimized parameters. Continue?"))) return;
       try {
-        setStatus("qbtStatus", "Optimizing configuration...");
+        setStatus("qbtStatus", trRaw("Optimizing configuration..."));
         var selected = qbtDraftPayload();
         var d = await apiJson("/api/qbt/optimize-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ qbt: selected })
         });
-        setStatus("qbtStatus", (d && d.message) || "BitTorrent optimization completed");
+        setStatus("qbtStatus", (d && d.message) || trRaw("BitTorrent optimization completed"));
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "Optimization failed: " + err.message, true);
+        setStatus("qbtStatus", trRaw("Optimization failed: ") + err.message, true);
       }
     });
 
     byId("qbtFixPermBtn").addEventListener("click", async function(){
       try {
-        setStatus("qbtStatus", "Fixing BitTorrent settings and permissions...");
+        setStatus("qbtStatus", trRaw("Fixing BitTorrent settings and permissions..."));
         var d = await apiJson("/api/qbt/fix-monitor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
-        setStatus("qbtStatus", (d && d.message) || "BitTorrent fix completed");
+        setStatus("qbtStatus", (d && d.message) || trRaw("BitTorrent fix completed"));
         await loadQbtRuntime();
       } catch (err) {
-        setStatus("qbtStatus", "Fix failed: " + err.message, true);
+        setStatus("qbtStatus", trRaw("Fix failed: ") + err.message, true);
       }
     });
 
     byId("qbtRestartSvcBtn").addEventListener("click", async function(){
-      if (!window.confirm("Confirm restart qBittorrent? Active tasks may be interrupted.")) return;
+      if (!window.confirm(trRaw("Confirm restart BitTorrent service? Active tasks may be interrupted."))) return;
       try {
         var curClient = String(btConfigClient || (cfg.qbt && cfg.qbt.client) || "qbittorrent").trim();
         await apiJson("/api/control/service", {
@@ -5860,7 +5860,7 @@ def build_config_html() -> str:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ service: "qbt", action: "restart", client: curClient })
         });
-        setStatus("qbtStatus", "BitTorrent service restarted");
+        setStatus("qbtStatus", trRaw("BitTorrent service restarted"));
         await loadQbtRuntime();
       } catch (err) {
         setStatus("qbtStatus", "Restart failed: " + err.message, true);
