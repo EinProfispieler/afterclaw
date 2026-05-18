@@ -299,6 +299,13 @@ tr:last-child td { border-bottom: 0; }
         var s = ALL_SOURCES[i];
         if (sl === s.label.toLowerCase() || sl === s.key.toLowerCase() || sl === s.hint.toLowerCase()) return s.key;
       }
+      if (sl.indexOf("guangya") >= 0 || sl.indexOf("光鸭") >= 0 || sl.indexOf("clouddrive") >= 0 || sl.indexOf("cloud drive") >= 0) return "guangya";
+      if (sl.indexOf("aliyun") >= 0 || sl.indexOf("alipan") >= 0 || sl.indexOf("阿里") >= 0) return "ali";
+      if (sl.indexOf("baidu") >= 0 || sl.indexOf("pan.baidu") >= 0 || sl.indexOf("xpan") >= 0 || sl.indexOf("baiduyun") >= 0 || sl.indexOf("yun.baidu") >= 0 || sl.indexOf("pcs") >= 0 || sl.indexOf("百度") >= 0) return "baidu";
+      if (sl.indexOf("dropbox") >= 0) return "dropbox";
+      if (sl.indexOf("mega") >= 0) return "mega";
+      if (sl.indexOf("onedrive") >= 0) return "onedrive";
+      if ((sl.indexOf("google") >= 0 && sl.indexOf("drive") >= 0) || sl.indexOf("gdrive") >= 0) return "gdrive";
       return "";
     }
 

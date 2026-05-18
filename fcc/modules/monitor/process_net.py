@@ -9,10 +9,24 @@ import re
 import subprocess
 import threading
 import time
-from typing import Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 
 SourceRules = Sequence[tuple[str, Iterable[str]]]
+SourceResolver = Callable[[dict[str, Any]], str]
+
+
+def _endpoint_host(endpoint: str) -> str:
+    text = str(endpoint or "").strip()
+    if not text or text == "-":
+        return ""
+    if text.startswith("["):
+        end = text.find("]")
+        if end > 1:
+            return text[1:end].strip()
+    if text.count(":") == 1:
+        return text.rsplit(":", 1)[0].strip()
+    return text
 
 
 class ProcessSourceSpeedSampler:
@@ -39,6 +53,19 @@ class ProcessSourceSpeedSampler:
                 return str(source)
         return ""
 
+    @staticmethod
+    def _read_pid_cmdline(pid: str) -> str:
+        p = str(pid or "").strip()
+        if not p.isdigit():
+            return ""
+        try:
+            raw = open(f"/proc/{p}/cmdline", "rb").read()
+        except Exception:
+            return ""
+        if not raw:
+            return ""
+        return raw.replace(b"\x00", b" ").decode("utf-8", errors="ignore").strip()
+
     def _collect_process_socket_counters(self) -> dict:
         try:
             proc = subprocess.run(
@@ -55,6 +82,7 @@ class ProcessSourceSpeedSampler:
             return {}
 
         out = {}
+        pid_cmdline_cache: dict[str, str] = {}
         i = 0
         while i < len(lines):
             header = str(lines[i] or "")
@@ -87,8 +115,13 @@ class ProcessSourceSpeedSampler:
             for process_name, pid, _fd in user_matches:
                 source = self._infer_source_by_process_name(process_name)
                 if not source:
-                    continue
-                socket_key = f"{source}|{pid}|{local_ep}|{peer_ep}"
+                    cmdline = pid_cmdline_cache.get(pid, "")
+                    if not cmdline:
+                        cmdline = self._read_pid_cmdline(pid)
+                        pid_cmdline_cache[pid] = cmdline
+                    if cmdline:
+                        source = self._infer_source_by_process_name(cmdline)
+                socket_key = f"{pid}|{local_ep}|{peer_ep}"
                 out[socket_key] = {
                     "source": source,
                     "pid": int(pid),
@@ -96,17 +129,37 @@ class ProcessSourceSpeedSampler:
                     "state": state,
                     "local_ep": str(local_ep),
                     "peer_ep": str(peer_ep),
+                    "local_host": _endpoint_host(local_ep),
+                    "peer_host": _endpoint_host(peer_ep),
                     "acked": acked,
                     "received": received,
                 }
         return out
 
-    def source_speed_snapshot(self) -> dict:
+    @staticmethod
+    def _resolve_row_source(
+        row: dict[str, Any], source_resolver: SourceResolver | None = None
+    ) -> str:
+        src = str((row or {}).get("source", "") or "").strip()
+        if src:
+            return src
+        if callable(source_resolver):
+            try:
+                guessed = str(source_resolver(row) or "").strip()
+            except Exception:
+                guessed = ""
+            if guessed:
+                return guessed
+        return ""
+
+    def source_speed_snapshot(
+        self, source_resolver: SourceResolver | None = None
+    ) -> dict:
         now = time.time()
         current = self._collect_process_socket_counters()
         source_speed = {}
         for row in current.values():
-            source = str((row or {}).get("source", "") or "").strip()
+            source = self._resolve_row_source(row, source_resolver)
             if not source:
                 continue
             agg = source_speed.setdefault(
@@ -149,7 +202,7 @@ class ProcessSourceSpeedSampler:
             delta_recv = max(recv_now - recv_prev, 0)
             if delta_send <= 0 and delta_recv <= 0:
                 continue
-            source = str(row.get("source", "") or "").strip()
+            source = self._resolve_row_source(row, source_resolver)
             if not source:
                 continue
             agg = source_speed[source]
@@ -165,7 +218,7 @@ class ProcessSourceSpeedSampler:
             agg["count"] = int(agg.get("active_count", 0) or 0)
         return source_speed
 
-    def detailed_snapshot(self) -> dict:
+    def detailed_snapshot(self, source_resolver: SourceResolver | None = None) -> dict:
         now = time.time()
         current = self._collect_process_socket_counters()
         with self._lock:
@@ -178,7 +231,7 @@ class ProcessSourceSpeedSampler:
         source_agg = {}
         items = []
         for row in current.values():
-            source = str((row or {}).get("source", "") or "").strip()
+            source = self._resolve_row_source(row, source_resolver)
             if not source:
                 continue
             state = str((row or {}).get("state", "") or "").strip().upper()
