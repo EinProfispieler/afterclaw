@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.11] - 2026-05-19
+
+### Changed
+
+- Temporarily disabled the backup feature (Backup tab and `/api/backup/*`
+  routes) pending fixes. The `fcc/modules/backup` package remains in the
+  tree and can be re-enabled later.
+
 ## [0.9.0-dev] - 2026-04-27
 
 ### Added

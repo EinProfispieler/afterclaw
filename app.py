@@ -36,11 +36,8 @@ from fcc.modules import REGISTRY as MODULE_REGISTRY
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
 
-# Import backup module to register routes
-try:
-    import fcc.modules.backup.web
-except ImportError:
-    pass
+# Backup feature temporarily disabled (v0.9.11): module intentionally not
+# imported so its routes are never registered. Re-import to re-enable.
 
 _CODE_DIR = Path(__file__).resolve().parent
 _LEGACY_APP_ROOT_DIR = _CODE_DIR.parent
@@ -1792,7 +1789,7 @@ def build_frontend_html() -> str:
     <div class="tabs">
       <button id="tabMonitorBtn" class="tab-btn active" type="button">Control</button>
       <button id="tabDirBtn" class="tab-btn" type="button">Directory Service</button>
-      <button id="tabBackupBtn" class="tab-btn" type="button">Backup</button>
+      <button id="tabBackupBtn" class="tab-btn" type="button" style="display:none">Backup</button>
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
     <div class="tabs-actions">
@@ -4069,7 +4066,7 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.bt" data-i18n-fallback="BitTorrent">BitTorrent</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
-        <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup">Backup</button>
+        <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup" style="display:none">Backup</button>
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
