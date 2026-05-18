@@ -89,6 +89,13 @@ DEFAULT_QBT_API_URL = (
 )
 DEFAULT_QBT_API_USERNAME = os.environ.get("QBT_API_USERNAME", "").strip()
 DEFAULT_QBT_API_PASSWORD = os.environ.get("QBT_API_PASSWORD", "").strip()
+DEFAULT_QBT_DOCKER_CONTAINERS = tuple(
+    x.strip()
+    for x in os.environ.get(
+        "QBT_DOCKER_CONTAINERS", "qbittorrent,qbittorrent-nox,qbt,qbt-nox"
+    ).split(",")
+    if x.strip()
+)
 DEFAULT_DDNS_SERVICE = os.environ.get("DDNS_SERVICE", "").strip()
 APP_CONFIG_FILE_NAME = "app_config.json"
 TERMINAL_KEYS_DIR_NAME = "terminal_keys"
@@ -1202,6 +1209,22 @@ def default_app_config() -> dict:
         },
         "qbt": {
             "monitor_enabled": True,
+            "client": "qbittorrent",
+            "service_unit": "",
+            "docker_container": "",
+            "api_url": "",
+            "homepage_clients_enabled": {
+                "qbittorrent": True,
+                "deluge": False,
+                "transmission": False,
+                "rtorrent": False,
+            },
+            "homepage_clients_order": [
+                "qbittorrent",
+                "deluge",
+                "transmission",
+                "rtorrent",
+            ],
         },
         "http_service": {
             "root_dir": str(DEFAULT_STORAGE_ROOT),
@@ -1257,8 +1280,37 @@ def normalize_app_config(raw) -> dict:
             if "http" not in mods and "http_monitor" in mods:
                 base["modules"]["http"] = bool(mods.get("http_monitor"))
         qbt = raw.get("qbt")
-        if isinstance(qbt, dict) and "monitor_enabled" in qbt:
-            base["qbt"]["monitor_enabled"] = bool(qbt.get("monitor_enabled"))
+        if isinstance(qbt, dict):
+            if "monitor_enabled" in qbt:
+                base["qbt"]["monitor_enabled"] = bool(qbt.get("monitor_enabled"))
+            if "client" in qbt:
+                c = str(qbt.get("client", "") or "").strip().lower()
+                if c in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+                    base["qbt"]["client"] = c
+            if "service_unit" in qbt:
+                base["qbt"]["service_unit"] = str(qbt.get("service_unit", "") or "").strip()
+            if "docker_container" in qbt:
+                base["qbt"]["docker_container"] = str(qbt.get("docker_container", "") or "").strip()
+            if "api_url" in qbt:
+                base["qbt"]["api_url"] = str(qbt.get("api_url", "") or "").strip()
+            en = qbt.get("homepage_clients_enabled")
+            if isinstance(en, dict):
+                for k in ("qbittorrent", "deluge", "transmission", "rtorrent"):
+                    if k in en:
+                        base["qbt"]["homepage_clients_enabled"][k] = bool(en.get(k))
+            od = qbt.get("homepage_clients_order")
+            if isinstance(od, list):
+                out = []
+                seen = set()
+                for item in od:
+                    x = str(item or "").strip().lower()
+                    if x in {"qbittorrent", "deluge", "transmission", "rtorrent"} and x not in seen:
+                        seen.add(x)
+                        out.append(x)
+                for x in ("qbittorrent", "deluge", "transmission", "rtorrent"):
+                    if x not in seen:
+                        out.append(x)
+                base["qbt"]["homepage_clients_order"] = out
         http_service = raw.get("http_service")
         if isinstance(http_service, dict):
             if "root_dir" in http_service:
@@ -1899,10 +1951,12 @@ def build_frontend_html() -> str:
     <div id="sysStatus" class="sys-strip muted">系统状态加载中...</div>
     <div class="svc-grid">
       <div class="svc-card" id="qbtSvcCard">
-        <div class="svc-name">qBittorrent-nox</div>
+        <div class="svc-name">BitTorrent Service</div>
+        <div id="qbtClientTabBarWrap" style="display:flex;justify-content:flex-end;margin:6px 0 8px;"></div>
         <div id="qbtStatusText" class="svc-meta">加载中...</div>
         <div class="row">
-          <button id="qbtToggleBtn" class="secondary">Toggle</button>
+          <button id="qbtStartBtn" class="secondary">Start</button>
+          <button id="qbtStopBtn" class="secondary">Stop</button>
           <button id="qbtRestartBtn" class="secondary">Restart</button>
         </div>
       </div>
@@ -1991,6 +2045,7 @@ def build_frontend_html() -> str:
     const netdiskTransferCardTitle = document.getElementById("netdiskTransferCardTitle");
     const toggleDownloadBtn = document.getElementById("toggleDownloadBtn");
     const qbtStatusText = document.getElementById("qbtStatusText");
+    const qbtClientTabBarWrap = document.getElementById("qbtClientTabBarWrap");
     const ddnsStatusText = document.getElementById("ddnsStatusText");
     const selfStatusText = document.getElementById("selfStatusText");
     const sysStatus = document.getElementById("sysStatus");
@@ -2061,6 +2116,9 @@ def build_frontend_html() -> str:
     let clipCurrent = "pub";
     let clipCapturedImage = null;
     let qbtControlOn = false;
+    let btActiveClient = "qbittorrent";
+    let btHomepageEnabled = { qbittorrent: true, deluge: false, transmission: false, rtorrent: false };
+    let btHomepageOrder = ["qbittorrent", "deluge", "transmission", "rtorrent"];
     let ddnsControlOn = false;
     let httpModuleOn = true;
 
@@ -2610,7 +2668,9 @@ def build_frontend_html() -> str:
     const SOURCE_LABEL_TO_KEY = {
       "Baidu Netdisk": "baidu",
       "Aliyun Drive": "ali",
+      "Aliyun Netdisk": "ali",
       "Guangya Drive": "guangya",
+      "Guangya Netdisk": "guangya",
       "Dropbox": "dropbox",
       "MEGA": "mega",
       "OneDrive": "onedrive",
@@ -2895,6 +2955,52 @@ def build_frontend_html() -> str:
       return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit));
     }
 
+    function btClientLabel(key) {
+      const map = {
+        qbittorrent: "qBittorrent",
+        deluge: "Deluge",
+        transmission: "Transmission",
+        rtorrent: "rTorrent",
+      };
+      return map[String(key || "").toLowerCase()] || String(key || "");
+    }
+
+    function btEnabledClients() {
+      const out = [];
+      const order = Array.isArray(btHomepageOrder) ? btHomepageOrder : ["qbittorrent", "deluge", "transmission", "rtorrent"];
+      for (const k of order) {
+        if (btHomepageEnabled && btHomepageEnabled[k]) out.push(k);
+      }
+      return out;
+    }
+
+    function renderBtClientTabs() {
+      if (!qbtClientTabBarWrap) return;
+      const keys = btEnabledClients();
+      if (!keys.length) {
+        qbtClientTabBarWrap.innerHTML = "";
+        return;
+      }
+      if (!keys.includes(btActiveClient)) btActiveClient = keys[0];
+      const bar = document.createElement("div");
+      bar.className = "xfer-sort-group";
+      for (const k of keys) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "xfer-sort-btn" + (k === btActiveClient ? " active" : "");
+        btn.textContent = btClientLabel(k);
+        btn.addEventListener("click", async () => {
+          if (btActiveClient === k) return;
+          btActiveClient = k;
+          renderBtClientTabs();
+          await loadControlStatus();
+        });
+        bar.appendChild(btn);
+      }
+      qbtClientTabBarWrap.innerHTML = "";
+      qbtClientTabBarWrap.appendChild(bar);
+    }
+
     function renderControlStatus(data) {
       sysStatus.className = "sys-strip";
       const s = data.system || {};
@@ -2905,6 +3011,25 @@ def build_frontend_html() -> str:
       ddnsStatusText.innerHTML = svcText(data.ddns);
       selfStatusText.innerHTML = svcText(data.self);
       const appCfg = data.app_config || {};
+      const qbtCfg = appCfg.qbt || {};
+      const en = qbtCfg.homepage_clients_enabled || {};
+      btHomepageEnabled = {
+        qbittorrent: en.qbittorrent !== false,
+        deluge: !!en.deluge,
+        transmission: !!en.transmission,
+        rtorrent: !!en.rtorrent,
+      };
+      const od = Array.isArray(qbtCfg.homepage_clients_order) ? qbtCfg.homepage_clients_order : [];
+      const allowed = ["qbittorrent", "deluge", "transmission", "rtorrent"];
+      const outOrder = [];
+      for (const x of od) {
+        const k = String(x || "").toLowerCase();
+        if (allowed.includes(k) && !outOrder.includes(k)) outOrder.push(k);
+      }
+      for (const k of allowed) if (!outOrder.includes(k)) outOrder.push(k);
+      btHomepageOrder = outOrder;
+      if (qbtCfg.client) btActiveClient = String(qbtCfg.client).toLowerCase();
+      renderBtClientTabs();
       const mods = appCfg.modules || {};
       const showQbtModule = mods.qbt !== false;
       const showDdnsModule = mods.ddns !== false;
@@ -2912,7 +3037,8 @@ def build_frontend_html() -> str:
       const showHttpModule = mods.http !== false;
       httpModuleOn = !!showHttpModule;
       const qbtSvcCard = document.getElementById("qbtSvcCard");
-      if (qbtSvcCard) qbtSvcCard.style.display = showQbtModule ? "" : "none";
+      const btEnabledCount = btEnabledClients().length;
+      if (qbtSvcCard) qbtSvcCard.style.display = (showQbtModule && btEnabledCount > 0) ? "" : "none";
       if (tabPubBtn) tabPubBtn.style.display = showShareclipModule ? "" : "none";
       if (tabPubPanel) tabPubPanel.style.display = showShareclipModule ? "" : "none";
       if (httpSvcCard) httpSvcCard.style.display = showHttpModule ? "" : "none";
@@ -2935,7 +3061,10 @@ def build_frontend_html() -> str:
       const ddnsBuiltin = data.ddns && data.ddns.source === "builtin";
       const ddnsActive = ddnsBuiltin ? !!data.ddns.enabled : (data.ddns && data.ddns.active_state === "active");
       ddnsControlOn = !!ddnsActive;
-      document.getElementById("qbtToggleBtn").textContent = trRaw(qbtActive ? "Stop" : "Start");
+      const qbtStartBtn = document.getElementById("qbtStartBtn");
+      const qbtStopBtn = document.getElementById("qbtStopBtn");
+      if (qbtStartBtn) qbtStartBtn.disabled = qbtActive;
+      if (qbtStopBtn) qbtStopBtn.disabled = !qbtActive;
       document.getElementById("ddnsToggleBtn").textContent = trRaw(ddnsActive ? "Stop" : "Start");
       const rbtn = document.getElementById("ddnsRestartBtn");
       if (rbtn) rbtn.textContent = trRaw((data.ddns && data.ddns.source === "builtin") ? "Sync now" : "Restart");
@@ -2952,7 +3081,11 @@ def build_frontend_html() -> str:
       if (isRealtimePaused()) return;
       const reqTs = Date.now();
       try {
-        const data = await getJson("/api/control/status");
+        const activeClients = btEnabledClients();
+        const statusUrl = activeClients.length
+          ? ("/api/control/status?client=" + encodeURIComponent(btActiveClient || activeClients[0]))
+          : "/api/control/status";
+        const data = await getJson(statusUrl);
         if (isRealtimePaused() || reqTs < dashboardPauseUntil) return;
         renderControlStatus(data);
       } catch (err) {
@@ -2966,7 +3099,7 @@ def build_frontend_html() -> str:
         const data = await getJson("/api/control/service", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service, action }),
+          body: JSON.stringify({ service, action, client: btActiveClient || "qbittorrent" }),
         });
         if (service === "self" && action === "restart") {
           setStatus("已发送Restart命令，服务即将Restart。");
@@ -2978,6 +3111,16 @@ def build_frontend_html() -> str:
       } catch (err) {
         setStatus(`操作失败：${err.message}`, true);
       }
+    }
+
+    function qbtConfirmAction(action) {
+      if (action === "stop") {
+        return confirm(trRaw("Confirm stop qBittorrent? Active tasks may be interrupted."));
+      }
+      if (action === "restart") {
+        return confirm(trRaw("Confirm restart qBittorrent? Active tasks may be interrupted."));
+      }
+      return true;
     }
 
     async function listLinks() {
@@ -3177,10 +3320,17 @@ def build_frontend_html() -> str:
     document.getElementById("cleanApplyBtn").addEventListener("click", runCleanApply);
     document.getElementById("toggleDownloadBtn").addEventListener("click", toggleDownloads);
     document.getElementById("restartServiceBtn").addEventListener("click", restartService);
-    document.getElementById("qbtToggleBtn").addEventListener("click", () => {
-      controlService("qbt", qbtControlOn ? "stop" : "start");
+    document.getElementById("qbtStartBtn").addEventListener("click", () => {
+      controlService("qbt", "start");
     });
-    document.getElementById("qbtRestartBtn").addEventListener("click", () => controlService("qbt", "restart"));
+    document.getElementById("qbtStopBtn").addEventListener("click", () => {
+      if (!qbtConfirmAction("stop")) return;
+      controlService("qbt", "stop");
+    });
+    document.getElementById("qbtRestartBtn").addEventListener("click", () => {
+      if (!qbtConfirmAction("restart")) return;
+      controlService("qbt", "restart");
+    });
     document.getElementById("ddnsToggleBtn").addEventListener("click", () => {
       controlService("ddns", ddnsControlOn ? "stop" : "start");
     });
@@ -3290,7 +3440,19 @@ def build_frontend_html() -> str:
     const ndShowAllBySource = {};
 
     function ndSourceLabelToKey(label) {
-      const sl = String(label || "").toLowerCase();
+      const raw = String(label || "").trim();
+      if (!raw) return "";
+      const normalized = normalizeSourceName(raw);
+      if (SOURCE_LABEL_TO_KEY[normalized]) return SOURCE_LABEL_TO_KEY[normalized];
+      if (SOURCE_LABEL_TO_KEY[raw]) return SOURCE_LABEL_TO_KEY[raw];
+      const sl = raw.toLowerCase();
+      if (sl.includes("guangya") || sl.includes("光鸭") || sl.includes("clouddrive") || sl.includes("cloud drive")) return "guangya";
+      if (sl.includes("aliyun") || sl.includes("alipan") || sl.includes("阿里")) return "ali";
+      if (sl.includes("baidu") || sl.includes("pan.baidu") || sl.includes("xpan") || sl.includes("baiduyun") || sl.includes("yun.baidu") || sl.includes("pcs") || sl.includes("百度")) return "baidu";
+      if (sl.includes("dropbox")) return "dropbox";
+      if (sl.includes("mega")) return "mega";
+      if (sl.includes("onedrive")) return "onedrive";
+      if ((sl.includes("google") && sl.includes("drive")) || sl.includes("gdrive")) return "gdrive";
       for (const s of ND_ALL_SOURCES) {
         if (sl === s.label.toLowerCase() || sl === s.key.toLowerCase()) return s.key;
       }
@@ -3360,8 +3522,6 @@ def build_frontend_html() -> str:
       let sourcesToShow = ndActiveTab
         ? enabled.filter(s => s.key === ndActiveTab)
         : enabled;
-      // Temporarily hide guangya APP TCP data (not yet implemented; HTTP only)
-      sourcesToShow = sourcesToShow.filter(s => s.key !== 'guangya');
       if (!sourcesToShow.length) {
         ndDetailArea.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px;text-align:center;">No enabled sources</div>';
         return;
@@ -3692,6 +3852,28 @@ def build_config_html() -> str:
       flex-wrap: wrap;
     }
     .cfg-tabs-actions .secondary { white-space: nowrap; }
+    .page-head .back-link,
+    .cfg-tabs-actions .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid color-mix(in srgb, var(--border) 84%, #ffffff 16%);
+      background: color-mix(in srgb, var(--surface-soft) 86%, #0b1220 14%);
+      color: var(--text);
+      font-weight: 700;
+      text-decoration: none;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .page-head .back-link { margin-bottom: 10px; }
+    .page-head .back-link:hover,
+    .cfg-tabs-actions .back-link:hover {
+      background: color-mix(in srgb, var(--surface-hover) 82%, transparent);
+      border-color: color-mix(in srgb, var(--border) 66%, #ffffff 34%);
+      color: var(--text);
+    }
     .cfg-tab {
       border: 1px solid var(--tab-chip-border, var(--border));
       border-radius: 12px;
@@ -3874,9 +4056,8 @@ def build_config_html() -> str:
     <header class="page-head">
       <div class="head-row">
         <div>
-          <a href="/" class="back-link">← Back to AfterClaw</a>
           <h1 data-i18n="config.title" data-i18n-fallback="Configuration">Configuration</h1>
-          <p class="page-sub" data-i18n="config.subtitle" data-i18n-fallback="General Settings (module toggles) / HTTP / qB / Terminal / DDNS">General Settings (module toggles) / HTTP / qB / Terminal / DDNS</p>
+          <p class="page-sub" data-i18n="config.subtitle" data-i18n-fallback="General Settings (module toggles) / HTTP / BitTorrent / Terminal / DDNS">General Settings (module toggles) / HTTP / BitTorrent / Terminal / DDNS</p>
         </div>
       </div>
     </header>
@@ -3885,13 +4066,14 @@ def build_config_html() -> str:
       <div class="cfg-tabs">
         <button class="cfg-tab active" type="button" data-tab="general" data-i18n="config.tab.general" data-i18n-fallback="General">General</button>
         <button class="cfg-tab" type="button" data-tab="http" data-i18n="config.tab.http" data-i18n-fallback="HTTP">HTTP</button>
-        <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.qb" data-i18n-fallback="qB">qB</button>
+        <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.bt" data-i18n-fallback="BitTorrent">BitTorrent</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
         <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup">Backup</button>
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
+        <a href="/" class="back-link">← Back to AfterClaw</a>
         <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
         <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
         <select id="langSelect" class="lang-select" title="Language">
@@ -3921,8 +4103,8 @@ def build_config_html() -> str:
             <input type="checkbox" id="modQbt" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
-              <p class="cfg-module-title">qB Module</p>
-              <p class="cfg-module-desc">Shows qB status card and qB control actions on homepage.</p>
+              <p class="cfg-module-title">BitTorrent Module</p>
+              <p class="cfg-module-desc">Shows BitTorrent status card and control actions on homepage.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -4072,19 +4254,33 @@ def build_config_html() -> str:
 
     <section id="panel-qbt" class="cfg-panel">
       <div class="card">
-        <span class="card-title">qB Configuration</span>
+        <span class="card-title">BitTorrent Service</span>
         <div class="cfg-grid" style="margin-top:12px;">
-          <label class="cfg-item inline-check">
-            <input type="checkbox" id="qbtMonitorEnabled" /> <span class="title">qB Monitoring</span>
+          <div class="cfg-item" style="grid-column: 1 / -1;">
+            <div class="title">Clients (show/hide + drag to sort + click to edit)</div>
+            <div id="qbtHomeClientList" class="row" style="gap:10px;flex-wrap:wrap;align-items:center;"></div>
+          </div>
+          <label class="cfg-item">
+            <div class="title">Systemd service unit</div>
+            <select id="qbtServiceUnit"></select>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Docker container name</div>
+            <select id="qbtDockerContainer"></select>
+          </label>
+          <label class="cfg-item">
+            <div class="title">Web API URL</div>
+            <select id="qbtApiUrl"></select>
           </label>
         </div>
         <div class="cfg-actions">
-          <button type="button" id="saveQbtBtn">Save qB Configuration</button>
-          <button type="button" id="qbtOptimizeBtn">One-click optimize config</button>
-          <button type="button" id="qbtFixPermBtn" class="secondary">Fix qB monitoring permissions</button>
-          <button type="button" id="qbtRestartSvcBtn" class="secondary">Restart qB service</button>
-          <button type="button" id="qbtQuitBtn" class="secondary">Quit qB</button>
+          <button type="button" id="saveQbtBtn">Save BitTorrent settings</button>
+          <button type="button" id="qbtDetectBtn" class="secondary">Detect available options</button>
+          <button type="button" id="qbtOptimizeBtn">Optimize Configuration</button>
+          <button type="button" id="qbtFixPermBtn" class="secondary">Fix monitoring permissions</button>
+          <button type="button" id="qbtRestartSvcBtn" class="secondary">Restart service</button>
         </div>
+        <p id="qbtOptimizeTarget" class="cfg-help"></p>
         <p id="qbtRuntimeStatus" class="cfg-status muted"></p>
         <p id="qbtStatus" class="cfg-status"></p>
       </div>
@@ -4297,7 +4493,7 @@ def build_config_html() -> str:
     var cfg = {
       web_port: 1288,
       modules: { qbt: true, ddns: true, shareclip: true, http: true },
-      qbt: { monitor_enabled: true },
+      qbt: { monitor_enabled: true, client: "qbittorrent" },
       http_service: {
         root_dir: "/srv/Storage",
         default_dir: ".",
@@ -4329,6 +4525,10 @@ def build_config_html() -> str:
       }
     };
     var runtimeWebPort = 1288;
+    var qbtDiscoverCache = null;
+    var qbtSavedSignature = "";
+    var qbtDragClient = "";
+    var btConfigClient = "qbittorrent";
     var heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
     var upgradeState = { supported: false, running: false, state: "idle", current_version: "", branch: "main", target_tag: "", release_url: "", message: "", error: "" };
     var upgradePollTimer = 0;
@@ -5058,6 +5258,184 @@ def build_config_html() -> str:
       renderHttpDirList(cur, (d && d.directories) || []);
       if (!silent) setStatus("httpStatus", "Loaded directory: " + effectiveRoot + " / " + cur);
     }
+    function setSelectOptions(selectId, rows, selectedValue){
+      var el = byId(selectId);
+      if (!el) return;
+      var list = Array.isArray(rows) ? rows : [];
+      var selected = String(selectedValue || "");
+      el.innerHTML = "";
+      list.forEach(function(item){
+        var opt = document.createElement("option");
+        var val = String((item && item.value) || "");
+        var label = String((item && item.label) || val || "(auto)");
+        opt.value = val;
+        opt.textContent = label;
+        if (val === selected) opt.selected = true;
+        el.appendChild(opt);
+      });
+      if (!el.value && list.length) el.value = String((list[0] && list[0].value) || "");
+    }
+    function qbtDraftPayload(){
+      var en = qbtHomeEnabledMap(((cfg.qbt || {}).homepage_clients_enabled) || {});
+      var order = normalizeQbtHomeOrder(((cfg.qbt || {}).homepage_clients_order) || []);
+      return {
+        client: String(btConfigClient || "qbittorrent").trim(),
+        service_unit: (byId("qbtServiceUnit").value || "").trim(),
+        docker_container: (byId("qbtDockerContainer").value || "").trim(),
+        api_url: (byId("qbtApiUrl").value || "").trim(),
+        homepage_clients_enabled: en,
+        homepage_clients_order: order
+      };
+    }
+    function qbtSignatureFromPayload(payload){
+      var p = payload || {};
+      return JSON.stringify({
+        client: String(p.client || "qbittorrent"),
+        service_unit: String(p.service_unit || ""),
+        docker_container: String(p.docker_container || ""),
+        api_url: String(p.api_url || ""),
+        homepage_clients_enabled: qbtHomeEnabledMap(p.homepage_clients_enabled || {}),
+        homepage_clients_order: normalizeQbtHomeOrder(p.homepage_clients_order || [])
+      });
+    }
+    function updateQbtOptimizeState(){
+      var btn = byId("qbtOptimizeBtn");
+      if (!btn) return;
+      var dirty = qbtSignatureFromPayload(qbtDraftPayload()) !== qbtSavedSignature;
+      btn.dataset.dirty = dirty ? "1" : "0";
+      btn.title = dirty ? "Save settings first, then optimize." : "";
+      updateQbtOptimizeTargetText();
+    }
+    function qbtClientLabel(k){
+      var map = { qbittorrent: "qBittorrent", deluge: "Deluge", transmission: "Transmission", rtorrent: "rTorrent" };
+      return map[String(k || "").toLowerCase()] || String(k || "");
+    }
+    function updateQbtOptimizeTargetText(){
+      var el = byId("qbtOptimizeTarget");
+      var btn = byId("qbtOptimizeBtn");
+      if (!el || !btn) return;
+      var client = String(btConfigClient || "qbittorrent").trim();
+      var svc = String((byId("qbtServiceUnit") && byId("qbtServiceUnit").value) || "").trim() || "auto";
+      var docker = String((byId("qbtDockerContainer") && byId("qbtDockerContainer").value) || "").trim() || "auto";
+      el.textContent = "Optimize target: " + qbtClientLabel(client) + " | service " + svc + " | docker " + docker;
+      btn.textContent = "Optimize " + qbtClientLabel(client);
+    }
+    function normalizeQbtHomeOrder(orderRaw){
+      var allowed = ["qbittorrent","deluge","transmission","rtorrent"];
+      var out = [];
+      var seen = {};
+      var list = Array.isArray(orderRaw) ? orderRaw : [];
+      list.forEach(function(x){
+        var k = String(x || "").trim().toLowerCase();
+        if (allowed.indexOf(k) >= 0 && !seen[k]) {
+          seen[k] = true;
+          out.push(k);
+        }
+      });
+      allowed.forEach(function(k){ if (!seen[k]) out.push(k); });
+      return out;
+    }
+    function qbtHomeEnabledMap(raw){
+      var m = raw || {};
+      return {
+        qbittorrent: !!m.qbittorrent,
+        deluge: !!m.deluge,
+        transmission: !!m.transmission,
+        rtorrent: !!m.rtorrent
+      };
+    }
+    function renderQbtHomeClientList(){
+      var wrap = byId("qbtHomeClientList");
+      if (!wrap) return;
+      var q = cfg.qbt || {};
+      var order = normalizeQbtHomeOrder(q.homepage_clients_order || []);
+      var enabled = qbtHomeEnabledMap(q.homepage_clients_enabled || {});
+      wrap.innerHTML = "";
+      order.forEach(function(k){
+        var chip = document.createElement("div");
+        chip.className = "xfer-sort-group" + (k === btConfigClient ? " active" : "");
+        chip.draggable = true;
+        chip.dataset.client = k;
+        chip.style.padding = "10px 16px";
+        chip.style.borderRadius = "999px";
+        chip.style.display = "flex";
+        chip.style.alignItems = "center";
+        chip.style.gap = "8px";
+        chip.style.userSelect = "none";
+        chip.style.cursor = "pointer";
+        if (k === btConfigClient) {
+          chip.style.background = "linear-gradient(135deg, rgba(37,99,235,0.28), rgba(37,99,235,0.16))";
+          chip.style.borderColor = "rgba(37,99,235,0.9)";
+          chip.style.boxShadow = "0 0 0 1px rgba(37,99,235,0.65) inset";
+        }
+        chip.innerHTML = '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;"><input type="checkbox" class="qbt-home-client-check" data-client="' + k + '"' + (enabled[k] ? ' checked' : '') + ' /> <span>' + qbtClientLabel(k) + '</span></label><span class="muted" style="font-size:12px;">↔</span>';
+        chip.addEventListener("click", async function(e){
+          if (e && e.target && String(e.target.tagName || "").toLowerCase() === "input") return;
+          if (btConfigClient === k) return;
+          btConfigClient = k;
+          qbtDiscoverCache = null;
+          renderQbtHomeClientList();
+          updateQbtOptimizeState();
+          try { await loadQbtDiscover(true); } catch (err) { setStatus("qbtStatus", "Detect failed: " + err.message, true); }
+        });
+        chip.addEventListener("dragstart", function(){ qbtDragClient = k; });
+        chip.addEventListener("dragover", function(e){ e.preventDefault(); });
+        chip.addEventListener("drop", function(e){
+          e.preventDefault();
+          var from = qbtDragClient;
+          var to = k;
+          if (!from || from === to) return;
+          var arr = normalizeQbtHomeOrder((cfg.qbt || {}).homepage_clients_order || []);
+          var i = arr.indexOf(from), j = arr.indexOf(to);
+          if (i < 0 || j < 0) return;
+          arr.splice(i, 1);
+          arr.splice(j, 0, from);
+          cfg.qbt.homepage_clients_order = arr;
+          renderQbtHomeClientList();
+          updateQbtOptimizeState();
+        });
+        wrap.appendChild(chip);
+      });
+      Array.prototype.slice.call(wrap.querySelectorAll(".qbt-home-client-check")).forEach(function(el){
+        el.addEventListener("change", function(){
+          var key = String(el.getAttribute("data-client") || "").trim().toLowerCase();
+          if (!cfg.qbt.homepage_clients_enabled) cfg.qbt.homepage_clients_enabled = {};
+          cfg.qbt.homepage_clients_enabled[key] = !!el.checked;
+          updateQbtOptimizeState();
+        });
+      });
+    }
+    function applyQbtDiscoverOptions(data, currentCfg){
+      var d = data || {};
+      var c = currentCfg || cfg.qbt || {};
+      var noneOpt = [{ value: "", label: "Auto detect (recommended)" }];
+      var svc = noneOpt.concat((d.service_units || []).map(function(v){
+        var x = String(v || "");
+        return { value: x, label: x };
+      }));
+      var docker = noneOpt.concat((d.docker_containers || []).map(function(v){
+        var x = String(v || "");
+        return { value: x, label: x };
+      }));
+      var urls = noneOpt.concat((d.api_urls || []).map(function(v){
+        var x = String(v || "");
+        return { value: x, label: x };
+      }));
+      setSelectOptions("qbtServiceUnit", svc, String(c.service_unit || ""));
+      setSelectOptions("qbtDockerContainer", docker, String(c.docker_container || ""));
+      setSelectOptions("qbtApiUrl", urls, String(c.api_url || ""));
+    }
+    async function loadQbtDiscover(forceRefresh){
+      if (!forceRefresh && qbtDiscoverCache) {
+        applyQbtDiscoverOptions(qbtDiscoverCache, cfg.qbt || {});
+        return qbtDiscoverCache;
+      }
+      var client = String(btConfigClient || (cfg.qbt && cfg.qbt.client) || "qbittorrent").trim();
+      var d = await apiJson("/api/qbt/discover?client=" + encodeURIComponent(client));
+      qbtDiscoverCache = d || {};
+      applyQbtDiscoverOptions(qbtDiscoverCache, cfg.qbt || {});
+      return qbtDiscoverCache;
+    }
     function applyCfg(data){
       var c = data || {};
       cfg.web_port = parseWebPort(c.web_port, cfg.web_port || 1288);
@@ -5072,7 +5450,22 @@ def build_config_html() -> str:
       byId("modDdns").checked = cfg.modules.ddns !== false;
       byId("modShareclip").checked = cfg.modules.shareclip !== false;
       byId("modHttp").checked = cfg.modules.http !== false;
-      byId("qbtMonitorEnabled").checked = cfg.qbt.monitor_enabled !== false;
+      btConfigClient = String(cfg.qbt.client || "qbittorrent").toLowerCase();
+      if (!["qbittorrent","deluge","transmission","rtorrent"].includes(btConfigClient)) btConfigClient = "qbittorrent";
+      cfg.qbt.homepage_clients_enabled = qbtHomeEnabledMap(cfg.qbt.homepage_clients_enabled || {});
+      cfg.qbt.homepage_clients_order = normalizeQbtHomeOrder(cfg.qbt.homepage_clients_order || []);
+      applyQbtDiscoverOptions(qbtDiscoverCache || {}, cfg.qbt || {});
+      updateQbtOptimizeTargetText();
+      renderQbtHomeClientList();
+      qbtSavedSignature = qbtSignatureFromPayload({
+        client: String(cfg.qbt.client || "qbittorrent"),
+        service_unit: String(cfg.qbt.service_unit || ""),
+        docker_container: String(cfg.qbt.docker_container || ""),
+        api_url: String(cfg.qbt.api_url || ""),
+        homepage_clients_enabled: cfg.qbt.homepage_clients_enabled,
+        homepage_clients_order: cfg.qbt.homepage_clients_order
+      });
+      updateQbtOptimizeState();
       byId("httpRootDir").value = normalizeRootInput((cfg.http_service || {}).root_dir || "/srv/Storage");
       byId("httpDefaultDir").value = normalizeDirInput((cfg.http_service || {}).default_dir || ".");
       cfg.http_service.transfer_recent_ttl_sec = parseTransferRecentTtlSec((cfg.http_service || {}).transfer_recent_ttl_sec, 15);
@@ -5110,6 +5503,7 @@ def build_config_html() -> str:
     async function loadCfg(){
       var d = await apiJson("/api/app-config");
       applyCfg(d.config || d);
+      await loadQbtDiscover(false);
     }
     async function loadBaseInfo(){
       var d = await apiJson("/api/base");
@@ -5382,32 +5776,60 @@ def build_config_html() -> str:
       });
     }
 
+    async function saveQbtSettings(silent){
+      var draft = qbtDraftPayload();
+      var payload = { qbt: draft };
+      var d = await apiJson("/api/app-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      applyCfg(d.config || d);
+      qbtSavedSignature = qbtSignatureFromPayload(draft);
+      updateQbtOptimizeState();
+      if (!silent) setStatus("qbtStatus", "BitTorrent settings saved");
+      await loadQbtRuntime();
+      return payload.qbt;
+    }
+
     byId("saveQbtBtn").addEventListener("click", async function(){
       try {
-        var payload = { qbt: { monitor_enabled: byId("qbtMonitorEnabled").checked } };
-        var d = await apiJson("/api/app-config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        applyCfg(d.config || d);
-        setStatus("qbtStatus", "qB settings saved");
-        await loadQbtRuntime();
+        await saveQbtSettings(false);
       } catch (err) {
         setStatus("qbtStatus", "Save failed: " + err.message, true);
       }
     });
+    byId("qbtDetectBtn").addEventListener("click", async function(){
+      try {
+        await loadQbtDiscover(true);
+        setStatus("qbtStatus", "Detected available options");
+      } catch (err) {
+        setStatus("qbtStatus", "Detect failed: " + err.message, true);
+      }
+    });
+    ["qbtServiceUnit","qbtDockerContainer","qbtApiUrl"].forEach(function(id){
+      var el = byId(id);
+      if (!el) return;
+      el.addEventListener("input", updateQbtOptimizeState);
+      el.addEventListener("change", updateQbtOptimizeState);
+    });
 
     byId("qbtOptimizeBtn").addEventListener("click", async function(){
+      updateQbtOptimizeState();
+      if (String(byId("qbtOptimizeBtn").dataset.dirty || "0") === "1") {
+        setStatus("qbtStatus", "Please save current BitTorrent settings before optimization.", true);
+        return;
+      }
       if (!window.confirm("Will comment current related config and apply optimized parameters. Continue?")) return;
       try {
-        setStatus("qbtStatus", "Optimizing qB settings...");
+        setStatus("qbtStatus", "Optimizing configuration...");
+        var selected = qbtDraftPayload();
         var d = await apiJson("/api/qbt/optimize-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: "{}"
+          body: JSON.stringify({ qbt: selected })
         });
-        setStatus("qbtStatus", (d && d.message) || "qB optimization completed");
+        setStatus("qbtStatus", (d && d.message) || "BitTorrent optimization completed");
         await loadQbtRuntime();
       } catch (err) {
         setStatus("qbtStatus", "Optimization failed: " + err.message, true);
@@ -5416,13 +5838,13 @@ def build_config_html() -> str:
 
     byId("qbtFixPermBtn").addEventListener("click", async function(){
       try {
-        setStatus("qbtStatus", "Fixing qB settings and permissions...");
+        setStatus("qbtStatus", "Fixing BitTorrent settings and permissions...");
         var d = await apiJson("/api/qbt/fix-monitor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: "{}"
         });
-        setStatus("qbtStatus", (d && d.message) || "qB fix completed");
+        setStatus("qbtStatus", (d && d.message) || "BitTorrent fix completed");
         await loadQbtRuntime();
       } catch (err) {
         setStatus("qbtStatus", "Fix failed: " + err.message, true);
@@ -5430,31 +5852,18 @@ def build_config_html() -> str:
     });
 
     byId("qbtRestartSvcBtn").addEventListener("click", async function(){
+      if (!window.confirm("Confirm restart qBittorrent? Active tasks may be interrupted.")) return;
       try {
+        var curClient = String(btConfigClient || (cfg.qbt && cfg.qbt.client) || "qbittorrent").trim();
         await apiJson("/api/control/service", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service: "qbt", action: "restart" })
+          body: JSON.stringify({ service: "qbt", action: "restart", client: curClient })
         });
-        setStatus("qbtStatus", "qB service restarted");
+        setStatus("qbtStatus", "BitTorrent service restarted");
         await loadQbtRuntime();
       } catch (err) {
         setStatus("qbtStatus", "Restart failed: " + err.message, true);
-      }
-    });
-
-    byId("qbtQuitBtn").addEventListener("click", async function(){
-      if (!window.confirm("Confirm qB quit?")) return;
-      try {
-        await apiJson("/api/control/service", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service: "qbt", action: "quit" })
-        });
-        setStatus("qbtStatus", "Quit qB command sent");
-        await loadQbtRuntime();
-      } catch (err) {
-        setStatus("qbtStatus", "Quit failed: " + err.message, true);
       }
     });
 
@@ -6268,7 +6677,7 @@ class AppHandler(BaseHTTPRequestHandler):
     )
     process_source_rules = (
         ("Baidu Netdisk", ("baidunetdisk", "xpan")),
-        ("Guangya Netdisk", ("guangya",)),
+        ("Guangya Netdisk", ("guangya", "clouddrive", "clouddrive2", "cloudfs", "httpd", "apache2")),
         ("Aliyun Drive", ("aliyundrive", "alipan", "aliyun")),
         ("Dropbox", ("dropbox",)),
         ("MEGA", ("megasync", "mega")),
@@ -6284,6 +6693,7 @@ class AppHandler(BaseHTTPRequestHandler):
         "qbittorrent-nox",
         "qbt-nox",
     ]
+    qbt_docker_candidates = list(DEFAULT_QBT_DOCKER_CONTAINERS)
     ddns_candidates = [
         DEFAULT_DDNS_SERVICE,
         "ddns",
@@ -6538,6 +6948,36 @@ class AppHandler(BaseHTTPRequestHandler):
         http_cfg = (cfg.get("http_service") or {}) if isinstance(cfg, dict) else {}
         return _normalize_source_ip_pools(http_cfg.get("source_ip_pools"))
 
+    def _infer_process_source_by_row(
+        self, row: dict | None, source_ip_pools: dict | None = None
+    ) -> str:
+        if not isinstance(row, dict):
+            return ""
+
+        def _host_from_endpoint(value: str) -> str:
+            text = str(value or "").strip()
+            if not text or text == "-":
+                return ""
+            if text.startswith("["):
+                end = text.find("]")
+                if end > 1:
+                    return text[1:end].strip()
+            if text.count(":") == 1:
+                return text.rsplit(":", 1)[0].strip()
+            return text
+
+        for key in ("peer_host", "peer_ep", "local_host", "local_ep"):
+            raw = str(row.get(key, "") or "").strip()
+            if not raw:
+                continue
+            host = raw if key.endswith("_host") else _host_from_endpoint(raw)
+            if not host:
+                continue
+            label = _match_source_label_by_ip(host, source_ip_pools)
+            if label:
+                return label
+        return ""
+
     def _infer_transfer_source(
         self,
         relative_path: str,
@@ -6750,11 +7190,398 @@ class AppHandler(BaseHTTPRequestHandler):
         return None
 
     @classmethod
+    def _qbt_runtime_settings(cls, app_cfg: dict | None = None) -> dict:
+        cfg = app_cfg if isinstance(app_cfg, dict) else load_app_config(_APP_ROOT_DIR)
+        qbt_cfg = (cfg.get("qbt") or {}) if isinstance(cfg, dict) else {}
+        client = str(qbt_cfg.get("client", "") or "").strip().lower()
+        if client not in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+            client = "qbittorrent"
+        return {
+            "client": client,
+            "service_unit": str(qbt_cfg.get("service_unit", "") or "").strip(),
+            "docker_container": str(qbt_cfg.get("docker_container", "") or "").strip(),
+            "api_url": str(qbt_cfg.get("api_url", "") or "").strip(),
+            "api_username": DEFAULT_QBT_API_USERNAME,
+            "api_password": DEFAULT_QBT_API_PASSWORD,
+        }
+
+    @classmethod
+    def _bt_service_keywords(cls, client: str) -> tuple[str, ...]:
+        c = str(client or "").strip().lower()
+        return {
+            "qbittorrent": ("qbit", "qbittorrent"),
+            "deluge": ("deluge", "deluged"),
+            "transmission": ("transmission",),
+            "rtorrent": ("rtorrent",),
+        }.get(c, ("qbit", "qbittorrent"))
+
+    @classmethod
+    def _qbt_discover_options(cls, app_cfg: dict | None = None) -> dict:
+        settings = cls._qbt_runtime_settings(app_cfg)
+        client = str(settings.get("client", "qbittorrent") or "qbittorrent")
+        profile = {
+            "qbittorrent": {
+                "svc_keywords": cls._bt_service_keywords("qbittorrent"),
+                "docker_keywords": ("qbit", "qbittorrent"),
+            },
+            "deluge": {
+                "svc_keywords": cls._bt_service_keywords("deluge"),
+                "docker_keywords": ("deluge",),
+            },
+            "transmission": {
+                "svc_keywords": cls._bt_service_keywords("transmission"),
+                "docker_keywords": ("transmission",),
+            },
+            "rtorrent": {
+                "svc_keywords": cls._bt_service_keywords("rtorrent"),
+                "docker_keywords": ("rtorrent",),
+            },
+        }.get(client, {"svc_keywords": cls._bt_service_keywords("qbittorrent"), "docker_keywords": ("qbit", "qbittorrent")})
+        svc_keywords = tuple(str(x).lower() for x in profile["svc_keywords"])
+        docker_keywords = tuple(str(x).lower() for x in profile["docker_keywords"])
+        service_units = []
+        seen_units = set()
+        try:
+            out = subprocess.run(
+                ["systemctl", "list-unit-files", "--type=service", "--no-legend", "--no-pager"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if out.returncode == 0:
+                for line in out.stdout.splitlines():
+                    parts = line.split()
+                    if not parts:
+                        continue
+                    unit = str(parts[0] or "").strip()
+                    low = unit.lower()
+                    if any(k in low for k in svc_keywords):
+                        if unit not in seen_units:
+                            seen_units.add(unit)
+                            service_units.append(unit)
+        except Exception:
+            pass
+        try:
+            out = subprocess.run(
+                ["systemctl", "list-units", "--type=service", "--all", "--no-legend", "--no-pager"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if out.returncode == 0:
+                for line in out.stdout.splitlines():
+                    parts = line.split()
+                    if not parts:
+                        continue
+                    unit = str(parts[0] or "").strip()
+                    low = unit.lower()
+                    if any(k in low for k in svc_keywords):
+                        if unit not in seen_units:
+                            seen_units.add(unit)
+                            service_units.append(unit)
+        except Exception:
+            pass
+
+        docker_names = []
+        seen_docker = set()
+        try:
+            out = subprocess.run(
+                ["docker", "ps", "-a", "--format", "{{.Names}}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if out.returncode == 0:
+                for raw in out.stdout.splitlines():
+                    name = str(raw or "").strip()
+                    if not name:
+                        continue
+                    low = name.lower()
+                    if any(k in low for k in docker_keywords) and name not in seen_docker:
+                        seen_docker.add(name)
+                        docker_names.append(name)
+        except Exception:
+            pass
+
+        api_urls = []
+        seen_urls = set()
+        for base in cls._qbt_candidate_base_urls():
+            x = str(base or "").strip()
+            if not x or x in seen_urls:
+                continue
+            seen_urls.add(x)
+            api_urls.append(x)
+
+        return {
+            "service_units": service_units,
+            "docker_containers": docker_names,
+            "api_urls": api_urls,
+        }
+
+    @classmethod
+    def _qbt_effective_unit_from_settings(cls, app_cfg: dict | None = None) -> str:
+        svc = cls._resolve_existing_unit(cls._qbt_service_candidates(app_cfg))
+        if svc.get("load_state") != "not-found":
+            return str(svc.get("unit", "") or "").strip()
+        docker = cls._docker_qbt_container_info(app_cfg)
+        if docker:
+            return str(docker.get("unit", "") or "").strip()
+        return str(svc.get("unit", "") or "").strip()
+
+    @classmethod
+    def _torrent_profile_write_paths(cls, client: str, user_home: Path) -> list[Path]:
+        c = str(client or "").strip().lower()
+        if c == "transmission":
+            return [
+                Path("/var/lib/transmission-daemon/info/settings.json"),
+                user_home / ".config" / "transmission-daemon" / "settings.json",
+            ]
+        if c == "deluge":
+            return [
+                Path("/var/lib/deluged/config/core.conf"),
+                user_home / ".config" / "deluge" / "core.conf",
+            ]
+        if c == "rtorrent":
+            return [
+                user_home / ".rtorrent.rc",
+                Path("/etc/rtorrent.rc"),
+            ]
+        return []
+
+    @classmethod
+    def _optimize_torrent_non_qb(cls, client: str, unit: str) -> tuple[bool, str, dict]:
+        c = str(client or "").strip().lower()
+        svc = cls._resolve_existing_unit([unit]) if unit and not unit.startswith("docker:") else {"active_state": "unknown"}
+        was_active = str((svc or {}).get("active_state", "") or "").strip() == "active"
+        if unit and not was_active:
+            cls._service_action(unit, "start")
+            time.sleep(0.8)
+        changed_path = ""
+        try:
+            user = "root"
+            if unit and not unit.startswith("docker:"):
+                props = cls._systemd_show_properties(unit, ["User"])
+                user = str(props.get("User", "") or "").strip() or "root"
+            try:
+                user_home = Path(pwd.getpwnam(user).pw_dir).resolve()
+            except Exception:
+                user_home = Path("/root" if user == "root" else f"/home/{user}")
+            for path in cls._torrent_profile_write_paths(c, user_home):
+                p = Path(path)
+                if c in {"transmission", "deluge"} and p.exists() and p.is_file():
+                    raw = p.read_text(encoding="utf-8", errors="replace").strip()
+                    data = {}
+                    if raw:
+                        if c == "deluge":
+                            dec = json.JSONDecoder()
+                            idx = 0
+                            last_obj = None
+                            while idx < len(raw):
+                                while idx < len(raw) and raw[idx].isspace():
+                                    idx += 1
+                                if idx >= len(raw):
+                                    break
+                                obj, end = dec.raw_decode(raw, idx)
+                                idx = end
+                                if isinstance(obj, dict):
+                                    last_obj = obj
+                            data = last_obj or {}
+                        else:
+                            data = json.loads(raw)
+                    if not isinstance(data, dict):
+                        continue
+                    if c == "transmission":
+                        data["speed-limit-up-enabled"] = False
+                        data["speed-limit-down-enabled"] = False
+                        data["alt-speed-enabled"] = False
+                        data["peer-limit-global"] = int(data.get("peer-limit-global", 500) or 500)
+                    else:
+                        data["max_upload_speed"] = -1.0
+                        data["max_download_speed"] = -1.0
+                        data["max_connections_global"] = int(data.get("max_connections_global", 500) or 500)
+                    if c == "deluge":
+                        header = {"file": 1, "format": 1}
+                        payload = json.dumps(header, ensure_ascii=False, indent=4) + json.dumps(data, ensure_ascii=False, indent=4) + "\n"
+                    else:
+                        payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+                    p.write_text(payload, encoding="utf-8")
+                    changed_path = str(p)
+                    break
+                if c == "rtorrent":
+                    marker_start = "# --- afterclaw-rtorrent-optimize:start ---"
+                    marker_end = "# --- afterclaw-rtorrent-optimize:end ---"
+                    old = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+                    if marker_start in old and marker_end in old:
+                        changed_path = str(p)
+                        break
+                    block = (
+                        "\n"
+                        + marker_start
+                        + "\n"
+                        + "throttle.global_down.max_rate.set_kb = 0\n"
+                        + "throttle.global_up.max_rate.set_kb = 0\n"
+                        + marker_end
+                        + "\n"
+                    )
+                    p.write_text(old.rstrip() + block, encoding="utf-8")
+                    changed_path = str(p)
+                    break
+        except Exception as exc:
+            return False, str(exc), {"client": c, "unit": unit}
+        if unit:
+            cls._service_action(unit, "restart")
+            time.sleep(0.8)
+        return True, f"{c} optimization applied", {"client": c, "unit": unit, "changed_path": changed_path}
+
+    @classmethod
+    def _qbt_service_candidates(cls, app_cfg: dict | None = None) -> list[str]:
+        settings = cls._qbt_runtime_settings(app_cfg)
+        client = str(settings.get("client", "qbittorrent") or "qbittorrent")
+        defaults_map = {
+            "qbittorrent": [DEFAULT_QBT_SERVICE, "qbittorrent-nox", "qbt-nox"],
+            "deluge": ["deluged", "deluge-web"],
+            "transmission": ["transmission-daemon"],
+            "rtorrent": ["rtorrent"],
+        }
+        out = []
+        seen = set()
+        for raw in [settings.get("service_unit", "")] + defaults_map.get(client, defaults_map["qbittorrent"]):
+            unit = str(raw or "").strip()
+            if not unit or unit in seen:
+                continue
+            seen.add(unit)
+            out.append(unit)
+        return out
+
+    @classmethod
+    def _qbt_docker_name_candidates(cls, app_cfg: dict | None = None) -> list[str]:
+        names = []
+        seen = set()
+        settings = cls._qbt_runtime_settings(app_cfg)
+        client = str(settings.get("client", "qbittorrent") or "qbittorrent")
+        defaults_map = {
+            "qbittorrent": list(DEFAULT_QBT_DOCKER_CONTAINERS),
+            "deluge": ["deluge", "deluged"],
+            "transmission": ["transmission", "transmission-daemon"],
+            "rtorrent": ["rtorrent"],
+        }
+
+        def add(raw: str):
+            text = str(raw or "").strip()
+            if not text:
+                return
+            if text.endswith(".service"):
+                text = text[: -len(".service")]
+            if not text or text in seen:
+                return
+            seen.add(text)
+            names.append(text)
+
+        saved_container = str(settings.get("docker_container", "") or "").strip()
+        if client == "qbittorrent":
+            add(saved_container)
+        elif saved_container:
+            low_saved = saved_container.lower()
+            allowed = {
+                "deluge": ("deluge",),
+                "transmission": ("transmission",),
+                "rtorrent": ("rtorrent",),
+            }.get(client, ())
+            if any(k in low_saved for k in allowed):
+                add(saved_container)
+        for item in defaults_map.get(client, defaults_map["qbittorrent"]):
+            add(item)
+        for item in cls._qbt_service_candidates(app_cfg):
+            add(item)
+        return names
+
+    @classmethod
+    def _docker_qbt_container_info(cls, app_cfg: dict | None = None):
+        names = cls._qbt_docker_name_candidates(app_cfg)
+
+        for name in names:
+            try:
+                out = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.Status}}", name],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except Exception:
+                return None
+            if out.returncode != 0:
+                continue
+            status = str((out.stdout or "").strip() or "unknown").lower()
+            active_state = "active" if status == "running" else "inactive"
+            return {
+                "unit": f"docker:{name}",
+                "load_state": "loaded",
+                "active_state": active_state,
+                "sub_state": status,
+                "detail": f"Docker container {name}: {status}",
+            }
+
+        try:
+            out = subprocess.run(
+                ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return None
+        if out.returncode != 0:
+            return None
+        lookup = {str(x).strip().lower() for x in names if str(x).strip()}
+        for line in out.stdout.splitlines():
+            text = str(line or "").strip()
+            if not text or "\t" not in text:
+                continue
+            name, status_text = text.split("\t", 1)
+            low = name.lower()
+            if low not in lookup:
+                continue
+            st = str(status_text or "").strip().lower()
+            active_state = "active" if st.startswith("up") else "inactive"
+            return {
+                "unit": f"docker:{name}",
+                "load_state": "loaded",
+                "active_state": active_state,
+                "sub_state": st or "unknown",
+                "detail": f"Docker container {name}: {status_text}",
+            }
+        return None
+
+    @classmethod
+    def _docker_container_action(cls, name: str, action: str):
+        cname = str(name or "").strip()
+        if not cname:
+            return False, "docker 容器名为空"
+        if action not in {"start", "stop", "restart"}:
+            return False, "不支持的动作"
+        try:
+            out = subprocess.run(
+                ["docker", action, cname],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception as exc:
+            return False, str(exc)
+        if out.returncode == 0:
+            return True, ""
+        msg = (out.stderr or out.stdout or "").strip()[:200]
+        return False, msg or "docker 执行失败"
+
+    @classmethod
     def _service_action(cls, unit: str, action: str):
         if not unit:
             return False, "服务Not configured"
         if action not in {"start", "stop", "restart"}:
             return False, "不支持的动作"
+        if str(unit).startswith("docker:"):
+            cname = str(unit).split(":", 1)[1]
+            return cls._docker_container_action(cname, action)
         try:
             out = subprocess.run(
                 ["systemctl", action, unit],
@@ -6803,9 +7630,10 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _qbt_service_meta(cls) -> dict:
-        info = cls._resolve_existing_unit(cls.qbt_candidates)
+        info = cls._resolve_existing_unit(cls._qbt_service_candidates())
         if info.get("load_state") == "not-found":
-            info = cls._discover_unit_by_keywords(["qbit", "qbittorrent"]) or info
+            settings = cls._qbt_runtime_settings()
+            info = cls._discover_unit_by_keywords(cls._bt_service_keywords(settings.get("client", "qbittorrent"))) or info
         unit = str((info or {}).get("unit", "") or "").strip()
         if not unit or info.get("load_state") == "not-found":
             raise RuntimeError("未找到 qB 服务（systemd unit）")
@@ -7009,7 +7837,69 @@ class AppHandler(BaseHTTPRequestHandler):
             }
 
     @classmethod
-    def _qbt_optimize_config(cls) -> tuple[bool, str, dict]:
+    def _qbt_optimize_config(cls, selected_qbt: dict | None = None) -> tuple[bool, str, dict]:
+        selected = selected_qbt if isinstance(selected_qbt, dict) else {}
+        merged_cfg = load_app_config(_APP_ROOT_DIR)
+        if not isinstance(merged_cfg, dict):
+            merged_cfg = {}
+        qbt_cfg = dict((merged_cfg.get("qbt") or {}) if isinstance(merged_cfg.get("qbt"), dict) else {})
+        for key in ("service_unit", "docker_container", "api_url"):
+            if key in selected:
+                qbt_cfg[key] = str(selected.get(key, "") or "").strip()
+        if "client" in selected:
+            client = str(selected.get("client", "") or "").strip().lower()
+            if client in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+                qbt_cfg["client"] = client
+        merged_cfg["qbt"] = qbt_cfg
+        client = str(qbt_cfg.get("client", "qbittorrent") or "qbittorrent")
+
+        unit = cls._qbt_effective_unit_from_settings(merged_cfg)
+        if unit:
+            info = cls._resolve_existing_unit([unit]) if not unit.startswith("docker:") else {
+                "active_state": "inactive"
+            }
+            active = str((info or {}).get("active_state", "") or "").strip() == "active"
+            if not active:
+                cls._service_action(unit, "start")
+                time.sleep(0.8)
+
+        if client != "qbittorrent":
+            return cls._optimize_torrent_non_qb(client, unit)
+
+        if str(unit).startswith("docker:"):
+            desired = {
+                "web_ui_upnp": False,
+                "web_ui_host_header_validation_enabled": False,
+                "web_ui_csrf_protection_enabled": False,
+                "max_connec": -1,
+                "max_connec_per_torrent": -1,
+                "max_uploads": -1,
+                "max_uploads_per_torrent": -1,
+            }
+            last_err = ""
+            for base in cls._qbt_candidate_base_urls():
+                try:
+                    payload = json.dumps(desired, ensure_ascii=False).encode("utf-8")
+                    cls._qbt_api_call_with_auth(
+                        base,
+                        "/api/v2/app/setPreferences",
+                        method="POST",
+                        body=urlencode({"json": payload.decode("utf-8")}).encode("utf-8"),
+                        content_type="application/x-www-form-urlencoded",
+                    )
+                    cls._qbt_reset_stats_cache()
+                    verify = cls._qbt_stats_snapshot()
+                    return True, "BitTorrent optimization completed (Docker qBittorrent)", {
+                        "unit": unit,
+                        "mode": "docker-webapi",
+                        "base_url": base,
+                        "verify_ok": bool((verify or {}).get("ok", False)),
+                        "verify_detail": str((verify or {}).get("detail", "") or "").strip(),
+                    }
+                except Exception as exc:
+                    last_err = str(exc)
+            return False, (last_err or "WebUI 不可达，无法优化 Docker qB"), {"unit": unit, "mode": "docker-webapi"}
+
         meta = cls._qbt_service_meta()
         unit = str(meta["unit"])
         user = str(meta["user"])
@@ -7017,7 +7907,6 @@ class AppHandler(BaseHTTPRequestHandler):
         was_active = str(meta.get("active_state", "") or "") == "active"
         stopped = False
         backup_path = ""
-
         try:
             if was_active:
                 ok, msg = cls._service_action(unit, "stop")
@@ -7025,18 +7914,13 @@ class AppHandler(BaseHTTPRequestHandler):
                     raise RuntimeError(f"停止 qB 服务失败：{msg}")
                 stopped = True
                 time.sleep(0.6)
-
             conf_path.parent.mkdir(parents=True, exist_ok=True)
             prev_stat = conf_path.stat() if conf_path.exists() else None
-            raw = ""
-            if conf_path.exists():
-                raw = conf_path.read_text(encoding="utf-8", errors="replace")
-
+            raw = conf_path.read_text(encoding="utf-8", errors="replace") if conf_path.exists() else ""
             marker_start = "# --- fcc-qb-optimize:start ---"
             marker_end = "# --- fcc-qb-optimize:end ---"
             raw_lines = raw.splitlines()
-            start_idx = -1
-            end_idx = -1
+            start_idx, end_idx = -1, -1
             for idx, line in enumerate(raw_lines):
                 if line.strip() == marker_start:
                     start_idx = idx
@@ -7046,12 +7930,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     if raw_lines[idx].strip() == marker_end:
                         end_idx = idx
                         break
-            if start_idx >= 0 and end_idx > start_idx:
-                cleaned_lines = raw_lines[:start_idx] + raw_lines[end_idx + 1 :]
-            else:
-                cleaned_lines = raw_lines
+            cleaned_lines = raw_lines[:start_idx] + raw_lines[end_idx + 1 :] if (start_idx >= 0 and end_idx > start_idx) else raw_lines
             cleaned_raw = "\n".join(cleaned_lines).rstrip() + ("\n" if cleaned_lines else "")
-
             parser = configparser.ConfigParser(interpolation=None)
             parser.optionxform = str
             if cleaned_raw.strip():
@@ -7059,15 +7939,12 @@ class AppHandler(BaseHTTPRequestHandler):
             if not parser.has_section("Preferences"):
                 parser.add_section("Preferences")
             prefs = parser["Preferences"]
-
-            port_raw = str(prefs.get("WebUI\\Port", "") or "").strip()
             try:
-                webui_port = int(port_raw)
+                webui_port = int(str(prefs.get("WebUI\\Port", "") or "").strip())
                 if webui_port <= 0 or webui_port > 65535:
                     webui_port = 8080
             except Exception:
                 webui_port = 8080
-
             desired = {
                 "WebUI\\Enabled": "true",
                 "WebUI\\Address": "127.0.0.1",
@@ -7079,14 +7956,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 "Connection\\GlobalUPLimitAlt": "0",
             }
             desired_keys = set(desired.keys())
-            old_lines = cleaned_raw.splitlines()
-            if not old_lines:
-                old_lines = ["[Preferences]"]
-            rewritten_lines = []
-            in_preferences = False
-            preferences_exists = False
-            commented_keys = set()
-
+            old_lines = cleaned_raw.splitlines() or ["[Preferences]"]
+            rewritten_lines, commented_keys = [], set()
+            in_preferences, preferences_exists = False, False
             for line in old_lines:
                 stripped = line.strip()
                 if stripped.startswith("[") and stripped.endswith("]"):
@@ -7096,21 +7968,17 @@ class AppHandler(BaseHTTPRequestHandler):
                     rewritten_lines.append(line)
                     continue
                 if in_preferences and stripped and not stripped.startswith(("#", ";")):
-                    key_part = line.split("=", 1)[0] if "=" in line else ""
-                    key = key_part.strip()
+                    key = (line.split("=", 1)[0] if "=" in line else "").strip()
                     if key in desired_keys:
                         rewritten_lines.append(f"# {line}")
                         commented_keys.add(key)
                         continue
                 rewritten_lines.append(line)
-
             if not preferences_exists:
                 if rewritten_lines and rewritten_lines[-1].strip():
                     rewritten_lines.append("")
                 rewritten_lines.append("[Preferences]")
-
-            pref_start = None
-            pref_end = len(rewritten_lines)
+            pref_start, pref_end = None, len(rewritten_lines)
             for idx, line in enumerate(rewritten_lines):
                 if line.strip().lower() == "[preferences]":
                     pref_start = idx
@@ -7122,24 +7990,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 if stripped.startswith("[") and stripped.endswith("]"):
                     pref_end = idx
                     break
-
-            optimize_block = [
-                "",
-                marker_start,
-                "# managed by afterclaw",
-            ]
+            optimize_block = ["", marker_start, "# managed by afterclaw"]
             optimize_block.extend([f"{k}={v}" for k, v in desired.items()])
             optimize_block.extend([marker_end, ""])
-            merged = (
-                rewritten_lines[:pref_end] + optimize_block + rewritten_lines[pref_end:]
-            )
-            payload = "\n".join(merged).rstrip() + "\n"
-
+            payload = "\n".join((rewritten_lines[:pref_end] + optimize_block + rewritten_lines[pref_end:])).rstrip() + "\n"
             if conf_path.exists():
                 backup = conf_path.parent / f"{conf_path.name}.bak.{int(time.time())}"
                 shutil.copy2(conf_path, backup)
                 backup_path = str(backup)
-
             tmp = conf_path.parent / f"{conf_path.name}.tmp"
             tmp.write_text(payload, encoding="utf-8")
             try:
@@ -7153,19 +8011,17 @@ class AppHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             os.replace(str(tmp), str(conf_path))
-
             if was_active:
                 ok, msg = cls._service_action(unit, "start")
                 if not ok:
                     raise RuntimeError(f"qB 服务启动失败：{msg}")
                 stopped = False
                 time.sleep(1.0)
-
             cls._qbt_reset_stats_cache()
             verify = cls._qbt_stats_snapshot() if was_active else {}
             verify_ok = bool((verify or {}).get("ok", False))
             detail = str((verify or {}).get("detail", "") or "").strip()
-            msg = "qB Configuration优化完成"
+            msg = "BitTorrent optimization completed"
             if was_active and verify_ok:
                 msg += "，监控已恢复"
             elif was_active and detail:
@@ -7279,7 +8135,8 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _qbt_base_url(cls) -> str:
-        base = (DEFAULT_QBT_API_URL or "").strip()
+        settings = cls._qbt_runtime_settings()
+        base = str(settings.get("api_url", "") or "").strip() or (DEFAULT_QBT_API_URL or "").strip()
         if not base:
             base = "http://127.0.0.1:8080"
         if not base.startswith(("http://", "https://")):
@@ -7348,6 +8205,9 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _qbt_fetch_maindata_at_base(cls, base: str) -> dict:
+        settings = cls._qbt_runtime_settings()
+        api_user = str(settings.get("api_username", "") or "").strip()
+        api_pass = str(settings.get("api_password", "") or "").strip()
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
         headers = {
@@ -7370,7 +8230,7 @@ class AppHandler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             if e.code not in (401, 403):
                 raise RuntimeError(f"WebUI HTTP {e.code}") from e
-            if not (DEFAULT_QBT_API_USERNAME and DEFAULT_QBT_API_PASSWORD):
+            if not (api_user and api_pass):
                 raise RuntimeError(
                     "WebUI 需要登录，请配置 QBT_API_USERNAME / QBT_API_PASSWORD"
                 ) from e
@@ -7378,8 +8238,8 @@ class AppHandler(BaseHTTPRequestHandler):
         login_url = cls._qbt_api_join(base, "/api/v2/auth/login")
         login_body = urlencode(
             {
-                "username": DEFAULT_QBT_API_USERNAME,
-                "password": DEFAULT_QBT_API_PASSWORD,
+                "username": api_user,
+                "password": api_pass,
             }
         ).encode("utf-8")
         login_headers = {
@@ -7405,6 +8265,59 @@ class AppHandler(BaseHTTPRequestHandler):
             raise RuntimeError(f"WebUI 不可达: {e}") from e
 
     @classmethod
+    def _qbt_api_call_with_auth(
+        cls,
+        base: str,
+        api_path: str,
+        method: str = "GET",
+        body: bytes | None = None,
+        content_type: str | None = None,
+    ) -> tuple[int, str]:
+        settings = cls._qbt_runtime_settings()
+        api_user = str(settings.get("api_username", "") or "").strip()
+        api_pass = str(settings.get("api_password", "") or "").strip()
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        headers = {"User-Agent": "storage-ctrl-qbt/1"}
+        if content_type:
+            headers["Content-Type"] = str(content_type)
+        req = urllib.request.Request(
+            cls._qbt_api_join(base, api_path),
+            data=body,
+            method=str(method or "GET").upper(),
+            headers=headers,
+        )
+        try:
+            with opener.open(req, timeout=6) as resp:
+                return int(resp.getcode() or 200), (
+                    (resp.read() or b"").decode("utf-8", errors="replace")
+                )
+        except urllib.error.HTTPError as e:
+            if e.code not in (401, 403):
+                raise
+            if not (api_user and api_pass):
+                raise RuntimeError("WebUI 需要登录，请配置 QBT_API_USERNAME / QBT_API_PASSWORD") from e
+        login_body = urlencode({"username": api_user, "password": api_pass}).encode("utf-8")
+        login_req = urllib.request.Request(
+            cls._qbt_api_join(base, "/api/v2/auth/login"),
+            data=login_body,
+            method="POST",
+            headers={
+                "User-Agent": "storage-ctrl-qbt/1",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": (base.rstrip("/") + "/"),
+            },
+        )
+        with opener.open(login_req, timeout=6) as resp:
+            text = (resp.read() or b"").decode("utf-8", errors="replace").strip()
+        if text != "Ok.":
+            raise RuntimeError("WebUI 登录失败（用户名或密码错误）")
+        with opener.open(req, timeout=6) as resp:
+            return int(resp.getcode() or 200), (
+                (resp.read() or b"").decode("utf-8", errors="replace")
+            )
+
+    @classmethod
     def _qbt_fetch_maindata_once(cls) -> dict:
         errors = []
         for base in cls._qbt_candidate_base_urls():
@@ -7418,6 +8331,9 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _qbt_shutdown_at_base(cls, base: str) -> tuple[bool, str]:
+        settings = cls._qbt_runtime_settings()
+        api_user = str(settings.get("api_username", "") or "").strip()
+        api_pass = str(settings.get("api_password", "") or "").strip()
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
         headers = {
@@ -7437,7 +8353,7 @@ class AppHandler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             if e.code not in (401, 403):
                 return False, f"WebUI HTTP {e.code}"
-            if not (DEFAULT_QBT_API_USERNAME and DEFAULT_QBT_API_PASSWORD):
+            if not (api_user and api_pass):
                 return False, "WebUI 需要登录，请配置 QBT_API_USERNAME / QBT_API_PASSWORD"
         except urllib.error.URLError as e:
             return False, f"WebUI 不可达: {e}"
@@ -7447,8 +8363,8 @@ class AppHandler(BaseHTTPRequestHandler):
         login_url = cls._qbt_api_join(base, "/api/v2/auth/login")
         login_body = urlencode(
             {
-                "username": DEFAULT_QBT_API_USERNAME,
-                "password": DEFAULT_QBT_API_PASSWORD,
+                "username": api_user,
+                "password": api_pass,
             }
         ).encode("utf-8")
         login_headers = {
@@ -7560,6 +8476,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 detail += f" · Connect {peers}"
             if dht_nodes > 0:
                 detail += f" · DHT {dht_nodes}"
+            version = str(
+                server.get("qbittorrent_version")
+                or server.get("qbt_version")
+                or payload.get("version", "")
+                or ""
+            ).strip()
+            if version:
+                detail += f" · v{version}"
 
             data = {
                 "ok": True,
@@ -7574,6 +8498,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "total": len(torrents),
                 "peers": peers,
                 "dht_nodes": dht_nodes,
+                "version": version,
             }
         except Exception as exc:
             msg = str(exc) or "未知错误"
@@ -7589,22 +8514,64 @@ class AppHandler(BaseHTTPRequestHandler):
         return dict(data)
 
     @classmethod
-    def _control_status_payload(cls):
+    def _control_status_payload(cls, client_override: str = ""):
         app_cfg = load_app_config(_APP_ROOT_DIR)
+        if isinstance(app_cfg, dict):
+            qcfg = app_cfg.get("qbt")
+            if not isinstance(qcfg, dict):
+                qcfg = {}
+            co = str(client_override or "").strip().lower()
+            if co in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+                qcfg = dict(qcfg)
+                qcfg["client"] = co
+                app_cfg["qbt"] = qcfg
         qbt_cfg = (app_cfg or {}).get("qbt") or {}
-        qbt_monitor_enabled = bool(qbt_cfg.get("monitor_enabled", True))
+        bt_client = str(qbt_cfg.get("client", "qbittorrent") or "qbittorrent").strip().lower()
         http_module_on = cls._http_module_enabled()
-        qbt = cls._resolve_existing_unit(cls.qbt_candidates)
+        qbt = cls._resolve_existing_unit(cls._qbt_service_candidates(app_cfg))
         if qbt.get("load_state") == "not-found":
-            qbt = cls._discover_unit_by_keywords(["qbit", "qbittorrent"]) or qbt
-        if qbt.get("active_state") == "active" and qbt_monitor_enabled:
+            qbt = cls._discover_unit_by_keywords(cls._bt_service_keywords(bt_client)) or qbt
+        docker_qbt = cls._docker_qbt_container_info(app_cfg)
+        if docker_qbt:
+            systemd_active = str(qbt.get("active_state", "") or "").strip() == "active"
+            docker_active = (
+                str(docker_qbt.get("active_state", "") or "").strip() == "active"
+            )
+            if (
+                (qbt.get("load_state") == "not-found")
+                or (not systemd_active)
+                or docker_active
+            ):
+                qbt = docker_qbt
+        if qbt.get("active_state") == "active" and bt_client == "qbittorrent":
             qbt_stats = cls._qbt_stats_snapshot()
             if qbt_stats.get("detail"):
                 qbt["detail"] = qbt_stats.get("detail")
             if qbt_stats.get("ok"):
                 qbt["stats"] = qbt_stats
-        elif qbt.get("active_state") == "active" and not qbt_monitor_enabled:
-            qbt["detail"] = "qB Monitoring已关闭（可在 Config -> qB 中开启）"
+        elif qbt.get("active_state") == "active" and bt_client != "qbittorrent":
+            client_label = {
+                "deluge": "Deluge",
+                "transmission": "Transmission",
+                "rtorrent": "rTorrent",
+            }.get(bt_client, "BitTorrent")
+            qbt_stats = {
+                "ok": True,
+                "detail": "↓ 0B/s · ↑ 0B/s | Seeding 0 · Downloading 0 · Active 0 · Total 0",
+                "dl_bps": 0,
+                "up_bps": 0,
+                "seeding": 0,
+                "downloading": 0,
+                "active": 0,
+                "paused": 0,
+                "errored": 0,
+                "total": 0,
+                "peers": 0,
+                "dht_nodes": 0,
+                "version": "",
+            }
+            qbt["detail"] = f"{client_label} · {qbt_stats['detail']}"
+            qbt["stats"] = qbt_stats
         ddns_svc = ddns.merge_builtin_into_systemd_shape(_APP_ROOT_DIR)
         if ddns_svc is None:
             ddns_svc = cls._resolve_existing_unit(cls.ddns_candidates)
@@ -7743,7 +8710,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 }
             )
         # 合并“非 1288 通道”的Netdisk App 进程流量（如 baidunetdisk）。
-        process_speeds = self.process_speed_sampler.source_speed_snapshot()
+        process_speeds = self.process_speed_sampler.source_speed_snapshot(
+            lambda row: self._infer_process_source_by_row(row, source_ip_pools)
+        )
         if process_speeds:
             idx = {str(x.get("source", "")): x for x in source_stats}
             for source, row in process_speeds.items():
@@ -8887,7 +9856,10 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/process-net":
             if not self._require_lan():
                 return
-            data = self.process_detail_sampler.detailed_snapshot() or {}
+            source_ip_pools = self._http_source_ip_pools()
+            data = self.process_detail_sampler.detailed_snapshot(
+                lambda row: self._infer_process_source_by_row(row, source_ip_pools)
+            ) or {}
             payload = {
                 **(data if isinstance(data, dict) else {}),
                 "current_version": APP_VERSION_TEXT,
@@ -8905,13 +9877,33 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/control/status":
             if not self._require_lan():
                 return
-            self._send_json(self._control_status_payload())
+            query = parse_qs(parsed.query)
+            client = str(query.get("client", [""])[0] or "").strip().lower()
+            self._send_json(self._control_status_payload(client))
             return
 
         if parsed.path == "/api/app-config":
             if not self._require_lan():
                 return
             self._send_json({"config": load_app_config(_APP_ROOT_DIR)})
+            return
+
+        if parsed.path == "/api/qbt/discover":
+            if not self._require_lan():
+                return
+            query = parse_qs(parsed.query)
+            client = str(query.get("client", [""])[0] or "").strip().lower()
+            app_cfg = load_app_config(_APP_ROOT_DIR)
+            if client in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+                if not isinstance(app_cfg, dict):
+                    app_cfg = {}
+                qbt_cfg = app_cfg.get("qbt")
+                if not isinstance(qbt_cfg, dict):
+                    qbt_cfg = {}
+                qbt_cfg = dict(qbt_cfg)
+                qbt_cfg["client"] = client
+                app_cfg["qbt"] = qbt_cfg
+            self._send_json(self._qbt_discover_options(app_cfg))
             return
 
         if parsed.path == "/api/upgrade/status":
@@ -9373,6 +10365,40 @@ class AppHandler(BaseHTTPRequestHandler):
                 qbt_cfg = current.setdefault("qbt", {})
                 if "monitor_enabled" in body["qbt"]:
                     qbt_cfg["monitor_enabled"] = bool(body["qbt"].get("monitor_enabled"))
+                if "client" in body["qbt"]:
+                    client = str(body["qbt"].get("client", "") or "").strip().lower()
+                    if client in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+                        qbt_cfg["client"] = client
+                if "service_unit" in body["qbt"]:
+                    qbt_cfg["service_unit"] = str(
+                        body["qbt"].get("service_unit", "") or ""
+                    ).strip()
+                if "docker_container" in body["qbt"]:
+                    qbt_cfg["docker_container"] = str(
+                        body["qbt"].get("docker_container", "") or ""
+                    ).strip()
+                if "api_url" in body["qbt"]:
+                    qbt_cfg["api_url"] = str(body["qbt"].get("api_url", "") or "").strip()
+                if "homepage_clients_enabled" in body["qbt"] and isinstance(body["qbt"]["homepage_clients_enabled"], dict):
+                    en = qbt_cfg.get("homepage_clients_enabled")
+                    if not isinstance(en, dict):
+                        en = {}
+                    for k in ("qbittorrent", "deluge", "transmission", "rtorrent"):
+                        if k in body["qbt"]["homepage_clients_enabled"]:
+                            en[k] = bool(body["qbt"]["homepage_clients_enabled"].get(k))
+                    qbt_cfg["homepage_clients_enabled"] = en
+                if "homepage_clients_order" in body["qbt"] and isinstance(body["qbt"]["homepage_clients_order"], list):
+                    out = []
+                    seen = set()
+                    for item in body["qbt"]["homepage_clients_order"]:
+                        x = str(item or "").strip().lower()
+                        if x in {"qbittorrent", "deluge", "transmission", "rtorrent"} and x not in seen:
+                            seen.add(x)
+                            out.append(x)
+                    for x in ("qbittorrent", "deluge", "transmission", "rtorrent"):
+                        if x not in seen:
+                            out.append(x)
+                    qbt_cfg["homepage_clients_order"] = out
             http_path_cfg_changed = False
             if isinstance(body.get("http_service"), dict):
                 http_cfg = current.setdefault("http_service", {})
@@ -9507,7 +10533,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 qbt_info = self._resolve_existing_unit(self.qbt_candidates)
                 if qbt_info.get("load_state") == "not-found":
                     qbt_info = (
-                        self._discover_unit_by_keywords(["qbit", "qbittorrent"]) or qbt_info
+                        self._discover_unit_by_keywords(
+                            self._bt_service_keywords(
+                                ((saved or {}).get("qbt") or {}).get("client", "qbittorrent")
+                            )
+                        )
+                        or qbt_info
                     )
                 qbt_unit = str((qbt_info or {}).get("unit", "") or "").strip()
                 qbt_active = str((qbt_info or {}).get("active_state", "") or "").strip() == "active"
@@ -9767,6 +10798,7 @@ class AppHandler(BaseHTTPRequestHandler):
             body = self._parse_body()
             service = str(body.get("service", "")).strip().lower()
             action = str(body.get("action", "")).strip().lower()
+            client_override = str(body.get("client", "") or "").strip().lower()
             if service not in {"qbt", "ddns", "self"}:
                 self._error("Invalid service parameter", status=HTTPStatus.BAD_REQUEST)
                 return
@@ -9804,7 +10836,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     self._error(f"quit failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                     return
                 self._qbt_reset_stats_cache()
-                self._send_json(self._control_status_payload())
+                self._send_json(self._control_status_payload(client_override))
                 return
 
             if service == "ddns" and ddns.config_path(
@@ -9816,10 +10848,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         f"{action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR
                     )
                     return
-                self._send_json(self._control_status_payload())
+                self._send_json(self._control_status_payload(client_override))
                 return
 
-            status_now = self._control_status_payload()
+            status_now = self._control_status_payload(client_override)
             target_info = status_now.get(service) or {}
             unit = str(target_info.get("unit", "")).strip()
             if not unit or target_info.get("load_state") == "not-found":
@@ -9832,7 +10864,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if service == "qbt":
                 self._qbt_reset_stats_cache()
-            self._send_json(self._control_status_payload())
+            self._send_json(self._control_status_payload(client_override))
             return
 
         if parsed.path == "/api/qbt/fix-monitor":
@@ -9868,7 +10900,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     status=HTTPStatus.FORBIDDEN,
                 )
                 return
-            ok, msg, detail = self._qbt_optimize_config()
+            body = self._parse_body()
+            selected = (body.get("qbt") or {}) if isinstance(body, dict) else {}
+            ok, msg, detail = self._qbt_optimize_config(selected if isinstance(selected, dict) else {})
             if not ok:
                 self._error(f"qB optimize failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
