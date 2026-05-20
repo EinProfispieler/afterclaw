@@ -2739,7 +2739,7 @@ def build_frontend_html() -> str:
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = "Per-source throughput unavailable: module disabled";
+        if (sourceSpeedText) sourceSpeedText.textContent = trRaw("Per-source throughput unavailable: module disabled");
         return;
       }
       if (isRealtimePaused()) return;
@@ -2769,7 +2769,7 @@ def build_frontend_html() -> str:
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = "Per-source throughput unavailable";
+        if (sourceSpeedText) sourceSpeedText.textContent = trRaw("Per-source throughput unavailable");
       }
     }
 
@@ -2974,12 +2974,15 @@ def build_frontend_html() -> str:
       const count = Number(data.count || items.length || 0);
       const recentCount = Number(data.recent_count || 0);
       const overall = Number(data.overall_progress_pct || 0);
-      xferSummary.textContent = `Active Sessions ${count} · Recently Completed ${recentCount} · Overall Progress ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
+      xferSummary.textContent =
+        trRaw("Active Sessions") + " " + count +
+        " · " + trRaw("Recently Completed") + " " + recentCount +
+        " · " + trRaw("Overall Progress") + " " + Math.max(0, Math.min(100, overall)).toFixed(1) + "%";
       xferList.innerHTML = "";
       if (!items.length) {
         const empty = document.createElement("div");
         empty.className = "xfer-item muted";
-        empty.textContent = "No active HTTP transfer jobs.";
+        empty.textContent = trRaw("No active HTTP transfer jobs.");
         xferList.appendChild(empty);
         xferList.scrollTop = 0;
         return;
@@ -3047,7 +3050,7 @@ def build_frontend_html() -> str:
         renderTransfers(data);
       } catch (err) {
         xferSummary.textContent = "Active -";
-        if (sourceSpeedText) sourceSpeedText.textContent = "Per-source throughput unavailable";
+        if (sourceSpeedText) sourceSpeedText.textContent = trRaw("Per-source throughput unavailable");
       }
     }
 
@@ -3972,12 +3975,12 @@ def build_frontend_html() -> str:
       if (httpSpeedCardTitle) {
         httpSpeedCardTitle.textContent = activeSource
           ? activeSource.label + " HTTP Throughput"
-          : "Aggregate HTTP Throughput";
+          : trRaw("Aggregate HTTP Throughput");
       }
       if (netdiskTransferCardTitle) {
         netdiskTransferCardTitle.textContent = activeSource
           ? activeSource.label + " HTTP Sessions"
-          : "Aggregate HTTP Session Activity";
+          : trRaw("Aggregate HTTP Session Activity");
       }
     }
 
