@@ -123,5 +123,7 @@ def test_upload_applies_custom_permission_policy(tmp_path: Path):
     f = target / "Show.S01E04.srt"
     d_mode = stat.S_IMODE(target.stat().st_mode)
     f_mode = stat.S_IMODE(f.stat().st_mode)
-    assert d_mode == 0o775
+    # Some Linux filesystems preserve setgid on directory chmod(0o2775).
+    # Accept both plain rwx bits and setgid-preserved mode.
+    assert d_mode in (0o775, 0o2775)
     assert f_mode == 0o660
