@@ -4780,11 +4780,14 @@ def build_config_html() -> str:
         <div class="cfg-actions">
           <button type="button" id="saveQbtBtn" data-i18n="Save BitTorrent settings" data-i18n-fallback="Save BitTorrent settings">Save BitTorrent settings</button>
           <button type="button" id="qbtDetectBtn" class="secondary" data-i18n="Detect available options" data-i18n-fallback="Detect available options">Detect available options</button>
+          <button type="button" id="qbtCheckUpdateBtn" class="secondary">Check Client Update</button>
+          <button type="button" id="qbtUpgradeBtn">Upgrade Client</button>
           <button type="button" id="qbtOptimizeBtn" data-i18n="Optimize Configuration" data-i18n-fallback="Optimize Configuration">Optimize Configuration</button>
           <button type="button" id="qbtFixPermBtn" class="secondary" data-i18n="Fix monitoring permissions" data-i18n-fallback="Fix monitoring permissions">Fix monitoring permissions</button>
           <button type="button" id="qbtRestartSvcBtn" class="secondary" data-i18n="Restart service" data-i18n-fallback="Restart service">Restart service</button>
         </div>
         <p id="qbtOptimizeTarget" class="cfg-help"></p>
+        <p id="qbtUpgradeStatus" class="cfg-help"></p>
         <p id="qbtRuntimeStatus" class="cfg-status muted"></p>
         <p id="qbtStatus" class="cfg-status"></p>
       </div>
@@ -6043,6 +6046,63 @@ def build_config_html() -> str:
         byId("qbtRuntimeStatus").textContent = trRaw("Load failed:") + " " + err.message;
       }
     }
+    async function loadQbtUpgradeStatus(silent){
+      try {
+        var d = await apiJson("/api/qbt/client-upgrade/status");
+        renderQbtUpgradeStatus(d || {});
+      } catch (err) {
+        if (!silent) setStatus("qbtStatus", "Load client upgrade status failed: " + err.message, true);
+      }
+    }
+    function qbtUpgradePayload(){
+      return {
+        client: String(btConfigClient || "qbittorrent").trim(),
+        docker_container: String((byId("qbtDockerContainer") && byId("qbtDockerContainer").value) || "").trim()
+      };
+    }
+    function renderQbtUpgradeStatus(d){
+      var el = byId("qbtUpgradeStatus");
+      if (!el) return;
+      var rec = d || {};
+      var parts = [];
+      if (rec.client) parts.push("Client: " + qbtClientLabel(rec.client));
+      if (rec.container) parts.push("Container: " + rec.container);
+      if (rec.image) parts.push("Image: " + rec.image);
+      if (typeof rec.updatable === "boolean") parts.push(rec.updatable ? "Update available" : "Already latest");
+      var msg = String(rec.message || "").trim();
+      var err = String(rec.error || "").trim();
+      if (msg) parts.push(msg);
+      if (err) parts.push("Error: " + err);
+      if (rec.checked_at) parts.push("Checked: " + rec.checked_at);
+      el.textContent = parts.join(" | ");
+      var running = !!rec.running;
+      if (byId("qbtCheckUpdateBtn")) byId("qbtCheckUpdateBtn").disabled = running;
+      if (byId("qbtUpgradeBtn")) byId("qbtUpgradeBtn").disabled = running;
+    }
+    async function checkQbtClientUpdate(){
+      setStatus("qbtStatus", "Checking client image update...");
+      var d = await apiJson("/api/qbt/client-upgrade/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(qbtUpgradePayload())
+      });
+      renderQbtUpgradeStatus(d || {});
+      if (d && d.error) setStatus("qbtStatus", "Update check failed: " + d.error, true);
+      else setStatus("qbtStatus", (d && d.message) ? d.message : "Update check completed");
+    }
+    async function runQbtClientUpgrade(){
+      if (!window.confirm("Confirm upgrading selected BitTorrent docker client? Container will be recreated by docker compose and existing mapped config will be preserved.")) return;
+      setStatus("qbtStatus", "Starting client upgrade...");
+      var d = await apiJson("/api/qbt/client-upgrade/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(qbtUpgradePayload())
+      });
+      renderQbtUpgradeStatus(d || {});
+      if (d && d.state === "error") setStatus("qbtStatus", "Client upgrade failed: " + String(d.error || "unknown"), true);
+      else setStatus("qbtStatus", (d && d.message) ? d.message : "Client upgrade completed");
+      await loadQbtRuntime();
+    }
     function switchTab(name){
       var tab = (name || "").trim() || "general";
       var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, netdisk:1 };
@@ -6188,6 +6248,24 @@ def build_config_html() -> str:
           await checkServerVersion();
         } catch (err) {
           setStatus("upgradeStatus", "Version check failed: " + err.message, true);
+        }
+      });
+    }
+    if (byId("qbtCheckUpdateBtn")) {
+      byId("qbtCheckUpdateBtn").addEventListener("click", async function(){
+        try {
+          await checkQbtClientUpdate();
+        } catch (err) {
+          setStatus("qbtStatus", "Update check failed: " + err.message, true);
+        }
+      });
+    }
+    if (byId("qbtUpgradeBtn")) {
+      byId("qbtUpgradeBtn").addEventListener("click", async function(){
+        try {
+          await runQbtClientUpgrade();
+        } catch (err) {
+          setStatus("qbtStatus", "Client upgrade failed: " + err.message, true);
         }
       });
     }
@@ -6446,7 +6524,7 @@ def build_config_html() -> str:
     var initialTab = (window.location.hash || "").replace("#", "") || "general";
     switchTab(initialTab);
     loadCfg()
-      .then(function(){ return Promise.all([loadBaseInfo(), scanHttpRootPath(true), loadHttpDirBrowser(byId("httpBrowseDir").value, true), loadQbtRuntime(), loadUpgradeStatus(true)]); })
+      .then(function(){ return Promise.all([loadBaseInfo(), scanHttpRootPath(true), loadHttpDirBrowser(byId("httpBrowseDir").value, true), loadQbtRuntime(), loadQbtUpgradeStatus(true), loadUpgradeStatus(true)]); })
       .catch(function(err){ setStatus("generalStatus", "Config load failed: " + err.message, true); });
     window.addEventListener("beforeunload", stopUpgradePolling);
     window.__cfgMainReady = true;
@@ -7154,10 +7232,24 @@ class AppHandler(BaseHTTPRequestHandler):
     speed_lock = threading.Lock()
     control_lock = threading.Lock()
     upgrade_lock = threading.Lock()
+    qbt_upgrade_lock = threading.Lock()
     transfers_lock = threading.Lock()
     http_cut_lock = threading.Lock()
     restart_queued = False
     upgrade_running = False
+    qbt_upgrade_running = False
+    qbt_upgrade_status = {
+        "running": False,
+        "state": "idle",
+        "client": "",
+        "container": "",
+        "image": "",
+        "message": "",
+        "error": "",
+        "checked_at": "",
+        "updated_at": "",
+        "updatable": None,
+    }
     http_cut_epoch = 0
     speed_state = {
         "iface": None,
@@ -8107,6 +8199,193 @@ class AppHandler(BaseHTTPRequestHandler):
             return True, ""
         msg = (out.stderr or out.stdout or "").strip()[:200]
         return False, msg or "docker 执行失败"
+
+    @classmethod
+    def _qbt_upgrade_snapshot(cls) -> dict:
+        with cls.qbt_upgrade_lock:
+            return dict(cls.qbt_upgrade_status or {})
+
+    @classmethod
+    def _set_qbt_upgrade_status(cls, **kwargs) -> dict:
+        with cls.qbt_upgrade_lock:
+            cur = dict(cls.qbt_upgrade_status or {})
+            cur.update(kwargs)
+            cur["updated_at"] = _utc_now_iso()
+            cls.qbt_upgrade_status = cur
+            return dict(cur)
+
+    @classmethod
+    def _qbt_upgrade_compose_meta(cls, container_name: str) -> dict:
+        out = subprocess.run(
+            ["docker", "inspect", container_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if out.returncode != 0:
+            raise RuntimeError((out.stderr or out.stdout or "docker inspect failed").strip())
+        arr = json.loads(out.stdout or "[]")
+        if not isinstance(arr, list) or not arr:
+            raise RuntimeError("docker inspect returned empty result")
+        obj = arr[0] if isinstance(arr[0], dict) else {}
+        cfg = obj.get("Config") if isinstance(obj.get("Config"), dict) else {}
+        labels = cfg.get("Labels") if isinstance(cfg.get("Labels"), dict) else {}
+        image_ref = str(cfg.get("Image") or "").strip()
+        project = str(labels.get("com.docker.compose.project") or "").strip()
+        service = str(labels.get("com.docker.compose.service") or "").strip()
+        working_dir = str(labels.get("com.docker.compose.project.working_dir") or "").strip()
+        config_files_raw = str(labels.get("com.docker.compose.project.config_files") or "").strip()
+        files = [x.strip() for x in config_files_raw.split(",") if x.strip()]
+        if not (project and service and working_dir and files):
+            raise RuntimeError("Container is not managed by docker compose labels")
+        return {
+            "image": image_ref,
+            "project": project,
+            "service": service,
+            "working_dir": working_dir,
+            "config_files": files,
+        }
+
+    @classmethod
+    def _qbt_compose_cmd(cls, meta: dict, action: str) -> list[str]:
+        cmd = ["docker", "compose"]
+        wd = str(meta.get("working_dir") or "").strip()
+        files = meta.get("config_files") or []
+        if wd:
+            cmd.extend(["--project-directory", wd])
+        for f in files:
+            if f:
+                cmd.extend(["-f", str(f)])
+        cmd.extend(["--project-name", str(meta.get("project") or "").strip()])
+        service = str(meta.get("service") or "").strip()
+        if action == "pull":
+            cmd.extend(["pull", service])
+        elif action == "up":
+            cmd.extend(["up", "-d", "--no-deps", service])
+        else:
+            raise ValueError("unsupported compose action")
+        return cmd
+
+    @classmethod
+    def _docker_image_id(cls, image_ref: str) -> str:
+        ref = str(image_ref or "").strip()
+        if not ref:
+            return ""
+        out = subprocess.run(
+            ["docker", "image", "inspect", "-f", "{{.Id}}", ref],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if out.returncode != 0:
+            return ""
+        return str(out.stdout or "").strip()
+
+    @classmethod
+    def _resolve_qbt_upgrade_target(cls, app_cfg: dict | None = None, client_hint: str = "", container_hint: str = "") -> dict:
+        cfg = dict(app_cfg or {})
+        qbt_cfg = cfg.get("qbt") if isinstance(cfg.get("qbt"), dict) else {}
+        if not isinstance(qbt_cfg, dict):
+            qbt_cfg = {}
+        c = str(client_hint or qbt_cfg.get("client") or "qbittorrent").strip().lower()
+        if c not in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+            c = "qbittorrent"
+        if container_hint:
+            container = str(container_hint).strip()
+        else:
+            qbt_cfg2 = dict(qbt_cfg)
+            qbt_cfg2["client"] = c
+            cfg["qbt"] = qbt_cfg2
+            info = cls._docker_qbt_container_info(cfg) or {}
+            unit = str(info.get("unit") or "").strip()
+            container = unit.split(":", 1)[1] if unit.startswith("docker:") else ""
+        if not container:
+            raise RuntimeError("No docker container detected for selected client")
+        return {"client": c, "container": container}
+
+    @classmethod
+    def _qbt_upgrade_check(cls, app_cfg: dict | None = None, client_hint: str = "", container_hint: str = "") -> dict:
+        target = cls._resolve_qbt_upgrade_target(app_cfg, client_hint, container_hint)
+        meta = cls._qbt_upgrade_compose_meta(target["container"])
+        before_id = cls._docker_image_id(meta.get("image", ""))
+        pull_cmd = cls._qbt_compose_cmd(meta, "pull")
+        pull = subprocess.run(pull_cmd, capture_output=True, text=True, check=False)
+        if pull.returncode != 0:
+            raise RuntimeError((pull.stderr or pull.stdout or "docker compose pull failed").strip())
+        after_id = cls._docker_image_id(meta.get("image", ""))
+        updatable = bool(before_id and after_id and before_id != after_id)
+        output_text = ((pull.stdout or "") + "\n" + (pull.stderr or "")).strip()
+        if not output_text:
+            output_text = "Pull completed"
+        msg = "Update available" if updatable else "Already up to date"
+        return {
+            "client": target["client"],
+            "container": target["container"],
+            "image": str(meta.get("image") or ""),
+            "updatable": updatable,
+            "message": msg,
+            "detail": output_text[-1200:],
+        }
+
+    @classmethod
+    def _qbt_upgrade_run(cls, app_cfg: dict | None = None, client_hint: str = "", container_hint: str = "") -> dict:
+        with cls.qbt_upgrade_lock:
+            if cls.qbt_upgrade_running:
+                return dict(cls.qbt_upgrade_status or {})
+            cls.qbt_upgrade_running = True
+        try:
+            target = cls._resolve_qbt_upgrade_target(app_cfg, client_hint, container_hint)
+            cls._set_qbt_upgrade_status(
+                running=True,
+                state="running",
+                client=target["client"],
+                container=target["container"],
+                message="Pulling latest image...",
+                error="",
+            )
+            meta = cls._qbt_upgrade_compose_meta(target["container"])
+            before_id = cls._docker_image_id(meta.get("image", ""))
+            pull_cmd = cls._qbt_compose_cmd(meta, "pull")
+            pull = subprocess.run(pull_cmd, capture_output=True, text=True, check=False)
+            if pull.returncode != 0:
+                raise RuntimeError((pull.stderr or pull.stdout or "docker compose pull failed").strip())
+            mid_id = cls._docker_image_id(meta.get("image", ""))
+            cls._set_qbt_upgrade_status(
+                running=True,
+                state="running",
+                image=str(meta.get("image") or ""),
+                message="Recreating container with updated image...",
+            )
+            up_cmd = cls._qbt_compose_cmd(meta, "up")
+            up = subprocess.run(up_cmd, capture_output=True, text=True, check=False)
+            if up.returncode != 0:
+                raise RuntimeError((up.stderr or up.stdout or "docker compose up failed").strip())
+            after_id = cls._docker_image_id(meta.get("image", ""))
+            changed = bool(before_id and mid_id and before_id != mid_id)
+            msg = "Client upgraded successfully" if changed else "Client recreated (already latest image)"
+            detail = ((pull.stdout or "") + "\n" + (pull.stderr or "") + "\n" + (up.stdout or "") + "\n" + (up.stderr or "")).strip()
+            return cls._set_qbt_upgrade_status(
+                running=False,
+                state="success",
+                image=str(meta.get("image") or ""),
+                message=msg,
+                error="",
+                updatable=changed,
+                checked_at=_utc_now_iso(),
+                detail=detail[-1200:],
+                before_image_id=before_id,
+                after_image_id=after_id,
+            )
+        except Exception as exc:
+            return cls._set_qbt_upgrade_status(
+                running=False,
+                state="error",
+                message="Upgrade failed",
+                error=str(exc),
+            )
+        finally:
+            with cls.qbt_upgrade_lock:
+                cls.qbt_upgrade_running = False
 
     @classmethod
     def _service_action(cls, unit: str, action: str):
@@ -10444,6 +10723,12 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(self._qbt_discover_options(app_cfg))
             return
 
+        if parsed.path == "/api/qbt/client-upgrade/status":
+            if not self._require_lan():
+                return
+            self._send_json(self._qbt_upgrade_snapshot())
+            return
+
         if parsed.path == "/api/upgrade/status":
             if not self._require_lan():
                 return
@@ -11302,6 +11587,49 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(f"Failed to start update: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"queued": bool(queued), "status": status})
+            return
+
+        if parsed.path == "/api/qbt/client-upgrade/check":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            if not isinstance(body, dict):
+                body = {}
+            try:
+                app_cfg = load_app_config(_APP_ROOT_DIR)
+                info = self._qbt_upgrade_check(
+                    app_cfg,
+                    client_hint=str(body.get("client", "") or ""),
+                    container_hint=str(body.get("docker_container", "") or ""),
+                )
+                info["running"] = False
+                info["state"] = "checked"
+                info["checked_at"] = _utc_now_iso()
+                self._set_qbt_upgrade_status(**info)
+                self._send_json(self._qbt_upgrade_snapshot())
+            except Exception as exc:
+                rec = self._set_qbt_upgrade_status(
+                    running=False,
+                    state="error",
+                    message="Update check failed",
+                    error=str(exc),
+                )
+                self._send_json(rec)
+            return
+
+        if parsed.path == "/api/qbt/client-upgrade/run":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            if not isinstance(body, dict):
+                body = {}
+            app_cfg = load_app_config(_APP_ROOT_DIR)
+            rec = self._qbt_upgrade_run(
+                app_cfg,
+                client_hint=str(body.get("client", "") or ""),
+                container_hint=str(body.get("docker_container", "") or ""),
+            )
+            self._send_json(rec)
             return
 
         if parsed.path == "/api/ddns/config":
