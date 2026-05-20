@@ -33,6 +33,9 @@ import ddns
 from fcc import __version__ as FCC_APP_VERSION, __branch__ as FCC_APP_BRANCH
 from fcc.modules.monitor.process_net import ProcessSourceSpeedSampler
 from fcc.modules import REGISTRY as MODULE_REGISTRY
+import fcc.http_access as http_access
+import fcc.subtitle_uploads as subtitle_uploads
+import fcc.subtitle_align as subtitle_align
 from ddns.web import load_ddns_settings_page
 from naming.clean_names import apply_rename_plan, build_rename_plan
 
@@ -180,6 +183,29 @@ else:
 DEFAULT_TRANSFER_RECENT_TTL_SEC = float(
     os.environ.get("TRANSFER_RECENT_TTL_SEC", "15").strip() or "15"
 )
+DEFAULT_SUBTITLE_OWNER_UID = int(os.environ.get("SUBTITLE_OWNER_UID", "501"))
+DEFAULT_SUBTITLE_OWNER_GID = int(os.environ.get("SUBTITLE_OWNER_GID", "20"))
+DEFAULT_SUBTITLE_FILE_MODE = os.environ.get("SUBTITLE_FILE_MODE", "664").strip() or "664"
+DEFAULT_SUBTITLE_DIR_MODE = os.environ.get("SUBTITLE_DIR_MODE", "2775").strip() or "2775"
+
+
+def _normalize_subtitle_mode(value, default: str) -> str:
+    raw = str(value if value is not None else default).strip().lower()
+    if raw.startswith("0o"):
+        raw = raw[2:]
+    if not raw:
+        raw = str(default).strip().lower() or "664"
+    if not re.fullmatch(r"[0-7]{3,4}", raw):
+        raw = str(default).strip().lower() or "664"
+    return raw
+
+
+def _normalize_subtitle_uid_gid(value, default: int) -> int:
+    try:
+        v = int(str(value).strip())
+        return v if v >= 0 else int(default)
+    except Exception:
+        return int(default)
 
 
 def _page_title_with_version(title: str) -> str:
@@ -1226,12 +1252,19 @@ def default_app_config() -> dict:
         "http_service": {
             "root_dir": str(DEFAULT_STORAGE_ROOT),
             "default_dir": ".",
+            "subtitle_permissions": {
+                "owner_uid": DEFAULT_SUBTITLE_OWNER_UID,
+                "owner_gid": DEFAULT_SUBTITLE_OWNER_GID,
+                "file_mode": _normalize_subtitle_mode(DEFAULT_SUBTITLE_FILE_MODE, "664"),
+                "dir_mode": _normalize_subtitle_mode(DEFAULT_SUBTITLE_DIR_MODE, "2775"),
+            },
             "source_ip_pools": _default_source_ip_pools(),
             "source_ip_pool_source": _default_source_ip_pool_source(),
             "transfer_recent_ttl_sec": _normalize_transfer_recent_ttl(
                 DEFAULT_TRANSFER_RECENT_TTL_SEC
             ),
         },
+        "http_access": http_access.default_policy(),
         "terminal": {
             "enabled": True,
             "host": os.environ.get("TERMINAL_SSH_HOST", "127.0.0.1").strip()
@@ -1318,6 +1351,25 @@ def normalize_app_config(raw) -> dict:
                 base["http_service"]["default_dir"] = _normalize_rel_dir_setting(
                     http_service.get("default_dir")
                 )
+            sub_perm = http_service.get("subtitle_permissions")
+            if isinstance(sub_perm, dict):
+                cur = base["http_service"].setdefault("subtitle_permissions", {})
+                if "owner_uid" in sub_perm:
+                    cur["owner_uid"] = _normalize_subtitle_uid_gid(
+                        sub_perm.get("owner_uid"), DEFAULT_SUBTITLE_OWNER_UID
+                    )
+                if "owner_gid" in sub_perm:
+                    cur["owner_gid"] = _normalize_subtitle_uid_gid(
+                        sub_perm.get("owner_gid"), DEFAULT_SUBTITLE_OWNER_GID
+                    )
+                if "file_mode" in sub_perm:
+                    cur["file_mode"] = _normalize_subtitle_mode(
+                        sub_perm.get("file_mode"), "664"
+                    )
+                if "dir_mode" in sub_perm:
+                    cur["dir_mode"] = _normalize_subtitle_mode(
+                        sub_perm.get("dir_mode"), "2775"
+                    )
             if "source_ip_pools" in http_service:
                 base["http_service"]["source_ip_pools"] = _normalize_source_ip_pools(
                     http_service.get("source_ip_pools")
@@ -1345,6 +1397,8 @@ def normalize_app_config(raw) -> dict:
             base["http_service"]["default_dir"] = _normalize_rel_dir_setting(
                 raw.get("http_default_dir")
             )
+        if "http_access" in raw:
+            base["http_access"] = http_access.normalize_policy(raw.get("http_access"))
         terminal = raw.get("terminal")
         if isinstance(terminal, dict):
             if "enabled" in terminal:
@@ -1394,6 +1448,15 @@ def normalize_app_config(raw) -> dict:
     base["http_service"]["default_dir"] = _normalize_rel_dir_setting(
         base["http_service"]["default_dir"]
     )
+    sub_perm = base["http_service"].setdefault("subtitle_permissions", {})
+    sub_perm["owner_uid"] = _normalize_subtitle_uid_gid(
+        sub_perm.get("owner_uid"), DEFAULT_SUBTITLE_OWNER_UID
+    )
+    sub_perm["owner_gid"] = _normalize_subtitle_uid_gid(
+        sub_perm.get("owner_gid"), DEFAULT_SUBTITLE_OWNER_GID
+    )
+    sub_perm["file_mode"] = _normalize_subtitle_mode(sub_perm.get("file_mode"), "664")
+    sub_perm["dir_mode"] = _normalize_subtitle_mode(sub_perm.get("dir_mode"), "2775")
     base["http_service"]["source_ip_pools"] = _normalize_source_ip_pools(
         base["http_service"].get("source_ip_pools")
     )
@@ -1833,32 +1896,64 @@ def build_frontend_html() -> str:
   <div class="card">
     <details class="card-fold">
       <summary class="card-collapse-btn">
-        <span class="card-title" style="margin-bottom:0;">Name Cleanup / Batch Rename</span>
+        <span class="card-title" style="margin-bottom:0;">Filename & Subtitle Tools</span>
         <span class="card-collapse-arrow" aria-hidden="true">▶</span>
       </summary>
       <div id="cleanBody" class="card-fold-body">
-      <p class="muted" style="margin:0 0 10px;">在<strong>当前相对目录</strong>下重命名；先Preview再执行。可去掉宣传段、中文，并将 <code>S02</code> 季号挪到「首个 20xx 年」前（点分节）。</p>
-      <label for="cleanSubstrings">Substrings to remove (one per line)</label>
-      <textarea id="cleanSubstrings" style="min-height:72px;font-size:12px;" placeholder="e.g. full segment: ￡cXcY@FRDS"></textarea>
-      <div class="row" style="margin-top:8px;align-items:flex-start;">
-        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanStripCjk" /> Strip CJK (Chinese/full-width blocks)</label>
-        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanMoveSeason" checked /> Move season S## before first year 20xx</label>
+      <div class="tabs" style="margin:0 0 12px 0;justify-content:flex-start;">
+        <button type="button" class="tab-btn active" id="cleanModeRenameBtn">Cleanup / Rename</button>
+        <button type="button" class="tab-btn" id="cleanModeSubtitleBtn">Sub Management</button>
       </div>
-      <div class="row" style="margin-top:4px;">
-        <label for="cleanTarget" style="margin:0;align-self:center;">Target</label>
-        <select id="cleanTarget" class="small-inp" style="min-width:140px;">
-          <option value="both" selected>文件 + 子文件夹</option>
-          <option value="files">仅文件</option>
-          <option value="dirs">仅子文件夹</option>
-        </select>
-        <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanRecursive" /> Include subdirectories (rename bottom-up)</label>
+      <div id="cleanRenamePanel">
+        <p class="muted" style="margin:0 0 10px;">在<strong>当前相对目录</strong>下重命名；先Preview再执行。可去掉宣传段、中文，并将 <code>S02</code> 季号挪到「首个 20xx 年」前（点分节）。</p>
+        <label for="cleanSubstrings">Substrings to remove (one per line)</label>
+        <textarea id="cleanSubstrings" style="min-height:72px;font-size:12px;" placeholder="e.g. full segment: ￡cXcY@FRDS"></textarea>
+        <div class="row" style="margin-top:8px;align-items:flex-start;">
+          <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanStripCjk" /> Strip CJK (Chinese/full-width blocks)</label>
+          <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanMoveSeason" checked /> Move season S## before first year 20xx</label>
+        </div>
+        <div class="row" style="margin-top:4px;">
+          <label for="cleanTarget" style="margin:0;align-self:center;">Target</label>
+          <select id="cleanTarget" class="small-inp" style="min-width:140px;">
+            <option value="both" selected>文件 + 子文件夹</option>
+            <option value="files">仅文件</option>
+            <option value="dirs">仅子文件夹</option>
+          </select>
+          <label class="inline-check" style="margin-top:0"><input type="checkbox" id="cleanRecursive" /> Include subdirectories (rename bottom-up)</label>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button type="button" class="secondary" id="cleanPreviewBtn">Preview</button>
+          <button type="button" id="cleanApplyBtn" disabled>Apply rename by preview</button>
+        </div>
+        <div id="cleanPreview" class="clean-preview" style="display:none" aria-live="polite"></div>
+        <div id="cleanStatus" class="status-bar muted" style="margin-top:6px"></div>
       </div>
-      <div class="row" style="margin-top:8px;">
-        <button type="button" class="secondary" id="cleanPreviewBtn">Preview</button>
-        <button type="button" id="cleanApplyBtn" disabled>Apply rename by preview</button>
+      <div id="cleanSubtitlePanel" style="display:none">
+        <div class="sub-mgmt-layout">
+          <div class="sub-mgmt-left">
+            <p class="muted" style="margin:0 0 10px;">字幕对齐：按同目录文件名优先匹配；若文件名不一致，则按 <code>SxxExx</code>（如 <code>S01E02</code>）匹配视频并重命名字幕。</p>
+            <label class="inline-check" style="margin-top:0"><input type="checkbox" id="subtitleAlignRecursive" /> Include subdirectories (align bottom-up)</label>
+            <div class="row" style="margin-top:8px;">
+              <button type="button" class="secondary" id="subtitleAlignPreviewBtn">Preview align</button>
+              <button type="button" id="subtitleAlignApplyBtn" disabled>Apply align by preview</button>
+            </div>
+            <div id="subtitleAlignStatus" class="status-bar muted" style="margin-top:6px"></div>
+            <p class="muted" style="margin:14px 0 8px;">Subtitle upload: upload <code>.srt</code>, <code>.ass</code>, <code>.ssa</code>, <code>.vtt</code>, or archives such as <code>.zip</code>, <code>.rar</code>, <code>.7z</code>, <code>.gz</code>.</p>
+            <p style="margin:0 0 10px;color:var(--danger);font-weight:700;">Archive files are deleted after extraction (not kept).</p>
+            <label for="subtitleUploadInput">Subtitle files or archives</label>
+            <input id="subtitleUploadInput" type="file" multiple accept=".srt,.ass,.ssa,.vtt,.sub,.idx,.zip,.rar,.7z,.gz,.tgz,.tar,.tbz2,.txz,.bz2,.xz" />
+            <div class="row" style="margin-top:8px;">
+              <button type="button" id="subtitleUploadBtn">Upload subtitles</button>
+            </div>
+            <div id="subtitleUploadStatus" class="status-bar muted" style="margin-top:6px"></div>
+          </div>
+          <div class="sub-mgmt-right">
+            <label style="margin:0 0 6px;display:block;">Preview</label>
+            <div id="subtitleAlignPreview" class="clean-preview" style="display:none" aria-live="polite"></div>
+            <div id="subtitleUploadResult" class="clean-preview" style="display:none" aria-live="polite"></div>
+          </div>
+        </div>
       </div>
-      <div id="cleanPreview" class="clean-preview" style="display:none" aria-live="polite"></div>
-      <div id="cleanStatus" class="status-bar muted" style="margin-top:6px"></div>
       </div>
     </details>
   </div>
@@ -1949,7 +2044,7 @@ def build_frontend_html() -> str:
     <div class="svc-grid">
       <div class="svc-card" id="qbtSvcCard">
         <div class="svc-name">BitTorrent Service</div>
-        <div id="qbtClientTabBarWrap" style="display:flex;justify-content:flex-end;margin:6px 0 8px;"></div>
+        <div id="qbtClientTabBarWrap" style="display:flex;justify-content:flex-start;margin:6px 0 8px;"></div>
         <div id="qbtStatusText" class="svc-meta">加载中...</div>
         <div class="row">
           <button id="qbtStartBtn" class="secondary">Start</button>
@@ -1960,18 +2055,26 @@ def build_frontend_html() -> str:
       <div class="svc-card" id="ddnsSvcCard">
         <div class="svc-name">DDNS Service</div>
         <div id="ddnsStatusText" class="svc-meta">加载中...</div>
+        <div id="ddnsDomainText" class="svc-meta">Sync Domains: -</div>
         <div class="row">
           <button id="ddnsToggleBtn" class="secondary">Toggle</button>
           <button id="ddnsRestartBtn" class="secondary">Restart</button>
-          <button id="ddnsConfigBtn" class="secondary">Settings</button>
         </div>
       </div>
       <div class="svc-card" id="httpSvcCard">
-        <div class="svc-name">Current HTTP Service</div>
+        <div class="svc-name">HTTPD Service</div>
         <div id="selfStatusText" class="svc-meta">加载中...</div>
-        <div class="row">
-          <button id="toggleDownloadBtn" class="secondary">Toggle upload switch</button>
-          <button id="restartServiceBtn" class="secondary">Restart Service</button>
+        <div id="httpAccessText" class="svc-meta">Access: …</div>
+        <div class="http-actions-grid">
+          <button type="button" id="toggleDownloadBtn" class="secondary">Lan</button>
+          <button type="button" id="restartServiceBtn" class="secondary">Restart</button>
+          <button type="button" id="httpAccessAlwaysBtn" class="danger-btn">Timed</button>
+          <select id="httpAccessDuration" class="http-duration-select">
+            <option value="0" id="httpNoDurationOption" disabled hidden>No Duration</option>
+            <option value="3600">1 hour</option>
+            <option value="28800" selected>8 hours</option>
+            <option value="86400">24 hours</option>
+          </select>
         </div>
       </div>
     </div>
@@ -1980,7 +2083,7 @@ def build_frontend_html() -> str:
 
   <div class="card" id="httpSpeedCard">
     <div class="speed-card-head">
-      <span id="httpSpeedCardTitle" class="card-title">All Netdisk HTTP Throughput</span>
+      <span id="httpSpeedCardTitle" class="card-title">Aggregate HTTP Throughput</span>
       <span class="speed-card-conn">
         <span id="connText" class="speed-card-conn-num">-</span>
         <span class="speed-card-conn-label">active connections</span>
@@ -1993,9 +2096,9 @@ def build_frontend_html() -> str:
   <div class="card" id="netdiskCard">
     <div id="ndTabBarWrap" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;"></div>
 
-    <span id="netdiskTransferCardTitle" class="card-title">All Netdisk HTTP Connections</span>
+    <span id="netdiskTransferCardTitle" class="card-title">Aggregate HTTP Session Activity</span>
     <div class="xfer-head">
-      <div id="xferSummary" class="xfer-summary">Active 0</div>
+      <div id="xferSummary" class="xfer-summary">Active Sessions 0</div>
       <div class="xfer-toolbar">
         <span class="xfer-sort-label">Sort</span>
         <div class="xfer-sort-group">
@@ -2044,7 +2147,9 @@ def build_frontend_html() -> str:
     const qbtStatusText = document.getElementById("qbtStatusText");
     const qbtClientTabBarWrap = document.getElementById("qbtClientTabBarWrap");
     const ddnsStatusText = document.getElementById("ddnsStatusText");
+    const ddnsDomainText = document.getElementById("ddnsDomainText");
     const selfStatusText = document.getElementById("selfStatusText");
+    const httpAccessText = document.getElementById("httpAccessText");
     const sysStatus = document.getElementById("sysStatus");
     const statusEl = document.getElementById("status");
     const dirStatsText = document.getElementById("dirStatsText");
@@ -2093,9 +2198,26 @@ def build_frontend_html() -> str:
     const backupRunBtn = document.getElementById("backupRunBtn");
     const backupRefreshBtn = document.getElementById("backupRefreshBtn");
     const backupConfigBtn = document.getElementById("backupConfigBtn");
+    const cleanModeRenameBtn = document.getElementById("cleanModeRenameBtn");
+    const cleanModeSubtitleBtn = document.getElementById("cleanModeSubtitleBtn");
+    const cleanRenamePanel = document.getElementById("cleanRenamePanel");
+    const cleanSubtitlePanel = document.getElementById("cleanSubtitlePanel");
+    const subtitleAlignRecursive = document.getElementById("subtitleAlignRecursive");
+    const subtitleAlignPreviewBtn = document.getElementById("subtitleAlignPreviewBtn");
+    const subtitleAlignApplyBtn = document.getElementById("subtitleAlignApplyBtn");
+    const subtitleAlignPreview = document.getElementById("subtitleAlignPreview");
+    const subtitleAlignStatus = document.getElementById("subtitleAlignStatus");
+    const subtitleUploadInput = document.getElementById("subtitleUploadInput");
+    const subtitleUploadBtn = document.getElementById("subtitleUploadBtn");
+    const subtitleUploadStatus = document.getElementById("subtitleUploadStatus");
+    const subtitleUploadResult = document.getElementById("subtitleUploadResult");
+    const httpAccessDuration = document.getElementById("httpAccessDuration");
+    const httpNoDurationOption = document.getElementById("httpNoDurationOption");
+    const httpAccessAlwaysBtn = document.getElementById("httpAccessAlwaysBtn");
     let currentDir = ".";
     let defaultHttpDir = ".";
     let lastCleanMoves = null;
+    let lastSubtitleAlignMoves = null;
     let latestLinks = [];
     let downloadsEnabled = true;
     let transferSortMode = "speed";
@@ -2113,6 +2235,10 @@ def build_frontend_html() -> str:
     let clipCurrent = "pub";
     let clipCapturedImage = null;
     let qbtControlOn = false;
+    let httpPublicPersistent = false;
+    let httpAccessPublic = false;
+    let lastTimedDurationSec = 28800;
+    let lastHttpAccessState = null;
     let btActiveClient = "qbittorrent";
     let btHomepageEnabled = { qbittorrent: true, deluge: false, transmission: false, rtorrent: false };
     let btHomepageOrder = ["qbittorrent", "deluge", "transmission", "rtorrent"];
@@ -2613,7 +2739,7 @@ def build_frontend_html() -> str:
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = "Source speeds: module disabled";
+        if (sourceSpeedText) sourceSpeedText.textContent = "Per-source throughput unavailable: module disabled";
         return;
       }
       if (isRealtimePaused()) return;
@@ -2643,7 +2769,7 @@ def build_frontend_html() -> str:
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = "Source speeds fetch failed";
+        if (sourceSpeedText) sourceSpeedText.textContent = "Per-source throughput unavailable";
       }
     }
 
@@ -2848,12 +2974,12 @@ def build_frontend_html() -> str:
       const count = Number(data.count || items.length || 0);
       const recentCount = Number(data.recent_count || 0);
       const overall = Number(data.overall_progress_pct || 0);
-      xferSummary.textContent = `Active ${count} · Recently completed ${recentCount} · Overall ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
+      xferSummary.textContent = `Active Sessions ${count} · Recently Completed ${recentCount} · Overall Progress ${Math.max(0, Math.min(100, overall)).toFixed(1)}%`;
       xferList.innerHTML = "";
       if (!items.length) {
         const empty = document.createElement("div");
         empty.className = "xfer-item muted";
-        empty.textContent = "No active HTTP transfer tasks.";
+        empty.textContent = "No active HTTP transfer jobs.";
         xferList.appendChild(empty);
         xferList.scrollTop = 0;
         return;
@@ -2921,13 +3047,14 @@ def build_frontend_html() -> str:
         renderTransfers(data);
       } catch (err) {
         xferSummary.textContent = "Active -";
-        if (sourceSpeedText) sourceSpeedText.textContent = "Source speeds fetch failed";
+        if (sourceSpeedText) sourceSpeedText.textContent = "Per-source throughput unavailable";
       }
     }
 
     function renderDownloadSwitch() {
-      toggleDownloadBtn.textContent = downloadsEnabled ? "Disable public upload" : "Enable public upload";
-      toggleDownloadBtn.className = downloadsEnabled ? "secondary" : "";
+      toggleDownloadBtn.textContent = httpAccessPublic ? "Lan+Wan" : "Lan";
+      toggleDownloadBtn.className = httpAccessPublic ? "" : "secondary";
+      toggleDownloadBtn.title = httpAccessPublic ? "WAN mode (Public)" : "LAN mode (LAN-only)";
     }
 
     function trRaw(src) {
@@ -2947,9 +3074,28 @@ def build_frontend_html() -> str:
       const dotClass = isActive ? "ok" : "bad";
       if (svc.detail) {
         const detail = trRaw(String(svc.detail));
-        return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit)) + '<br><span class="svc-meta" style="font-size:12px; line-height:1.4;">' + escapeHtml(String(detail)) + '</span>';
+      const isBt = /Seeding|Downloading|DHT|Connect|Connections|↓|↑/.test(detail) || /qBittorrent|BitTorrent/i.test(unit);
+        const detailHtml = isBt ? formatBtDetail(detail) : escapeHtml(String(detail));
+        return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit)) + '<br><span class="svc-meta" style="font-size:12px; line-height:1.4;">' + detailHtml + '</span>';
       }
       return '<span class="svc-dot ' + dotClass + '"></span>' + mark + ' | ' + escapeHtml(String(unit));
+    }
+
+    function formatBtDetail(detail) {
+      const text = String(detail || "");
+      const chunks = text.split("|").map((x) => x.trim()).filter(Boolean);
+      if (!chunks.length) return escapeHtml(text);
+      const speedRaw = chunks.shift() || "";
+      const speedHtml = speedRaw
+        .replace(/↓\s*([^·|]+)/, '<span class="bt-down">↓ $1</span>')
+        .replace(/↑\s*([^·|]+)/, '<span class="bt-up">↑ $1</span>')
+        .replace(/·/g, '<span class="bt-sep">·</span>');
+      const statsHtml = chunks.map((s) => {
+        const m = s.match(/^([A-Za-z]+)\s+(.+)$/);
+        if (!m) return `<span class="bt-pill">${escapeHtml(s)}</span>`;
+        return `<span class="bt-pill"><span class="k">${escapeHtml(m[1])}</span> <span class="v">${escapeHtml(m[2])}</span></span>`;
+      }).join("");
+      return `<div class="bt-speed-row">${speedHtml}</div><div class="bt-stat-row">${statsHtml}</div>`;
     }
 
     function btClientLabel(key) {
@@ -2971,21 +3117,85 @@ def build_frontend_html() -> str:
       return out;
     }
 
+    function ddnsSyncSummary(ddnsSvc) {
+      const domains = Array.isArray(ddnsSvc && ddnsSvc.sync_domains) ? ddnsSvc.sync_domains : [];
+      const cleaned = [];
+      for (const x of domains) {
+        const v = String(x || "").trim();
+        if (v && !cleaned.includes(v)) cleaned.push(v);
+      }
+      if (cleaned.length) {
+        if (cleaned.length <= 3) return cleaned.join(", ");
+        return cleaned.slice(0, 3).join(", ") + ` (+${cleaned.length - 3})`;
+      }
+      const detail = String((ddnsSvc && ddnsSvc.detail) || "").trim();
+      return detail ? detail : "-";
+    }
+
+    function formatByteRate(bps) {
+      let n = Math.max(0, Number(bps || 0));
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      let idx = 0;
+      while (n >= 1024 && idx < units.length - 1) {
+        n = n / 1024;
+        idx += 1;
+      }
+      return (n >= 100 || idx === 0 ? n.toFixed(0) : n.toFixed(1)) + units[idx];
+    }
+
+    function buildBtOverallQbt(clientMap) {
+      const keys = Object.keys(clientMap || {});
+      if (!keys.length) return null;
+      let activeAny = false;
+      let dl = 0;
+      let up = 0;
+      let seeding = 0;
+      let downloading = 0;
+      let active = 0;
+      let total = 0;
+      let peers = 0;
+      let dht = 0;
+      for (const k of keys) {
+        const svc = clientMap[k] || {};
+        if (svc.active_state === "active") activeAny = true;
+        const st = svc.stats || {};
+        dl += Number(st.dl_bps || 0);
+        up += Number(st.up_bps || 0);
+        seeding += Number(st.seeding || 0);
+        downloading += Number(st.downloading || 0);
+        active += Number(st.active || 0);
+        total += Number(st.total || 0);
+        peers += Number(st.peers || 0);
+        dht += Number(st.dht_nodes || 0);
+      }
+      const detail = `↓ ${formatByteRate(dl)}/s · ↑ ${formatByteRate(up)}/s | Seeding ${seeding} · Downloading ${downloading} · Active ${active} · Total ${total}` +
+        (peers > 0 ? ` · Connections ${peers}` : "") +
+        (dht > 0 ? ` · DHT ${dht}` : "");
+      return {
+        unit: "BitTorrent overall",
+        active_state: activeAny ? "active" : "inactive",
+        detail: detail,
+      };
+    }
+
     function renderBtClientTabs() {
       if (!qbtClientTabBarWrap) return;
       const keys = btEnabledClients();
       if (!keys.length) {
         qbtClientTabBarWrap.innerHTML = "";
+        qbtClientTabBarWrap.style.display = "none";
         return;
       }
-      if (!keys.includes(btActiveClient)) btActiveClient = keys[0];
+      qbtClientTabBarWrap.style.display = "flex";
+      const tabKeys = keys.length > 1 ? ["overall"].concat(keys) : keys.slice();
+      if (!tabKeys.includes(btActiveClient)) btActiveClient = tabKeys[0];
       const bar = document.createElement("div");
       bar.className = "xfer-sort-group";
-      for (const k of keys) {
+      for (const k of tabKeys) {
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "xfer-sort-btn" + (k === btActiveClient ? " active" : "");
-        btn.textContent = btClientLabel(k);
+        btn.textContent = k === "overall" ? "Overall" : btClientLabel(k);
         btn.addEventListener("click", async () => {
           if (btActiveClient === k) return;
           btActiveClient = k;
@@ -2998,15 +3208,24 @@ def build_frontend_html() -> str:
       qbtClientTabBarWrap.appendChild(bar);
     }
 
-    function renderControlStatus(data) {
+    function renderControlStatus(data, btClientStatusMap) {
       sysStatus.className = "sys-strip";
       const s = data.system || {};
       const cpuText = `CPU Load (1m): ${Number(s.load1 || 0).toFixed(2)}`;
       const restText = `Memory: ${s.mem_used_human || "-"} / ${s.mem_total_human || "-"} | Disk: ${s.disk_used_human || "-"} / ${s.disk_total_human || "-"} | Uptime: ${s.uptime_human || "-"}`;
       sysStatus.innerHTML = `<div class="sys-status-line">${cpuText}</div><div class="sys-status-line">${restText}</div>`;
-      qbtStatusText.innerHTML = svcText(data.qbt);
+      const btMap = btClientStatusMap || {};
+      const btOverall = buildBtOverallQbt(btMap);
+      let qbtSvc = data.qbt;
+      if (btActiveClient === "overall" && btOverall) {
+        qbtSvc = btOverall;
+      } else if (btMap[btActiveClient]) {
+        qbtSvc = btMap[btActiveClient];
+      }
+      qbtStatusText.innerHTML = svcText(qbtSvc);
       ddnsStatusText.innerHTML = svcText(data.ddns);
       selfStatusText.innerHTML = svcText(data.self);
+      renderHttpAccess(data.http_access);
       const appCfg = data.app_config || {};
       const qbtCfg = appCfg.qbt || {};
       const en = qbtCfg.homepage_clients_enabled || {};
@@ -3027,6 +3246,7 @@ def build_frontend_html() -> str:
       btHomepageOrder = outOrder;
       if (qbtCfg.client) btActiveClient = String(qbtCfg.client).toLowerCase();
       renderBtClientTabs();
+      if (ddnsDomainText) ddnsDomainText.textContent = "Sync Domains: " + ddnsSyncSummary(data.ddns);
       const mods = appCfg.modules || {};
       const showQbtModule = mods.qbt !== false;
       const showDdnsModule = mods.ddns !== false;
@@ -3053,7 +3273,7 @@ def build_frontend_html() -> str:
         ndRenderTabs();
       }
       ndUpdateSectionTitles();
-      const qbtActive = data.qbt && data.qbt.active_state === "active";
+      const qbtActive = qbtSvc && qbtSvc.active_state === "active";
       qbtControlOn = !!qbtActive;
       const ddnsBuiltin = data.ddns && data.ddns.source === "builtin";
       const ddnsActive = ddnsBuiltin ? !!data.ddns.enabled : (data.ddns && data.ddns.active_state === "active");
@@ -3079,12 +3299,24 @@ def build_frontend_html() -> str:
       const reqTs = Date.now();
       try {
         const activeClients = btEnabledClients();
+        const selectedClient = (btActiveClient && btActiveClient !== "overall") ? btActiveClient : (activeClients[0] || "qbittorrent");
         const statusUrl = activeClients.length
-          ? ("/api/control/status?client=" + encodeURIComponent(btActiveClient || activeClients[0]))
+          ? ("/api/control/status?client=" + encodeURIComponent(selectedClient))
           : "/api/control/status";
         const data = await getJson(statusUrl);
+        const btClientStatusMap = {};
+        if (selectedClient) btClientStatusMap[selectedClient] = data.qbt;
+        if (activeClients.length > 1) {
+          const pending = activeClients
+            .filter((k) => k !== selectedClient)
+            .map(async (k) => {
+              const d = await getJson("/api/control/status?client=" + encodeURIComponent(k));
+              btClientStatusMap[k] = d.qbt;
+            });
+          await Promise.allSettled(pending);
+        }
         if (isRealtimePaused() || reqTs < dashboardPauseUntil) return;
-        renderControlStatus(data);
+        renderControlStatus(data, btClientStatusMap);
       } catch (err) {
         sysStatus.className = "sys-strip";
         sysStatus.innerHTML = `<div class="sys-status-line" style="color:var(--danger);">Status fetch failed: ${err.message}</div>`;
@@ -3096,7 +3328,7 @@ def build_frontend_html() -> str:
         const data = await getJson("/api/control/service", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service, action, client: btActiveClient || "qbittorrent" }),
+          body: JSON.stringify({ service, action, client: (btActiveClient && btActiveClient !== "overall") ? btActiveClient : (btEnabledClients()[0] || "qbittorrent") }),
         });
         if (service === "self" && action === "restart") {
           setStatus("已发送Restart命令，服务即将Restart。");
@@ -3273,19 +3505,289 @@ def build_frontend_html() -> str:
       }
     }
 
-    async function toggleDownloads() {
-      const targetEnabled = !downloadsEnabled;
+    function switchCleanMode(mode) {
+      const m = String(mode || "rename");
+      const isSubtitle = m === "subtitle";
+      if (cleanRenamePanel) cleanRenamePanel.style.display = isSubtitle ? "none" : "";
+      if (cleanSubtitlePanel) cleanSubtitlePanel.style.display = isSubtitle ? "" : "none";
+      if (cleanModeRenameBtn) cleanModeRenameBtn.className = isSubtitle ? "tab-btn" : "tab-btn active";
+      if (cleanModeSubtitleBtn) cleanModeSubtitleBtn.className = isSubtitle ? "tab-btn active" : "tab-btn";
+    }
+
+    async function runSubtitleAlignPreview() {
+      if (!subtitleAlignStatus || !subtitleAlignPreview || !subtitleAlignApplyBtn) return;
+      subtitleAlignStatus.className = "status-bar muted";
+      subtitleAlignStatus.textContent = "Previewing align...";
+      subtitleAlignPreview.style.display = "none";
+      subtitleAlignPreview.innerHTML = "";
+      subtitleAlignApplyBtn.disabled = true;
+      lastSubtitleAlignMoves = null;
       try {
-        const data = await getJson("/api/control/downloads", {
+        const data = await getJson("/api/subtitle-align/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: targetEnabled }),
+          body: JSON.stringify({
+            dir: currentDir,
+            recursive: !!(subtitleAlignRecursive && subtitleAlignRecursive.checked),
+          }),
         });
-        downloadsEnabled = !!data.downloads_enabled;
+        const moves = data.moves || [];
+        const runnable = moves.filter((m) => !m.skip && m.old_rel !== m.new_rel);
+        const skipped = moves.filter((m) => !!m.skip);
+        lastSubtitleAlignMoves = runnable;
+        if (!moves.length) {
+          subtitleAlignStatus.textContent = "No subtitle rename needed.";
+          return;
+        }
+        subtitleAlignPreview.innerHTML = moves.map((m) => {
+          const fromText = escapeHtml(String(m.old_rel || ""));
+          if (m.skip) {
+            const reason = escapeHtml(String(m.error || "not match"));
+            return `<div class="sub-align-row is-skip"><div class="sub-align-src">${fromText}</div><div class="sub-align-arrow">skip</div><div class="sub-align-dst">${reason}</div></div>`;
+          }
+          const toText = escapeHtml(String(m.new_rel || ""));
+          return `<div class="sub-align-row"><div class="sub-align-src">${fromText}</div><div class="sub-align-arrow">to</div><div class="sub-align-dst">${toText}</div></div>`;
+        }).join("");
+        subtitleAlignPreview.style.display = "block";
+        subtitleAlignStatus.textContent = `Total ${moves.length}, executable ${runnable.length}, skipped ${skipped.length}.`;
+        subtitleAlignApplyBtn.disabled = runnable.length === 0;
+      } catch (e) {
+        subtitleAlignStatus.className = "status-bar err";
+        subtitleAlignStatus.textContent = "Preview failed: " + e.message;
+      }
+    }
+
+    async function runSubtitleAlignApply() {
+      if (!subtitleAlignStatus || !subtitleAlignApplyBtn) return;
+      if (!lastSubtitleAlignMoves || !lastSubtitleAlignMoves.length) return;
+      if (!confirm("Apply subtitle align for " + lastSubtitleAlignMoves.length + " items?")) return;
+      subtitleAlignStatus.className = "status-bar muted";
+      subtitleAlignStatus.textContent = "Applying align...";
+      try {
+        const data = await getJson("/api/subtitle-align/apply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            moves: lastSubtitleAlignMoves.map((m) => ({ old_rel: m.old_rel, new_rel: m.new_rel })),
+          }),
+        });
+        const rows = data.results || [];
+        const okN = rows.filter((x) => x.ok === "true").length;
+        subtitleAlignStatus.textContent = "Done: success " + okN + ", failed " + (rows.length - okN) + ".";
+        subtitleAlignApplyBtn.disabled = true;
+        lastSubtitleAlignMoves = null;
+        if (okN) {
+          showToast("字幕对齐完成 " + okN + " items", "success");
+          await loadBaseAndDirs(false);
+        }
+      } catch (e) {
+        subtitleAlignStatus.className = "status-bar err";
+        subtitleAlignStatus.textContent = "Apply failed: " + e.message;
+      }
+    }
+
+    function readFileAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Failed to read " + file.name));
+        reader.onload = () => {
+          const text = String(reader.result || "");
+          const idx = text.indexOf(",");
+          resolve(idx >= 0 ? text.slice(idx + 1) : text);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderSubtitleUploadResult(data) {
+      if (!subtitleUploadResult) return;
+      subtitleUploadResult.style.display = "none";
+      subtitleUploadResult.innerHTML = "";
+    }
+
+    async function uploadSubtitles() {
+      if (!subtitleUploadInput || !subtitleUploadBtn || !subtitleUploadStatus) return;
+      const files = Array.from(subtitleUploadInput.files || []);
+      if (!files.length) {
+        subtitleUploadStatus.className = "status-bar err";
+        subtitleUploadStatus.textContent = "Select subtitle files or archives first.";
+        return;
+      }
+      subtitleUploadBtn.disabled = true;
+      subtitleUploadStatus.className = "status-bar muted";
+      subtitleUploadStatus.textContent = "Reading files...";
+      if (subtitleUploadResult) {
+        subtitleUploadResult.style.display = "none";
+        subtitleUploadResult.innerHTML = "";
+      }
+      try {
+        const payloadFiles = [];
+        for (const f of files) {
+          payloadFiles.push({
+            name: f.name,
+            size: f.size,
+            content_b64: await readFileAsBase64(f),
+          });
+        }
+        subtitleUploadStatus.textContent = "Uploading...";
+        const data = await getJson("/api/subtitles/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dir: currentDir, files: payloadFiles }),
+        });
+        renderSubtitleUploadResult(data);
+        subtitleUploadStatus.className = data.failed_count ? "status-bar err" : "status-bar muted";
+        subtitleUploadStatus.textContent = "Done: success " + (data.success_count || 0) + ", failed " + (data.failed_count || 0) + ".";
+        if (data.success_count) {
+          showToast("已上传/解压字幕 " + data.success_count + " items", "success");
+          await loadBaseAndDirs(false);
+        }
+      } catch (e) {
+        subtitleUploadStatus.className = "status-bar err";
+        subtitleUploadStatus.textContent = "Upload failed: " + e.message;
+      } finally {
+        subtitleUploadBtn.disabled = false;
+      }
+    }
+
+    async function toggleDownloads() {
+      const targetPublic = !httpAccessPublic;
+      try {
+        const sel = document.getElementById("httpAccessDuration");
+        let dur = sel ? parseInt(sel.value, 10) : 28800;
+        if (!dur || dur <= 0) dur = lastTimedDurationSec || 28800;
+        const data = await getJson("/api/control/http-access", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            targetPublic
+              ? { action: "open_public", duration_sec: dur }
+              : { action: "close" }
+          ),
+        });
+        if (!targetPublic) {
+          try {
+            await getJson("/api/control/downloads", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled: false }),
+            });
+          } catch (_e) {}
+        }
+        renderHttpAccess(data);
         renderDownloadSwitch();
-        setStatus(`外网上传已${downloadsEnabled ? "开启" : "关闭"}`);
+        setStatus(targetPublic ? "已切换到 WAN (Public) 模式" : "已切换到 LAN-only 模式");
       } catch (err) {
         setStatus(`切换失败：${err.message}`, true);
+      }
+    }
+
+    function renderHttpAccess(ha) {
+      if (!httpAccessText) return;
+      ha = ha || {};
+      lastHttpAccessState = ha;
+      const eff = ha.effective_mode || "lan_only";
+      let label;
+      if (eff === "public") {
+        label = "Public";
+      } else if (eff === "limited") {
+        label = "Limited (" + Number(ha.allowlist_count || 0) + " allowed)";
+      } else {
+        label = "LAN-only";
+      }
+      httpAccessPublic = eff === "public";
+      const persistent = !!ha.public_persistent;
+      httpPublicPersistent = persistent;
+      const secs = Math.max(0, Number(ha.public_seconds_remaining || 0));
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const timerText = (h > 0 ? h + "h " : "") + m + "m";
+      if (eff === "public") {
+        const durationText = persistent ? "No Duration" : timerText;
+        httpAccessText.textContent = "File Access: Public · Duration: " + durationText;
+      } else {
+        httpAccessText.textContent = "File Access: " + label;
+      }
+      if (httpAccessDuration) httpAccessDuration.disabled = persistent;
+      if (httpAccessDuration) {
+        if (persistent) {
+          if (httpNoDurationOption) httpNoDurationOption.hidden = false;
+          httpAccessDuration.value = "0";
+          httpAccessDuration.title = "No Duration";
+        } else if (eff === "public" && secs > 0) {
+          if (httpNoDurationOption) httpNoDurationOption.hidden = true;
+          if (httpAccessDuration.value === "0") httpAccessDuration.value = "28800";
+          if (httpAccessDuration.value && httpAccessDuration.value !== "0") {
+            lastTimedDurationSec = parseInt(httpAccessDuration.value, 10) || lastTimedDurationSec;
+          }
+          httpAccessDuration.title = "Ends in " + timerText;
+        } else {
+          if (httpNoDurationOption) httpNoDurationOption.hidden = true;
+          if (httpAccessDuration.value === "0") httpAccessDuration.value = "28800";
+          if (httpAccessDuration.value && httpAccessDuration.value !== "0") {
+            lastTimedDurationSec = parseInt(httpAccessDuration.value, 10) || lastTimedDurationSec;
+          }
+          httpAccessDuration.title = "Select timer duration";
+        }
+      }
+      if (httpAccessAlwaysBtn) {
+        httpAccessAlwaysBtn.classList.toggle("is-active", persistent);
+        httpAccessAlwaysBtn.textContent = persistent ? "Persistent" : "Timed";
+        httpAccessAlwaysBtn.title = persistent ? "Persistent public access mode" : "Timed public access mode";
+      }
+      renderDownloadSwitch();
+    }
+
+    async function openHttpWindow() {
+      const sel = document.getElementById("httpAccessDuration");
+      const dur = sel ? parseInt(sel.value, 10) : 28800;
+      if (!dur || dur <= 0) return;
+      lastTimedDurationSec = dur;
+      try {
+        const data = await getJson("/api/control/http-access", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "open_public", duration_sec: dur }),
+        });
+        renderHttpAccess(data);
+        setStatus("公网访问窗口已开启");
+      } catch (err) {
+        setStatus(`开启失败：${err.message}`, true);
+      }
+    }
+
+    async function openHttpAlways() {
+      const wasPublic = !!httpAccessPublic;
+      const wasPersistent = !!httpPublicPersistent;
+      if (httpAccessAlwaysBtn) httpAccessAlwaysBtn.disabled = true;
+      try {
+        if (!wasPublic) {
+          setStatus("Enable Public mode first, then switch Timed/Persistent.", true);
+          return;
+        }
+        const sel = document.getElementById("httpAccessDuration");
+        let dur = sel ? parseInt(sel.value, 10) : 28800;
+        if (!dur || dur <= 0) dur = lastTimedDurationSec || 28800;
+        const action = wasPersistent ? "open_public" : "open_public_persistent";
+        const data = await getJson("/api/control/http-access", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            action === "open_public"
+              ? { action: action, duration_sec: dur }
+              : { action: action }
+          ),
+        });
+        renderHttpAccess(data);
+        if (wasPersistent) {
+          setStatus("已切换为定时 Public 模式");
+        } else {
+          setStatus("已切换为无限期 Public 模式");
+        }
+      } catch (err) {
+        setStatus(`切换失败：${err.message}`, true);
+      } finally {
+        if (httpAccessAlwaysBtn) httpAccessAlwaysBtn.disabled = false;
       }
     }
 
@@ -3315,8 +3817,15 @@ def build_frontend_html() -> str:
     document.getElementById("copyDirNameBtn").addEventListener("click", copyCurrentDirName);
     document.getElementById("cleanPreviewBtn").addEventListener("click", runCleanPreview);
     document.getElementById("cleanApplyBtn").addEventListener("click", runCleanApply);
+    if (cleanModeRenameBtn) cleanModeRenameBtn.addEventListener("click", () => switchCleanMode("rename"));
+    if (cleanModeSubtitleBtn) cleanModeSubtitleBtn.addEventListener("click", () => switchCleanMode("subtitle"));
+    if (subtitleAlignPreviewBtn) subtitleAlignPreviewBtn.addEventListener("click", runSubtitleAlignPreview);
+    if (subtitleAlignApplyBtn) subtitleAlignApplyBtn.addEventListener("click", runSubtitleAlignApply);
+    if (subtitleUploadBtn) subtitleUploadBtn.addEventListener("click", uploadSubtitles);
     document.getElementById("toggleDownloadBtn").addEventListener("click", toggleDownloads);
     document.getElementById("restartServiceBtn").addEventListener("click", restartService);
+    if (httpAccessDuration) httpAccessDuration.addEventListener("change", openHttpWindow);
+    if (httpAccessAlwaysBtn) httpAccessAlwaysBtn.addEventListener("click", openHttpAlways);
     document.getElementById("qbtStartBtn").addEventListener("click", () => {
       controlService("qbt", "start");
     });
@@ -3332,10 +3841,8 @@ def build_frontend_html() -> str:
       controlService("ddns", ddnsControlOn ? "stop" : "start");
     });
     document.getElementById("ddnsRestartBtn").addEventListener("click", () => controlService("ddns", "restart"));
-    document.getElementById("ddnsConfigBtn").addEventListener("click", () => {
-      window.location.href = "/config#ddns";
-    });
     document.getElementById("themeToggleBtn").addEventListener("click", toggleTheme);
+    switchCleanMode("rename");
     document.getElementById("openPubNewBtn").addEventListener("click", () => {
       window.open("/?id=pub", "_blank", "noopener,noreferrer");
     });
@@ -3465,12 +3972,12 @@ def build_frontend_html() -> str:
       if (httpSpeedCardTitle) {
         httpSpeedCardTitle.textContent = activeSource
           ? activeSource.label + " HTTP Throughput"
-          : "All Netdisk HTTP Throughput";
+          : "Aggregate HTTP Throughput";
       }
       if (netdiskTransferCardTitle) {
         netdiskTransferCardTitle.textContent = activeSource
-          ? activeSource.label + " HTTP Connections"
-          : "All Netdisk HTTP Connections";
+          ? activeSource.label + " HTTP Sessions"
+          : "Aggregate HTTP Session Activity";
       }
     }
 
@@ -3566,7 +4073,7 @@ def build_frontend_html() -> str:
         html += '</label>';
         html += '<span style="flex:1 1 auto;"></span>';
         html += '<span style="' + statRowStyle + '">';
-        html += '<span style="' + statItemStyle + '">Connect <span style="' + valStyle + '">' + connCount + '</span></span>';
+        html += '<span style="' + statItemStyle + '">Connections <span style="' + valStyle + '">' + connCount + '</span></span>';
         html += '<span style="' + statItemStyle + '">' + ndEsc(estabText) + ' <span style="' + valStyle + '">' + estab + '</span></span>';
         html += '<span style="' + statItemStyle + '">↓ <span style="' + valStyle + '">' + dl + '</span> MiB/s</span>';
         html += '<span style="' + statItemStyle + '">↑ <span style="' + valStyle + '">' + ul + '</span> MiB/s</span>';
@@ -4093,7 +4600,7 @@ def build_config_html() -> str:
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
               <p class="cfg-module-title">HTTP Module</p>
-              <p class="cfg-module-desc">Controls the homepage "Current HTTP Service" card and HTTP monitoring area. Disabling it forcibly interrupts one upload connection and turns uploads off.</p>
+              <p class="cfg-module-desc">Controls the homepage "HTTPD Service" card and HTTP monitoring area. Disabling it forcibly interrupts one upload connection and turns uploads off.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -7017,6 +7524,37 @@ class AppHandler(BaseHTTPRequestHandler):
         self._error("LAN-only access allowed for this page/API", status=HTTPStatus.FORBIDDEN)
         return False
 
+    @staticmethod
+    def _http_access_policy(app_cfg: dict | None = None) -> dict:
+        cfg = app_cfg if isinstance(app_cfg, dict) else load_app_config(_APP_ROOT_DIR)
+        return http_access.normalize_policy((cfg or {}).get("http_access"))
+
+    def _require_http_access(self) -> bool:
+        """Enforce the LAN-first access policy on public /http-files/ routes."""
+        policy = self._http_access_policy()
+        if http_access.is_allowed(policy, self._client_ip()):
+            return True
+        mode = http_access.effective_mode(policy).replace("_", "-")
+        self._error(
+            f"HTTP file service is {mode}; this address is not permitted",
+            status=HTTPStatus.FORBIDDEN,
+        )
+        return False
+
+    @classmethod
+    def _http_access_status(cls, app_cfg: dict | None = None) -> dict:
+        policy = cls._http_access_policy(app_cfg)
+        return {
+            "mode": policy["mode"],
+            "effective_mode": http_access.effective_mode(policy),
+            "public_until": policy["public_until"],
+            "public_seconds_remaining": http_access.public_seconds_remaining(policy),
+            "public_persistent": bool(
+                policy.get("mode") == "public" and policy.get("public_until") is None
+            ),
+            "allowlist_count": len(policy["allowlist"]),
+        }
+
     def _send_json(self, data: dict, status: int = HTTPStatus.OK, cors: bool = False):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -8470,7 +9008,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 f" | Seeding {seeding} · Downloading {downloading} · Active {active} · Total {len(torrents)}"
             )
             if peers > 0:
-                detail += f" · Connect {peers}"
+                detail += f" · Connections {peers}"
             if dht_nodes > 0:
                 detail += f" · DHT {dht_nodes}"
             version = str(
@@ -8589,6 +9127,7 @@ class AppHandler(BaseHTTPRequestHandler):
             "qbt": qbt,
             "ddns": ddns_svc,
             "self": self_svc,
+            "http_access": cls._http_access_status(app_cfg),
             "app_config": app_cfg,
         }
 
@@ -9808,6 +10347,8 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._downloads_effective_enabled():
                 self._error("Public upload is disabled", status=HTTPStatus.FORBIDDEN)
                 return
+            if not self._require_http_access():
+                return
             try:
                 http_root = self._http_root_dir()
                 rel_file = unquote(parsed.path[len("/http-files/") :]).lstrip("/")
@@ -10119,6 +10660,8 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._downloads_effective_enabled():
                 self._error("Public upload is disabled", status=HTTPStatus.FORBIDDEN)
                 return
+            if not self._require_http_access():
+                return
             try:
                 http_root = self._http_root_dir()
                 rel_file = unquote(parsed.path[len("/http-files/") :]).lstrip("/")
@@ -10248,6 +10791,37 @@ class AppHandler(BaseHTTPRequestHandler):
                     "terminal": _build_terminal_launch_meta(saved),
                 }
             )
+            return
+
+        if parsed.path == "/api/subtitles/upload":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            if not isinstance(body, dict):
+                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                rel_dir = safe_relative_path(str(body.get("dir", ".") or "."))
+                cfg = load_app_config(_APP_ROOT_DIR)
+                http_cfg = (cfg or {}).get("http_service") if isinstance(cfg, dict) else {}
+                perm = (
+                    (http_cfg or {}).get("subtitle_permissions", {})
+                    if isinstance(http_cfg, dict)
+                    else {}
+                )
+                result = subtitle_uploads.handle_upload_payload(
+                    self._http_root_dir(), rel_dir, body, perm
+                )
+            except FileNotFoundError as exc:
+                self._error(str(exc), status=HTTPStatus.NOT_FOUND)
+                return
+            except ValueError as exc:
+                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
+                return
+            except Exception as exc:
+                self._error(f"Subtitle upload failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(result)
             return
 
         if parsed.path == "/api/ui/theme-background":
@@ -10666,6 +11240,43 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json({"downloads_enabled": self._downloads_effective_enabled()})
             return
 
+        if parsed.path == "/api/control/http-access":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            action = str((body or {}).get("action", "") or "").strip().lower()
+            cfg = load_app_config(_APP_ROOT_DIR)
+            policy = http_access.normalize_policy((cfg or {}).get("http_access"))
+            if action == "open_public":
+                try:
+                    duration = int((body or {}).get("duration_sec", 0))
+                except (TypeError, ValueError):
+                    duration = 0
+                if duration <= 0 or duration > 7 * 24 * 3600:
+                    self._error(
+                        "duration_sec must be between 1 and 604800",
+                        status=HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+                policy["mode"] = "public"
+                policy["public_until"] = time.time() + duration
+            elif action == "open_public_persistent":
+                policy["mode"] = "public"
+                policy["public_until"] = None
+            elif action == "close":
+                policy["mode"] = "lan_only"
+                policy["public_until"] = None
+            else:
+                self._error(
+                    "Unknown action; expected 'open_public', 'open_public_persistent', or 'close'",
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            cfg["http_access"] = http_access.normalize_policy(policy)
+            save_app_config(cfg, _APP_ROOT_DIR)
+            self._send_json(self._http_access_status(cfg))
+            return
+
         if parsed.path == "/api/control/restart":
             if not self._require_lan():
                 return
@@ -10773,6 +11384,30 @@ class AppHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/subtitle-align/preview":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            try:
+                rel = str((body or {}).get("dir", ".") or ".")
+                recursive = bool((body or {}).get("recursive", False))
+                plan = subtitle_align.build_alignment_plan(
+                    self.storage_root,
+                    rel,
+                    recursive=recursive,
+                )
+            except FileNotFoundError as exc:
+                self._error(str(exc), status=HTTPStatus.NOT_FOUND)
+                return
+            except ValueError as exc:
+                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
+                return
+            except Exception as exc:
+                self._error(f"Subtitle align preview failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json({"moves": subtitle_align.simplify_plan(plan)})
+            return
+
         if parsed.path == "/api/clean/apply":
             if not self._require_lan():
                 return
@@ -10785,6 +11420,22 @@ class AppHandler(BaseHTTPRequestHandler):
                 results = apply_rename_plan(self.storage_root, moves)
             except Exception as exc:
                 self._error(f"Execution failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json({"results": results})
+            return
+
+        if parsed.path == "/api/subtitle-align/apply":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            moves = (body or {}).get("moves")
+            if not isinstance(moves, list) or not moves:
+                self._error("moves must be a non-empty array", status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                results = apply_rename_plan(self.storage_root, moves)
+            except Exception as exc:
+                self._error(f"Subtitle align apply failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_json({"results": results})
             return
