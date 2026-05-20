@@ -1872,20 +1872,20 @@ def build_frontend_html() -> str:
 
   <div id="tabDirPanel" class="tab-panel">
   <div class="card">
-    <span class="card-title">Directories & Bulk Links</span>
+    <span class="card-title">Directory & Bulk HTTP Links</span>
     <div class="kv-line"><strong>存储根目录</strong><span id="storageText">-</span></div>
     <div class="kv-line"><strong>公开访问域名</strong><span id="publicBaseText">-</span></div>
     <div class="kv-line"><strong>当前目录</strong><span id="currentDirText">.</span></div>
     <div class="toolbar">
       <div class="toolbar-left">
-        <button id="refreshBtn" class="secondary">Refresh directory</button>
-        <button id="backBtn" class="secondary">Go parent</button>
-        <button id="copyDirNameBtn" class="secondary">Copy current directory name</button>
-        <button id="listBtn">Generate HTTP links for all files in current directory</button>
-        <button id="copyBtn" class="secondary">Copy all links</button>
+        <button id="refreshBtn" class="secondary">Refresh Directory</button>
+        <button id="backBtn" class="secondary">Parent Directory</button>
+        <button id="listBtn">Generate HTTP Link</button>
+        <button id="copyBtn" class="secondary">Copy All Links</button>
+        <button id="copyDirNameBtn" class="secondary">Copy Directory Name</button>
       </div>
     </div>
-    <label>Subdirectories (click to enter)</label>
+    <label>Subdirectories (click to open)</label>
     <div id="dirList" class="dir-list"></div>
     <div class="status-row">
       <div id="status" class="status-bar muted"></div>

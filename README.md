@@ -7,6 +7,16 @@ Language: **English (Default)** | [简体中文](#简体中文)
 
 ![AfterClaw Control Dashboard](docs/screenshots/afterclaw-control-dashboard.png)
 
+## Use Case — netdisk media libraries
+
+If you run **POPCorn (爆米花)**, **VidHub**, or a similar app, your movies and TV live on a netdisk so they can be streamed on demand. The hard part is getting the media *onto* the netdisk: the netdisk client throttles upload ratio and needs a browser tab held open the whole time.
+
+AfterClaw is the server-side uploader for that workflow:
+
+1. **Clean the names** — the naming module tidies messy movie and TV filenames so the library stays consistent.
+2. **Stream-upload to netdisk** — the HTTP transfer pipeline pushes large files with resume support, no throttled client and no browser tab to babysit.
+3. **Play from netdisk** — POPCorn / VidHub read the uploaded library straight from the netdisk. Per-process upload speed for 百度网盘 / 光鸭网盘 / 阿里云盘 is visible on the process-net page.
+
 ## Why AfterClaw
 
 AfterClaw was built to solve a practical problem: server workflows become fragile when they are spread across too many scripts and panels.
@@ -83,6 +93,16 @@ Workflow file: `.github/workflows/installers.yml`
 
 **AfterClaw** 是一个面向家庭与小型工作室服务器的一体化中控台。
 它把文件目录、传输看板、服务控制、DDNS 和轻量剪贴板分享收敛到同一个入口。
+
+### 应用场景：网盘影音库
+
+如果你用 **爆米花（POPCorn）**、**VidHub** 或类似应用，电影和剧集会存放在网盘上以便随时在线播放。麻烦的是把片源传**上**网盘：网盘客户端会限制上传倍率，还得一直开着浏览器标签页。
+
+AfterClaw 就是这套流程的服务端上传器：
+
+1. **整理文件名**——命名模块整理杂乱的电影和剧集文件名，让影音库保持一致。
+2. **流式上传到网盘**——HTTP 传输链路推送大文件并支持断点续传，不再受客户端限速，也不用守着浏览器标签页。
+3. **从网盘播放**——爆米花 / VidHub 直接读取上传到网盘的影音库。百度网盘 / 光鸭网盘 / 阿里云盘的各进程上传速度可在网盘进程网络明细页查看。
 
 ### 为什么开发 AfterClaw
 

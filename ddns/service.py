@@ -135,6 +135,38 @@ def _detail_line(cfg: dict) -> str:
     return f"{prov} · 尚未成功同步"
 
 
+def _sync_domains(cfg: dict) -> list[str]:
+    out: list[str] = []
+
+    def add_many(values):
+        if not isinstance(values, list):
+            return
+        for item in values:
+            v = str(item or "").strip()
+            if v and v not in out:
+                out.append(v)
+
+    add_many((cfg or {}).get("ipv4_domains") or [])
+    add_many((cfg or {}).get("ipv6_domains") or [])
+    doms = (cfg or {}).get("domains") or {}
+    if isinstance(doms, dict):
+        add_many(doms.get("ipv4") or [])
+        add_many(doms.get("ipv6") or [])
+    tr = (cfg or {}).get("trafficroute") or {}
+    if isinstance(tr, dict):
+        d = str(tr.get("domain") or "").strip()
+        if d and d not in out:
+            out.append(d)
+    dd = (cfg or {}).get("duckdns") or {}
+    if isinstance(dd, dict):
+        name = str(dd.get("domain") or "").strip()
+        if name:
+            duck = f"{name}.duckdns.org"
+            if duck not in out:
+                out.append(duck)
+    return out
+
+
 def status_for_api(app_root) -> dict[str, Any]:
     p = config_path(app_root)
     if not p.exists():
@@ -157,6 +189,7 @@ def status_for_api(app_root) -> dict[str, Any]:
         "validation_error": v_err if v_err else (None if (not native or ping_ok) else ping_msg),
         "provider": cfg.get("provider") or "duckdns",
         "detail": ping_msg if (native and not ping_ok) else _detail_line(cfg),
+        "sync_domains": _sync_domains(cfg),
     }
 
 
@@ -182,6 +215,7 @@ def merge_builtin_into_systemd_shape(app_root):
         "source": "builtin",
         "enabled": en,
         "detail": dline,
+        "sync_domains": _sync_domains(cfg),
     }
 
 

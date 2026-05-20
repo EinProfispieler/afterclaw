@@ -4,6 +4,30 @@ set -euo pipefail
 # Unified installer entrypoint (Phase 1 scaffold)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# --- Standalone bootstrap --------------------------------------------------
+# When this script runs on its own (e.g. piped from `curl ... | sudo bash`),
+# the sibling `scripts/` directory is not present. In that case, fetch the
+# repository and re-exec the installer from inside the working tree.
+AFTERCLAW_REPO="${AFTERCLAW_REPO:-https://github.com/EinProfispieler/afterclaw.git}"
+AFTERCLAW_BRANCH="${AFTERCLAW_BRANCH:-main}"
+AFTERCLAW_SRC="${AFTERCLAW_SRC:-/opt/afterclaw}"
+
+if [[ ! -d "${SCRIPT_DIR}/scripts" ]]; then
+  if ! command -v git >/dev/null 2>&1; then
+    echo "git is required to bootstrap AfterClaw. Install git and retry." >&2
+    exit 1
+  fi
+  if [[ -d "${AFTERCLAW_SRC}/.git" ]]; then
+    echo "Updating existing AfterClaw checkout in ${AFTERCLAW_SRC} ..."
+    git -C "${AFTERCLAW_SRC}" pull --ff-only
+  else
+    echo "Fetching AfterClaw into ${AFTERCLAW_SRC} ..."
+    git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"
+  fi
+  exec bash "${AFTERCLAW_SRC}/install.sh" "$@"
+fi
+# ---------------------------------------------------------------------------
+
 OS="$(uname -s)"
 case "$OS" in
   Linux)
