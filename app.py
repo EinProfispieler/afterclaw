@@ -6066,8 +6066,14 @@ def build_config_html() -> str:
       var rec = d || {};
       var parts = [];
       if (rec.client) parts.push("Client: " + qbtClientLabel(rec.client));
+      if (rec.kind) parts.push("Mode: " + String(rec.kind));
       if (rec.container) parts.push("Container: " + rec.container);
+      if (rec.unit) parts.push("Service: " + rec.unit);
+      if (rec.package) parts.push("Package: " + rec.package);
+      if (rec.installed_version) parts.push("Installed: " + rec.installed_version);
+      if (rec.candidate_version) parts.push("Candidate: " + rec.candidate_version);
       if (rec.image) parts.push("Image: " + rec.image);
+      if (typeof rec.compose_managed === "boolean") parts.push(rec.compose_managed ? "Compose-managed" : "Docker (non-compose)");
       if (typeof rec.updatable === "boolean") parts.push(rec.updatable ? "Update available" : "Already latest");
       var msg = String(rec.message || "").trim();
       var err = String(rec.error || "").trim();
@@ -8247,6 +8253,243 @@ class AppHandler(BaseHTTPRequestHandler):
         }
 
     @classmethod
+    def _qbt_container_inspect_obj(cls, container_name: str) -> dict:
+        out = subprocess.run(
+            ["docker", "inspect", container_name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if out.returncode != 0:
+            raise RuntimeError((out.stderr or out.stdout or "docker inspect failed").strip())
+        arr = json.loads(out.stdout or "[]")
+        if not isinstance(arr, list) or not arr or not isinstance(arr[0], dict):
+            raise RuntimeError("docker inspect returned empty result")
+        return arr[0]
+
+    @classmethod
+    def _qbt_container_meta(cls, container_name: str) -> dict:
+        obj = cls._qbt_container_inspect_obj(container_name)
+        cfg = obj.get("Config") if isinstance(obj.get("Config"), dict) else {}
+        labels = cfg.get("Labels") if isinstance(cfg.get("Labels"), dict) else {}
+        image_ref = str(cfg.get("Image") or "").strip()
+        image_id_running = str(obj.get("Image") or "").strip()
+        project = str(labels.get("com.docker.compose.project") or "").strip()
+        service = str(labels.get("com.docker.compose.service") or "").strip()
+        working_dir = str(labels.get("com.docker.compose.project.working_dir") or "").strip()
+        config_files_raw = str(labels.get("com.docker.compose.project.config_files") or "").strip()
+        files = [x.strip() for x in config_files_raw.split(",") if x.strip()]
+        compose_managed = bool(project and service and working_dir and files)
+        return {
+            "image": image_ref,
+            "image_id_running": image_id_running,
+            "compose_managed": compose_managed,
+            "project": project,
+            "service": service,
+            "working_dir": working_dir,
+            "config_files": files,
+        }
+
+    @classmethod
+    def _docker_create_cmd_from_inspect(cls, obj: dict, image_ref: str, container_name: str) -> list[str]:
+        cfg = obj.get("Config") if isinstance(obj.get("Config"), dict) else {}
+        hcfg = obj.get("HostConfig") if isinstance(obj.get("HostConfig"), dict) else {}
+        cmd = ["docker", "create", "--name", container_name]
+
+        user = str(cfg.get("User") or "").strip()
+        if user:
+            cmd.extend(["--user", user])
+        workdir = str(cfg.get("WorkingDir") or "").strip()
+        if workdir:
+            cmd.extend(["--workdir", workdir])
+        hostname = str(cfg.get("Hostname") or "").strip()
+        if hostname:
+            cmd.extend(["--hostname", hostname])
+
+        restart = hcfg.get("RestartPolicy") if isinstance(hcfg.get("RestartPolicy"), dict) else {}
+        rp_name = str(restart.get("Name") or "").strip()
+        rp_max = int(restart.get("MaximumRetryCount") or 0)
+        if rp_name and rp_name != "no":
+            if rp_name == "on-failure" and rp_max > 0:
+                cmd.extend(["--restart", f"{rp_name}:{rp_max}"])
+            else:
+                cmd.extend(["--restart", rp_name])
+
+        network_mode = str(hcfg.get("NetworkMode") or "").strip()
+        if network_mode:
+            cmd.extend(["--network", network_mode])
+
+        if bool(hcfg.get("Privileged")):
+            cmd.append("--privileged")
+        if bool(cfg.get("Tty")):
+            cmd.append("-t")
+        if bool(cfg.get("OpenStdin")):
+            cmd.append("-i")
+
+        for e in (cfg.get("Env") or []):
+            s = str(e or "")
+            if s:
+                cmd.extend(["-e", s])
+
+        port_bindings = hcfg.get("PortBindings") if isinstance(hcfg.get("PortBindings"), dict) else {}
+        for cport, bindings in port_bindings.items():
+            cport_s = str(cport or "").strip()
+            if not cport_s:
+                continue
+            if not isinstance(bindings, list) or not bindings:
+                cmd.extend(["-p", cport_s])
+                continue
+            for b in bindings:
+                if not isinstance(b, dict):
+                    continue
+                hip = str(b.get("HostIp") or "").strip()
+                hport = str(b.get("HostPort") or "").strip()
+                if hip and hport:
+                    cmd.extend(["-p", f"{hip}:{hport}:{cport_s}"])
+                elif hport:
+                    cmd.extend(["-p", f"{hport}:{cport_s}"])
+                else:
+                    cmd.extend(["-p", cport_s])
+
+        for m in (obj.get("Mounts") or []):
+            if not isinstance(m, dict):
+                continue
+            mtype = str(m.get("Type") or "").strip().lower()
+            dst = str(m.get("Destination") or "").strip()
+            rw = bool(m.get("RW"))
+            mode = "rw" if rw else "ro"
+            if mtype == "bind":
+                src = str(m.get("Source") or "").strip()
+                if src and dst:
+                    cmd.extend(["-v", f"{src}:{dst}:{mode}"])
+            elif mtype == "volume":
+                name = str(m.get("Name") or "").strip()
+                if name and dst:
+                    cmd.extend(["-v", f"{name}:{dst}:{mode}"])
+            elif mtype == "tmpfs":
+                if dst:
+                    cmd.extend(["--tmpfs", dst])
+
+        for d in (hcfg.get("Devices") or []):
+            if not isinstance(d, dict):
+                continue
+            ph = str(d.get("PathOnHost") or "").strip()
+            pc = str(d.get("PathInContainer") or "").strip()
+            perm = str(d.get("CgroupPermissions") or "").strip() or "rwm"
+            if ph and pc:
+                cmd.extend(["--device", f"{ph}:{pc}:{perm}"])
+
+        for x in (hcfg.get("CapAdd") or []):
+            s = str(x or "").strip()
+            if s:
+                cmd.extend(["--cap-add", s])
+        for x in (hcfg.get("CapDrop") or []):
+            s = str(x or "").strip()
+            if s:
+                cmd.extend(["--cap-drop", s])
+        for x in (hcfg.get("ExtraHosts") or []):
+            s = str(x or "").strip()
+            if s:
+                cmd.extend(["--add-host", s])
+        for x in (hcfg.get("Dns") or []):
+            s = str(x or "").strip()
+            if s:
+                cmd.extend(["--dns", s])
+        for x in (hcfg.get("DnsSearch") or []):
+            s = str(x or "").strip()
+            if s:
+                cmd.extend(["--dns-search", s])
+
+        entrypoint = cfg.get("Entrypoint")
+        if isinstance(entrypoint, list) and len(entrypoint) == 1:
+            ep = str(entrypoint[0] or "").strip()
+            if ep:
+                cmd.extend(["--entrypoint", ep])
+        elif isinstance(entrypoint, str):
+            ep = entrypoint.strip()
+            if ep:
+                cmd.extend(["--entrypoint", ep])
+
+        cmd.append(str(image_ref))
+        user_cmd = cfg.get("Cmd")
+        if isinstance(user_cmd, list):
+            cmd.extend([str(x) for x in user_cmd])
+        elif isinstance(user_cmd, str) and user_cmd.strip():
+            cmd.append(user_cmd.strip())
+        return cmd
+
+    @classmethod
+    def _docker_noncompose_upgrade(cls, container_name: str, image_ref: str) -> dict:
+        obj = cls._qbt_container_inspect_obj(container_name)
+        before_id = str(obj.get("Image") or "").strip() or cls._docker_image_id(image_ref)
+        pull = subprocess.run(["docker", "pull", image_ref], capture_output=True, text=True, check=False)
+        if pull.returncode != 0:
+            raise RuntimeError((pull.stderr or pull.stdout or "docker pull failed").strip())
+        new_id = cls._docker_image_id(image_ref)
+        if before_id and new_id and before_id == new_id:
+            return {
+                "changed": False,
+                "before_image_id": before_id,
+                "after_image_id": new_id,
+                "detail": ((pull.stdout or "") + "\n" + (pull.stderr or "")).strip()[-1200:],
+            }
+
+        backup_name = f"{container_name}.bak.{int(time.time())}"
+        create_cmd = cls._docker_create_cmd_from_inspect(obj, image_ref, container_name)
+        orig_running = str(((obj.get("State") or {}).get("Status") or "")).strip().lower() == "running"
+        created = False
+        renamed = False
+        try:
+            if orig_running:
+                st = subprocess.run(["docker", "stop", container_name], capture_output=True, text=True, check=False)
+                if st.returncode != 0:
+                    raise RuntimeError((st.stderr or st.stdout or "docker stop failed").strip())
+            rn = subprocess.run(["docker", "rename", container_name, backup_name], capture_output=True, text=True, check=False)
+            if rn.returncode != 0:
+                raise RuntimeError((rn.stderr or rn.stdout or "docker rename failed").strip())
+            renamed = True
+
+            cr = subprocess.run(create_cmd, capture_output=True, text=True, check=False)
+            if cr.returncode != 0:
+                raise RuntimeError((cr.stderr or cr.stdout or "docker create failed").strip())
+            created = True
+
+            st2 = subprocess.run(["docker", "start", container_name], capture_output=True, text=True, check=False)
+            if st2.returncode != 0:
+                raise RuntimeError((st2.stderr or st2.stdout or "docker start failed").strip())
+
+            rm_bak = subprocess.run(["docker", "rm", backup_name], capture_output=True, text=True, check=False)
+            if rm_bak.returncode != 0:
+                # keep backup if cleanup fails, do not fail upgrade
+                pass
+            return {
+                "changed": True,
+                "before_image_id": before_id,
+                "after_image_id": new_id,
+                "detail": (
+                    (pull.stdout or "")
+                    + "\n"
+                    + (pull.stderr or "")
+                    + "\n"
+                    + (cr.stdout or "")
+                    + "\n"
+                    + (cr.stderr or "")
+                    + "\n"
+                    + (st2.stdout or "")
+                    + "\n"
+                    + (st2.stderr or "")
+                ).strip()[-1200:],
+            }
+        except Exception:
+            if created:
+                subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, text=True, check=False)
+            if renamed:
+                subprocess.run(["docker", "rename", backup_name, container_name], capture_output=True, text=True, check=False)
+                if orig_running:
+                    subprocess.run(["docker", "start", container_name], capture_output=True, text=True, check=False)
+            raise
+
+    @classmethod
     def _qbt_compose_cmd(cls, meta: dict, action: str) -> list[str]:
         cmd = ["docker", "compose"]
         wd = str(meta.get("working_dir") or "").strip()
@@ -8299,32 +8542,133 @@ class AppHandler(BaseHTTPRequestHandler):
             info = cls._docker_qbt_container_info(cfg) or {}
             unit = str(info.get("unit") or "").strip()
             container = unit.split(":", 1)[1] if unit.startswith("docker:") else ""
-        if not container:
-            raise RuntimeError("No docker container detected for selected client")
-        return {"client": c, "container": container}
+        if container:
+            return {"client": c, "kind": "docker", "container": container}
+        svc_candidates = []
+        qbt_cfg3 = dict(qbt_cfg)
+        qbt_cfg3["client"] = c
+        cfg["qbt"] = qbt_cfg3
+        for u in cls._qbt_service_candidates(cfg):
+            unit = str(u or "").strip()
+            if unit:
+                svc_candidates.append(unit)
+        svc = cls._resolve_existing_unit(svc_candidates) or {}
+        svc_unit = str(svc.get("unit") or "").strip()
+        if svc_unit:
+            return {"client": c, "kind": "service", "unit": svc_unit}
+        raise RuntimeError("No docker container or systemd service detected for selected client")
+
+    @classmethod
+    def _qbt_client_packages(cls, client: str) -> list[str]:
+        c = str(client or "").strip().lower()
+        mp = {
+            "qbittorrent": ["qbittorrent-nox", "qbittorrent"],
+            "deluge": ["deluged", "deluge"],
+            "transmission": ["transmission-daemon", "transmission"],
+            "rtorrent": ["rtorrent"],
+        }
+        return list(mp.get(c, ["qbittorrent-nox", "qbittorrent"]))
+
+    @classmethod
+    def _qbt_client_is_configured(cls, app_cfg: dict | None, client: str) -> bool:
+        cfg = dict(app_cfg or {})
+        qbt = cfg.get("qbt") if isinstance(cfg.get("qbt"), dict) else {}
+        if not isinstance(qbt, dict):
+            qbt = {}
+        c = str(client or "").strip().lower()
+        if c not in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+            return False
+        primary = str(qbt.get("client", "qbittorrent") or "qbittorrent").strip().lower()
+        enabled = qbt.get("homepage_clients_enabled")
+        if isinstance(enabled, dict):
+            if enabled.get(c) is True:
+                return True
+        # backward compatible: current primary client is treated as configured
+        return c == primary
+
+    @classmethod
+    def _apt_pkg_policy(cls, pkg: str) -> dict:
+        out = subprocess.run(
+            ["apt-cache", "policy", pkg],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if out.returncode != 0:
+            return {}
+        installed = ""
+        candidate = ""
+        for line in (out.stdout or "").splitlines():
+            t = str(line or "").strip()
+            if t.startswith("Installed:"):
+                installed = t.split(":", 1)[1].strip()
+            elif t.startswith("Candidate:"):
+                candidate = t.split(":", 1)[1].strip()
+        if not installed or installed == "(none)":
+            return {}
+        return {"installed": installed, "candidate": candidate}
 
     @classmethod
     def _qbt_upgrade_check(cls, app_cfg: dict | None = None, client_hint: str = "", container_hint: str = "") -> dict:
         target = cls._resolve_qbt_upgrade_target(app_cfg, client_hint, container_hint)
-        meta = cls._qbt_upgrade_compose_meta(target["container"])
-        before_id = cls._docker_image_id(meta.get("image", ""))
-        pull_cmd = cls._qbt_compose_cmd(meta, "pull")
-        pull = subprocess.run(pull_cmd, capture_output=True, text=True, check=False)
-        if pull.returncode != 0:
-            raise RuntimeError((pull.stderr or pull.stdout or "docker compose pull failed").strip())
-        after_id = cls._docker_image_id(meta.get("image", ""))
-        updatable = bool(before_id and after_id and before_id != after_id)
-        output_text = ((pull.stdout or "") + "\n" + (pull.stderr or "")).strip()
-        if not output_text:
-            output_text = "Pull completed"
+        if target.get("kind") == "docker":
+            meta = cls._qbt_container_meta(target["container"])
+            image_ref = str(meta.get("image") or "").strip()
+            before_id = str(meta.get("image_id_running") or "").strip() or cls._docker_image_id(image_ref)
+            pull = subprocess.run(["docker", "pull", image_ref], capture_output=True, text=True, check=False)
+            if pull.returncode != 0:
+                raise RuntimeError((pull.stderr or pull.stdout or "docker pull failed").strip())
+            after_id = cls._docker_image_id(image_ref)
+            updatable = bool(before_id and after_id and before_id != after_id)
+            output_text = ((pull.stdout or "") + "\n" + (pull.stderr or "")).strip()
+            if not output_text:
+                output_text = "Pull completed"
+            msg = "Update available" if updatable else "Already up to date"
+            if not meta.get("compose_managed"):
+                msg += " (non-compose container)"
+            return {
+                "client": target["client"],
+                "kind": "docker",
+                "container": target["container"],
+                "image": image_ref,
+                "updatable": updatable,
+                "compose_managed": bool(meta.get("compose_managed")),
+                "message": msg,
+                "detail": output_text[-1200:],
+                "before_image_id": before_id,
+                "after_image_id": after_id,
+            }
+        unit = str(target.get("unit") or "").strip()
+        if not unit:
+            raise RuntimeError("No service unit detected")
+        apt_exists = subprocess.run(["which", "apt-get"], capture_output=True, text=True, check=False).returncode == 0
+        if not apt_exists:
+            raise RuntimeError("Service upgrade currently supports apt-based systems only")
+        chosen_pkg = ""
+        installed = ""
+        candidate = ""
+        for pkg in cls._qbt_client_packages(target["client"]):
+            pol = cls._apt_pkg_policy(pkg)
+            if not pol:
+                continue
+            chosen_pkg = pkg
+            installed = str(pol.get("installed") or "")
+            candidate = str(pol.get("candidate") or "")
+            break
+        if not chosen_pkg:
+            raise RuntimeError("No installed package found for selected client")
+        updatable = bool(candidate and candidate != "(none)" and candidate != installed)
         msg = "Update available" if updatable else "Already up to date"
         return {
             "client": target["client"],
-            "container": target["container"],
-            "image": str(meta.get("image") or ""),
+            "kind": "service",
+            "unit": unit,
+            "package": chosen_pkg,
+            "installed_version": installed,
+            "candidate_version": candidate,
             "updatable": updatable,
             "message": msg,
-            "detail": output_text[-1200:],
+            "detail": f"apt package {chosen_pkg}: installed={installed}, candidate={candidate}",
         }
 
     @classmethod
@@ -8339,42 +8683,110 @@ class AppHandler(BaseHTTPRequestHandler):
                 running=True,
                 state="running",
                 client=target["client"],
-                container=target["container"],
+                container=str(target.get("container") or ""),
+                unit=str(target.get("unit") or ""),
+                kind=str(target.get("kind") or ""),
                 message="Pulling latest image...",
                 error="",
             )
-            meta = cls._qbt_upgrade_compose_meta(target["container"])
-            before_id = cls._docker_image_id(meta.get("image", ""))
-            pull_cmd = cls._qbt_compose_cmd(meta, "pull")
-            pull = subprocess.run(pull_cmd, capture_output=True, text=True, check=False)
-            if pull.returncode != 0:
-                raise RuntimeError((pull.stderr or pull.stdout or "docker compose pull failed").strip())
-            mid_id = cls._docker_image_id(meta.get("image", ""))
+            if target.get("kind") == "docker":
+                meta = cls._qbt_container_meta(target["container"])
+                image_ref = str(meta.get("image") or "")
+                cls._set_qbt_upgrade_status(
+                    running=True,
+                    state="running",
+                    image=image_ref,
+                    message="Pulling latest image...",
+                )
+                if meta.get("compose_managed"):
+                    before_id = cls._docker_image_id(image_ref)
+                    pull_cmd = cls._qbt_compose_cmd(meta, "pull")
+                    pull = subprocess.run(pull_cmd, capture_output=True, text=True, check=False)
+                    if pull.returncode != 0:
+                        raise RuntimeError((pull.stderr or pull.stdout or "docker compose pull failed").strip())
+                    mid_id = cls._docker_image_id(image_ref)
+                    cls._set_qbt_upgrade_status(
+                        running=True,
+                        state="running",
+                        message="Recreating container with updated image...",
+                    )
+                    up_cmd = cls._qbt_compose_cmd(meta, "up")
+                    up = subprocess.run(up_cmd, capture_output=True, text=True, check=False)
+                    if up.returncode != 0:
+                        raise RuntimeError((up.stderr or up.stdout or "docker compose up failed").strip())
+                    after_id = cls._docker_image_id(image_ref)
+                    changed = bool(before_id and mid_id and before_id != mid_id)
+                    msg = "Client upgraded successfully" if changed else "Client recreated (already latest image)"
+                    detail = ((pull.stdout or "") + "\n" + (pull.stderr or "") + "\n" + (up.stdout or "") + "\n" + (up.stderr or "")).strip()
+                    return cls._set_qbt_upgrade_status(
+                        running=False,
+                        state="success",
+                        image=image_ref,
+                        message=msg,
+                        error="",
+                        updatable=changed,
+                        checked_at=_utc_now_iso(),
+                        detail=detail[-1200:],
+                        before_image_id=before_id,
+                        after_image_id=after_id,
+                    )
+                cls._set_qbt_upgrade_status(
+                    running=True,
+                    state="running",
+                    message="Recreating non-compose container with latest image...",
+                )
+                res = cls._docker_noncompose_upgrade(target["container"], image_ref)
+                changed = bool(res.get("changed"))
+                return cls._set_qbt_upgrade_status(
+                    running=False,
+                    state="success",
+                    image=image_ref,
+                    message=("Client upgraded successfully" if changed else "Already latest image"),
+                    error="",
+                    updatable=changed,
+                    checked_at=_utc_now_iso(),
+                    detail=str(res.get("detail") or "")[-1200:],
+                    before_image_id=str(res.get("before_image_id") or ""),
+                    after_image_id=str(res.get("after_image_id") or ""),
+                )
+            unit = str(target.get("unit") or "").strip()
+            if not unit:
+                raise RuntimeError("No service unit detected")
+            apt_exists = subprocess.run(["which", "apt-get"], capture_output=True, text=True, check=False).returncode == 0
+            if not apt_exists:
+                raise RuntimeError("Service upgrade currently supports apt-based systems only")
+            chosen_pkg = ""
+            for pkg in cls._qbt_client_packages(target["client"]):
+                if cls._apt_pkg_policy(pkg):
+                    chosen_pkg = pkg
+                    break
+            if not chosen_pkg:
+                raise RuntimeError("No installed package found for selected client")
             cls._set_qbt_upgrade_status(
                 running=True,
                 state="running",
-                image=str(meta.get("image") or ""),
-                message="Recreating container with updated image...",
+                unit=unit,
+                package=chosen_pkg,
+                message=f"Upgrading package {chosen_pkg}...",
             )
-            up_cmd = cls._qbt_compose_cmd(meta, "up")
-            up = subprocess.run(up_cmd, capture_output=True, text=True, check=False)
+            up = subprocess.run(
+                ["apt-get", "install", "-y", "--only-upgrade", chosen_pkg],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
             if up.returncode != 0:
-                raise RuntimeError((up.stderr or up.stdout or "docker compose up failed").strip())
-            after_id = cls._docker_image_id(meta.get("image", ""))
-            changed = bool(before_id and mid_id and before_id != mid_id)
-            msg = "Client upgraded successfully" if changed else "Client recreated (already latest image)"
-            detail = ((pull.stdout or "") + "\n" + (pull.stderr or "") + "\n" + (up.stdout or "") + "\n" + (up.stderr or "")).strip()
+                raise RuntimeError((up.stderr or up.stdout or "apt upgrade failed").strip())
+            cls._service_action(unit, "restart")
+            detail = ((up.stdout or "") + "\n" + (up.stderr or "")).strip()
             return cls._set_qbt_upgrade_status(
                 running=False,
                 state="success",
-                image=str(meta.get("image") or ""),
-                message=msg,
+                message=f"Service client upgraded: {chosen_pkg}",
                 error="",
-                updatable=changed,
+                updatable=False,
                 checked_at=_utc_now_iso(),
                 detail=detail[-1200:],
-                before_image_id=before_id,
-                after_image_id=after_id,
             )
         except Exception as exc:
             return cls._set_qbt_upgrade_status(
@@ -11597,20 +12009,57 @@ class AppHandler(BaseHTTPRequestHandler):
                 body = {}
             try:
                 app_cfg = load_app_config(_APP_ROOT_DIR)
+                req_client = str(body.get("client", "") or "").strip().lower()
+                if not self._qbt_client_is_configured(app_cfg, req_client):
+                    raise RuntimeError(
+                        f"Client '{req_client or 'unknown'}' is not configured. "
+                        "Please enable/configure it in Settings -> BitTorrent first."
+                    )
                 info = self._qbt_upgrade_check(
                     app_cfg,
-                    client_hint=str(body.get("client", "") or ""),
+                    client_hint=req_client,
                     container_hint=str(body.get("docker_container", "") or ""),
                 )
-                info["running"] = False
-                info["state"] = "checked"
-                info["checked_at"] = _utc_now_iso()
-                self._set_qbt_upgrade_status(**info)
+                base = {
+                    "running": False,
+                    "state": "checked",
+                    "client": "",
+                    "kind": "",
+                    "container": "",
+                    "unit": "",
+                    "image": "",
+                    "package": "",
+                    "installed_version": "",
+                    "candidate_version": "",
+                    "message": "",
+                    "error": "",
+                    "checked_at": _utc_now_iso(),
+                    "updatable": None,
+                    "compose_managed": None,
+                    "before_image_id": "",
+                    "after_image_id": "",
+                    "detail": "",
+                }
+                base.update(info)
+                self._set_qbt_upgrade_status(**base)
                 self._send_json(self._qbt_upgrade_snapshot())
             except Exception as exc:
                 rec = self._set_qbt_upgrade_status(
                     running=False,
                     state="error",
+                    client=str(body.get("client", "") or "").strip().lower(),
+                    kind="",
+                    container="",
+                    unit="",
+                    image="",
+                    package="",
+                    installed_version="",
+                    candidate_version="",
+                    compose_managed=None,
+                    before_image_id="",
+                    after_image_id="",
+                    updatable=None,
+                    detail="",
                     message="Update check failed",
                     error=str(exc),
                 )
@@ -11624,9 +12073,36 @@ class AppHandler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 body = {}
             app_cfg = load_app_config(_APP_ROOT_DIR)
+            req_client = str(body.get("client", "") or "").strip().lower()
+            if not self._qbt_client_is_configured(app_cfg, req_client):
+                self._send_json(
+                    self._set_qbt_upgrade_status(
+                        running=False,
+                        state="error",
+                        client=req_client,
+                        kind="",
+                        container="",
+                        unit="",
+                        image="",
+                        package="",
+                        installed_version="",
+                        candidate_version="",
+                        compose_managed=None,
+                        before_image_id="",
+                        after_image_id="",
+                        updatable=None,
+                        detail="",
+                        message="Upgrade blocked",
+                        error=(
+                            f"Client '{req_client or 'unknown'}' is not configured. "
+                            "Please enable/configure it in Settings -> BitTorrent first."
+                        ),
+                    )
+                )
+                return
             rec = self._qbt_upgrade_run(
                 app_cfg,
-                client_hint=str(body.get("client", "") or ""),
+                client_hint=req_client,
                 container_hint=str(body.get("docker_container", "") or ""),
             )
             self._send_json(rec)
