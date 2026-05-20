@@ -25,10 +25,11 @@ SUBTITLE_EXTENSIONS = {
     ".ass",
     ".ssa",
     ".vtt",
+    ".sup",
     ".sub",
     ".idx",
 }
-TOKEN_RE = re.compile(r"(?i)(s\d{1,2}e\d{1,2})")
+TOKEN_RE = re.compile(r"(?i)(?:s(\d{1,2})e(\d{1,2})|(\d{1,2})x(\d{1,2}))")
 LANG_TOKEN_RE = re.compile(r"(?i)^(zh|zho|cn|chs|cht|sc|tc|eng|en|ja|jp|jpn|ko|kr|kor|fr|de|es|it|pt|ru|ar|hi|vi|th)$")
 
 
@@ -43,7 +44,13 @@ class AlignItem:
 
 def _token(stem: str) -> str:
     m = TOKEN_RE.search(stem or "")
-    return (m.group(1).upper() if m else "")
+    if not m:
+        return ""
+    season = m.group(1) or m.group(3)
+    episode = m.group(2) or m.group(4)
+    if season is None or episode is None:
+        return ""
+    return f"S{int(season):02d}E{int(episode):02d}"
 
 
 def _suffix_after_token(stem: str) -> str:

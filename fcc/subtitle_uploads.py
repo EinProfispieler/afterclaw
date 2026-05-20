@@ -20,6 +20,7 @@ SUBTITLE_EXTENSIONS = {
     ".ass",
     ".ssa",
     ".vtt",
+    ".sup",
     ".sub",
     ".idx",
 }

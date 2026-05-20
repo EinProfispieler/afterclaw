@@ -51,3 +51,15 @@ def test_token_match_drops_long_redundant_tail(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["skip"] is False
     assert rows[0]["new_rel"].endswith("Futurama.S04E01.Roswell.That.Ends.Well.DVDRip.x264.srt")
+
+
+def test_token_match_supports_x_style(tmp_path: Path):
+    root = tmp_path / "storage"
+    d = root / "show"
+    d.mkdir(parents=True)
+    (d / "The.Rookie.S08E03.1080p.WEB-DL.mkv").write_text("v")
+    (d / "The.Rookie.8x03.eng.srt").write_text("s")
+    rows = simplify_plan(build_alignment_plan(root, "show", recursive=False))
+    assert len(rows) == 1
+    assert rows[0]["skip"] is False
+    assert rows[0]["new_rel"].endswith("The.Rookie.S08E03.1080p.WEB-DL.eng.srt")

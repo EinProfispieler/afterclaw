@@ -1852,6 +1852,7 @@ def build_frontend_html() -> str:
     <div class="tabs">
       <button id="tabMonitorBtn" class="tab-btn active" type="button">Control</button>
       <button id="tabDirBtn" class="tab-btn" type="button">Directory Service</button>
+      <button id="tabFaqBtn" class="tab-btn" type="button">FAQ</button>
       <button id="tabBackupBtn" class="tab-btn" type="button" style="display:none">Backup</button>
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
@@ -1938,10 +1939,10 @@ def build_frontend_html() -> str:
               <button type="button" id="subtitleAlignApplyBtn" disabled>Apply align by preview</button>
             </div>
             <div id="subtitleAlignStatus" class="status-bar muted" style="margin-top:6px"></div>
-            <p class="muted" style="margin:14px 0 8px;">字幕上传：支持 <code>.srt</code>、<code>.ass</code>、<code>.ssa</code>、<code>.vtt</code>，以及 <code>.zip</code>、<code>.rar</code>、<code>.7z</code>、<code>.gz</code> 等压缩包。</p>
+            <p class="muted" style="margin:14px 0 8px;">字幕上传：支持 <code>.srt</code>、<code>.ass</code>、<code>.ssa</code>、<code>.vtt</code>、<code>.sup</code>，以及 <code>.zip</code>、<code>.rar</code>、<code>.7z</code>、<code>.gz</code> 等压缩包。</p>
             <p style="margin:0 0 10px;color:var(--danger);font-weight:700;">压缩包解压后会自动删除原压缩包（不保留）。</p>
             <label for="subtitleUploadInput">字幕文件或压缩包</label>
-            <input id="subtitleUploadInput" type="file" multiple accept=".srt,.ass,.ssa,.vtt,.sub,.idx,.zip,.rar,.7z,.gz,.tgz,.tar,.tbz2,.txz,.bz2,.xz" />
+            <input id="subtitleUploadInput" type="file" multiple accept=".srt,.ass,.ssa,.vtt,.sup,.sub,.idx,.zip,.rar,.7z,.gz,.tgz,.tar,.tbz2,.txz,.bz2,.xz" />
             <div class="row" style="margin-top:8px;">
               <button type="button" id="subtitleUploadBtn">上传字幕</button>
             </div>
@@ -2037,6 +2038,30 @@ def build_frontend_html() -> str:
   </div>
   </div>
 
+  <div id="tabFaqPanel" class="tab-panel">
+  <div class="card">
+    <span class="card-title">FAQ</span>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer;font-weight:700;">Terminal / SSH: Host key verification failed (macOS)</summary>
+      <div class="muted" style="margin-top:8px;line-height:1.65;">
+        <div>Not all macOS users will hit this. It usually happens when the server host key changed but AfterClaw service-side known_hosts is still old.</div>
+        <div style="margin-top:8px;">Run on your local Mac terminal (replace user/host with your own, command executes on server via SSH):</div>
+        <pre style="margin:8px 0 0;white-space:pre-wrap;">ssh &lt;user&gt;@&lt;server-host-or-ip&gt; '
+set -e
+sudo mkdir -p /root/.ssh
+sudo touch /root/.ssh/known_hosts
+sudo ssh-keygen -R &lt;server-host-or-ip&gt; -f /root/.ssh/known_hosts || true
+sudo ssh-keyscan -H &lt;server-host-or-ip&gt; | sudo tee -a /root/.ssh/known_hosts >/dev/null
+sudo chmod 700 /root/.ssh
+sudo chmod 600 /root/.ssh/known_hosts
+sudo systemctl restart storage-http-link-web
+'</pre>
+        <div style="margin-top:8px;">If service user is not root, replace <code>/root/.ssh/known_hosts</code> with that service user's known_hosts path.</div>
+      </div>
+    </details>
+  </div>
+  </div>
+
   <div id="tabMonitorPanel" class="tab-panel active">
   <div class="card">
     <span class="card-title">Control Status & Actions</span>
@@ -2115,34 +2140,6 @@ def build_frontend_html() -> str:
     <div id="ndStatusText" class="status-bar muted">Preparing...</div>
   </div>
 
-  <div class="card" id="faqCard">
-    <details class="card-fold">
-      <summary class="card-collapse-btn">
-        <span class="card-title" style="margin-bottom:0;">FAQ</span>
-        <span class="card-collapse-arrow" aria-hidden="true">▶</span>
-      </summary>
-      <div class="card-fold-body">
-        <details style="margin-bottom:10px;">
-          <summary style="cursor:pointer;font-weight:700;">Terminal / SSH: Host key verification failed (macOS)</summary>
-          <div class="muted" style="margin-top:8px;line-height:1.65;">
-            <div>Not all macOS users will hit this. It usually happens when the server host key changed but AfterClaw service-side known_hosts is still old.</div>
-            <div style="margin-top:8px;">Run on your local Mac terminal (replace user/host with your own, command executes on server via SSH):</div>
-            <pre style="margin:8px 0 0;white-space:pre-wrap;">ssh &lt;user&gt;@&lt;server-host-or-ip&gt; '
-set -e
-sudo mkdir -p /root/.ssh
-sudo touch /root/.ssh/known_hosts
-sudo ssh-keygen -R &lt;server-host-or-ip&gt; -f /root/.ssh/known_hosts || true
-sudo ssh-keyscan -H &lt;server-host-or-ip&gt; | sudo tee -a /root/.ssh/known_hosts >/dev/null
-sudo chmod 700 /root/.ssh
-sudo chmod 600 /root/.ssh/known_hosts
-sudo systemctl restart storage-http-link-web
-'</pre>
-            <div style="margin-top:8px;">If service user is not root, replace <code>/root/.ssh/known_hosts</code> with that service user's known_hosts path.</div>
-          </div>
-        </details>
-      </div>
-    </details>
-  </div>
   </div>
 
   <footer class="global-footer">AfterClaw __APP_VERSION_TEXT__ by RandyPKU</footer>
@@ -2156,10 +2153,12 @@ sudo systemctl restart storage-http-link-web
       : Promise.resolve();
     const tabDirBtn = document.getElementById("tabDirBtn");
     const tabMonitorBtn = document.getElementById("tabMonitorBtn");
+    const tabFaqBtn = document.getElementById("tabFaqBtn");
     const tabBackupBtn = document.getElementById("tabBackupBtn");
     const tabPubBtn = document.getElementById("tabPubBtn");
     const tabDirPanel = document.getElementById("tabDirPanel");
     const tabMonitorPanel = document.getElementById("tabMonitorPanel");
+    const tabFaqPanel = document.getElementById("tabFaqPanel");
     const tabBackupPanel = document.getElementById("tabBackupPanel");
     const tabPubPanel = document.getElementById("tabPubPanel");
     const storageText = document.getElementById("storageText");
@@ -2571,11 +2570,14 @@ sudo systemctl restart storage-http-link-web
     }
 
     function switchTab(which) {
-      [tabDirBtn, tabMonitorBtn, tabBackupBtn, tabPubBtn].forEach((b) => b.classList.remove("active"));
-      [tabDirPanel, tabMonitorPanel, tabBackupPanel, tabPubPanel].forEach((p) => p.classList.remove("active"));
+      [tabDirBtn, tabMonitorBtn, tabFaqBtn, tabBackupBtn, tabPubBtn].forEach((b) => b.classList.remove("active"));
+      [tabDirPanel, tabMonitorPanel, tabFaqPanel, tabBackupPanel, tabPubPanel].forEach((p) => p.classList.remove("active"));
       if (which === "dir") {
         tabDirBtn.classList.add("active");
         tabDirPanel.classList.add("active");
+      } else if (which === "faq") {
+        tabFaqBtn.classList.add("active");
+        tabFaqPanel.classList.add("active");
       } else if (which === "backup") {
         tabBackupBtn.classList.add("active");
         tabBackupPanel.classList.add("active");
@@ -3640,14 +3642,21 @@ sudo systemctl restart storage-http-link-web
       function hintForMessage(msg) {
         var m = String(msg || "");
         var low = m.toLowerCase();
+        var isZh = !!(langSelect && String(langSelect.value || "").toLowerCase().indexOf("zh") === 0);
         if (low.includes("unsupported method") || low.includes("cannot extract .rar")) {
-          return "服务器当前解压器不支持该 RAR 压缩格式。请在服务器安装/升级解压工具（推荐 7zz 或 unrar），或先在本地解压后上传 .srt/.ass/.ssa/.vtt。";
+          return isZh
+            ? "服务器当前解压器不支持该 RAR 压缩格式。请在服务器安装/升级解压工具（推荐 7zz 或 unrar），或先在本地解压后上传 .srt/.ass/.ssa/.vtt。"
+            : "Server extractor does not support this RAR method. Install or upgrade an extractor on the server (recommended: 7zz or unrar), or extract locally and upload .srt/.ass/.ssa/.vtt files.";
         }
         if (low.includes("archive does not contain subtitle files")) {
-          return "压缩包内没有可识别字幕文件（.srt/.ass/.ssa/.vtt/.sub/.idx）。请确认内容后重试。";
+          return isZh
+            ? "压缩包内没有可识别字幕文件（.srt/.ass/.ssa/.vtt/.sup/.sub/.idx）。请确认内容后重试。"
+            : "No recognized subtitle files were found in the archive (.srt/.ass/.ssa/.vtt/.sup/.sub/.idx). Please verify the archive content and try again.";
         }
         if (low.includes("file exceeds upload size limit")) {
-          return "文件超过服务器上传大小限制。请拆分压缩包或调整服务端上传上限。";
+          return isZh
+            ? "文件超过服务器上传大小限制。请拆分压缩包或调整服务端上传上限。"
+            : "File exceeds the server upload size limit. Split the archive or increase the upload limit on the server.";
         }
         return "";
       }
@@ -3960,6 +3969,7 @@ sudo systemctl restart storage-http-link-web
     clipIdInput.addEventListener("change", () => applyClipIdFromInput(false));
     tabDirBtn.addEventListener("click", () => switchTab("dir"));
     tabMonitorBtn.addEventListener("click", () => switchTab("monitor"));
+    tabFaqBtn.addEventListener("click", () => switchTab("faq"));
     tabBackupBtn.addEventListener("click", () => switchTab("backup"));
     tabPubBtn.addEventListener("click", () => switchTab("pub"));
     xferSortButtons.forEach((btn) => {

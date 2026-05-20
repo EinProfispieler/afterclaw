@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.14] - 2026-05-21
+
+### Added
+
+- Added dedicated `FAQ` main tab on homepage with terminal/SSH host key troubleshooting guidance.
+- Added subtitle upload support for `.sup` files.
+- Added subtitle alignment token compatibility for `S8E3` and `8x03` patterns.
+
+### Changed
+
+- Improved subtitle upload warning hints to follow current UI language (Chinese/English).
+- Updated subtitle-related guidance text to include `.sup` extension.
+
 ## [0.9.11] - 2026-05-19
 
 ### Changed
