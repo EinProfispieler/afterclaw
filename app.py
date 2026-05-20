@@ -1938,12 +1938,12 @@ def build_frontend_html() -> str:
               <button type="button" id="subtitleAlignApplyBtn" disabled>Apply align by preview</button>
             </div>
             <div id="subtitleAlignStatus" class="status-bar muted" style="margin-top:6px"></div>
-            <p class="muted" style="margin:14px 0 8px;">Subtitle upload: upload <code>.srt</code>, <code>.ass</code>, <code>.ssa</code>, <code>.vtt</code>, or archives such as <code>.zip</code>, <code>.rar</code>, <code>.7z</code>, <code>.gz</code>.</p>
-            <p style="margin:0 0 10px;color:var(--danger);font-weight:700;">Archive files are deleted after extraction (not kept).</p>
-            <label for="subtitleUploadInput">Subtitle files or archives</label>
+            <p class="muted" style="margin:14px 0 8px;">字幕上传：支持 <code>.srt</code>、<code>.ass</code>、<code>.ssa</code>、<code>.vtt</code>，以及 <code>.zip</code>、<code>.rar</code>、<code>.7z</code>、<code>.gz</code> 等压缩包。</p>
+            <p style="margin:0 0 10px;color:var(--danger);font-weight:700;">压缩包解压后会自动删除原压缩包（不保留）。</p>
+            <label for="subtitleUploadInput">字幕文件或压缩包</label>
             <input id="subtitleUploadInput" type="file" multiple accept=".srt,.ass,.ssa,.vtt,.sub,.idx,.zip,.rar,.7z,.gz,.tgz,.tar,.tbz2,.txz,.bz2,.xz" />
             <div class="row" style="margin-top:8px;">
-              <button type="button" id="subtitleUploadBtn">Upload subtitles</button>
+              <button type="button" id="subtitleUploadBtn">上传字幕</button>
             </div>
             <div id="subtitleUploadStatus" class="status-bar muted" style="margin-top:6px"></div>
           </div>
@@ -2113,6 +2113,35 @@ def build_frontend_html() -> str:
 
     <div id="ndDetailArea"></div>
     <div id="ndStatusText" class="status-bar muted">Preparing...</div>
+  </div>
+
+  <div class="card" id="faqCard">
+    <details class="card-fold">
+      <summary class="card-collapse-btn">
+        <span class="card-title" style="margin-bottom:0;">FAQ</span>
+        <span class="card-collapse-arrow" aria-hidden="true">▶</span>
+      </summary>
+      <div class="card-fold-body">
+        <details style="margin-bottom:10px;">
+          <summary style="cursor:pointer;font-weight:700;">Terminal / SSH: Host key verification failed (macOS)</summary>
+          <div class="muted" style="margin-top:8px;line-height:1.65;">
+            <div>Not all macOS users will hit this. It usually happens when the server host key changed but AfterClaw service-side known_hosts is still old.</div>
+            <div style="margin-top:8px;">Run on your local Mac terminal (replace user/host with your own, command executes on server via SSH):</div>
+            <pre style="margin:8px 0 0;white-space:pre-wrap;">ssh &lt;user&gt;@&lt;server-host-or-ip&gt; '
+set -e
+sudo mkdir -p /root/.ssh
+sudo touch /root/.ssh/known_hosts
+sudo ssh-keygen -R &lt;server-host-or-ip&gt; -f /root/.ssh/known_hosts || true
+sudo ssh-keyscan -H &lt;server-host-or-ip&gt; | sudo tee -a /root/.ssh/known_hosts >/dev/null
+sudo chmod 700 /root/.ssh
+sudo chmod 600 /root/.ssh/known_hosts
+sudo systemctl restart storage-http-link-web
+'</pre>
+            <div style="margin-top:8px;">If service user is not root, replace <code>/root/.ssh/known_hosts</code> with that service user's known_hosts path.</div>
+          </div>
+        </details>
+      </div>
+    </details>
   </div>
   </div>
 
@@ -3606,6 +3635,41 @@ def build_frontend_html() -> str:
       if (!subtitleUploadResult) return;
       subtitleUploadResult.style.display = "none";
       subtitleUploadResult.innerHTML = "";
+      var rows = (data && Array.isArray(data.results)) ? data.results : [];
+      if (!rows.length) return;
+      function hintForMessage(msg) {
+        var m = String(msg || "");
+        var low = m.toLowerCase();
+        if (low.includes("unsupported method") || low.includes("cannot extract .rar")) {
+          return "服务器当前解压器不支持该 RAR 压缩格式。请在服务器安装/升级解压工具（推荐 7zz 或 unrar），或先在本地解压后上传 .srt/.ass/.ssa/.vtt。";
+        }
+        if (low.includes("archive does not contain subtitle files")) {
+          return "压缩包内没有可识别字幕文件（.srt/.ass/.ssa/.vtt/.sub/.idx）。请确认内容后重试。";
+        }
+        if (low.includes("file exceeds upload size limit")) {
+          return "文件超过服务器上传大小限制。请拆分压缩包或调整服务端上传上限。";
+        }
+        return "";
+      }
+      var html = '<div style="font-weight:700;margin-bottom:6px;">上传结果明细</div>';
+      var hints = [];
+      rows.forEach(function(r){
+        if (!r || r.ok) return;
+        var file = String(r.file || "(unknown)");
+        var msg = String(r.message || "未知错误");
+        html += '<div style="margin:4px 0;color:var(--danger);">✗ ' + escapeHtml(file) + '：' + escapeHtml(msg) + '</div>';
+        var h = hintForMessage(msg);
+        if (h && hints.indexOf(h) < 0) hints.push(h);
+      });
+      if (html.indexOf('✗') < 0) return;
+      if (hints.length) {
+        html += '<div style="margin-top:10px;padding:8px 10px;border-radius:8px;border:1px solid rgba(251,191,36,0.45);background:rgba(251,191,36,0.10);color:#f59e0b;font-weight:600;">⚠ 处理建议</div>';
+        hints.forEach(function(h){
+          html += '<div style="margin:6px 0 0;color:#fbbf24;">• ' + escapeHtml(h) + '</div>';
+        });
+      }
+      subtitleUploadResult.innerHTML = html;
+      subtitleUploadResult.style.display = "block";
     }
 
     async function uploadSubtitles() {
@@ -3613,12 +3677,12 @@ def build_frontend_html() -> str:
       const files = Array.from(subtitleUploadInput.files || []);
       if (!files.length) {
         subtitleUploadStatus.className = "status-bar err";
-        subtitleUploadStatus.textContent = "Select subtitle files or archives first.";
+        subtitleUploadStatus.textContent = "请先选择字幕文件或压缩包。";
         return;
       }
       subtitleUploadBtn.disabled = true;
       subtitleUploadStatus.className = "status-bar muted";
-      subtitleUploadStatus.textContent = "Reading files...";
+      subtitleUploadStatus.textContent = "正在读取文件...";
       if (subtitleUploadResult) {
         subtitleUploadResult.style.display = "none";
         subtitleUploadResult.innerHTML = "";
@@ -3632,7 +3696,7 @@ def build_frontend_html() -> str:
             content_b64: await readFileAsBase64(f),
           });
         }
-        subtitleUploadStatus.textContent = "Uploading...";
+        subtitleUploadStatus.textContent = "正在上传...";
         const data = await getJson("/api/subtitles/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -3640,14 +3704,14 @@ def build_frontend_html() -> str:
         });
         renderSubtitleUploadResult(data);
         subtitleUploadStatus.className = data.failed_count ? "status-bar err" : "status-bar muted";
-        subtitleUploadStatus.textContent = "Done: success " + (data.success_count || 0) + ", failed " + (data.failed_count || 0) + ".";
+        subtitleUploadStatus.textContent = "完成：成功 " + (data.success_count || 0) + "，失败 " + (data.failed_count || 0) + "。";
         if (data.success_count) {
           showToast("已上传/解压字幕 " + data.success_count + " items", "success");
           await loadBaseAndDirs(false);
         }
       } catch (e) {
         subtitleUploadStatus.className = "status-bar err";
-        subtitleUploadStatus.textContent = "Upload failed: " + e.message;
+        subtitleUploadStatus.textContent = "上传失败：" + e.message;
       } finally {
         subtitleUploadBtn.disabled = false;
       }
@@ -7060,7 +7124,18 @@ def build_terminal_html() -> str:
         if (pollTimer) window.clearTimeout(pollTimer);
         pollTimer = window.setTimeout(readLoop, 30);
       } catch (err) {
-        setStatus("Connect失败：" + err.message, true);
+        var msg = String((err && err.message) || err || "");
+        if (msg.toLowerCase().indexOf("host key verification failed") >= 0) {
+          var host = String((terminalMeta && terminalMeta.host) || "").trim() || "<host>";
+          setStatus(
+            "Host key verification failed。请在本机终端执行：ssh-keygen -R " + host + "；然后执行 ssh " +
+            String((terminalMeta && terminalMeta.user) || "user") + "@" + host +
+            " 并输入 yes 确认新指纹，再回到此页面重连。",
+            true
+          );
+          return;
+        }
+        setStatus("Connect失败：" + msg, true);
       }
     }
     async function disconnectSession(){
@@ -7214,7 +7289,7 @@ class AppHandler(BaseHTTPRequestHandler):
     terminal_lock = threading.Lock()
     terminal_sessions = {}
     terminal_session_ttl_sec = 30 * 60
-    terminal_max_sessions = 6
+    terminal_max_sessions = 20
 
     @staticmethod
     def _is_hidden_system_name(name: str) -> bool:
@@ -9372,6 +9447,14 @@ class AppHandler(BaseHTTPRequestHandler):
         c, r = cls._terminal_normalize_size(cols, rows)
         with cls.terminal_lock:
             cls._terminal_cleanup_locked()
+            # Second-pass cleanup before refusing new sessions. This helps
+            # recover quickly from stale entries when users reconnect often.
+            if len(cls.terminal_sessions) >= int(cls.terminal_max_sessions):
+                for sid in list(cls.terminal_sessions.keys()):
+                    sess = cls.terminal_sessions.get(sid) or {}
+                    if bool(sess.get("alive", True)):
+                        continue
+                    cls._terminal_close_session_locked(sid)
             if len(cls.terminal_sessions) >= int(cls.terminal_max_sessions):
                 raise RuntimeError("终端会话过多，请先关闭不用的会话")
 
