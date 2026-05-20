@@ -8345,6 +8345,27 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _qbt_fix_monitor_config(cls) -> tuple[bool, str, dict]:
+        settings = cls._qbt_runtime_settings()
+        client = str(settings.get("client", "qbittorrent") or "qbittorrent").strip().lower()
+        if client in {"deluge", "transmission", "rtorrent"}:
+            merged_cfg = load_app_config(_APP_ROOT_DIR)
+            if not isinstance(merged_cfg, dict):
+                merged_cfg = {}
+            unit = cls._qbt_effective_unit_from_settings(merged_cfg)
+            ok, msg, detail = cls._optimize_torrent_non_qb(client, unit)
+            if ok:
+                return True, f"{client} permissions/config fix completed", detail
+            return False, msg, detail
+
+        unit_hint = str(settings.get("service_unit", "") or "").strip()
+        if unit_hint.startswith("docker:"):
+            container = unit_hint.split(":", 1)[1].strip()
+            if not container:
+                container = str(settings.get("docker_container", "") or "").strip()
+            if not container:
+                return False, "未配置 Docker 容器名称，无法执行挂载修复检查", {"mode": "docker"}
+            return cls._qbt_fix_docker_mount_check(container)
+
         meta = cls._qbt_service_meta()
         unit = str(meta["unit"])
         user = str(meta["user"])
@@ -8458,6 +8479,67 @@ class AppHandler(BaseHTTPRequestHandler):
                 "changed_keys": changed_keys,
                 "was_active": was_active,
             }
+
+    @classmethod
+    def _qbt_fix_docker_mount_check(cls, container: str) -> tuple[bool, str, dict]:
+        mounts: list[dict[str, str]] = []
+        try:
+            proc = subprocess.run(
+                [
+                    "docker",
+                    "inspect",
+                    container,
+                    "--format",
+                    "{{range .Mounts}}{{println .Source \"=>\" .Destination}}{{end}}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=8,
+                check=False,
+            )
+            if proc.returncode != 0:
+                msg = (proc.stderr or proc.stdout or "").strip() or f"docker inspect exit {proc.returncode}"
+                return False, f"Docker 检查失败：{msg}", {"mode": "docker", "container": container}
+            for line in (proc.stdout or "").splitlines():
+                if "=>" not in line:
+                    continue
+                src, dst = line.split("=>", 1)
+                mounts.append({"source": src.strip(), "destination": dst.strip()})
+        except Exception as exc:
+            return False, f"Docker 检查失败：{exc}", {"mode": "docker", "container": container}
+
+        http_root = str(cls._http_root_dir()).rstrip("/") or "/"
+        expected_host = f"{http_root}/Private"
+        has_private_mount = False
+        has_root_mount = False
+        for m in mounts:
+            src = str(m.get("source", "") or "").rstrip("/")
+            dst = str(m.get("destination", "") or "").rstrip("/")
+            if src == expected_host:
+                has_private_mount = True
+            if src == http_root:
+                has_root_mount = True
+            if dst == expected_host:
+                has_private_mount = True
+            if dst == http_root:
+                has_root_mount = True
+
+        detail = {
+            "mode": "docker",
+            "container": container,
+            "http_root": http_root,
+            "expected_private_host_path": expected_host,
+            "mounts": mounts,
+            "has_private_mount": has_private_mount,
+            "has_root_mount": has_root_mount,
+        }
+        if has_private_mount or has_root_mount:
+            return True, "Docker 挂载检查通过：容器可访问 HTTP 根目录或 Private 目录", detail
+        return (
+            False,
+            "Docker 挂载检查失败：容器未挂载 Private 目录。请为容器添加卷映射后重建（例如 /srv/Storage/Private:/private），并在 qB 中使用容器内路径。",
+            detail,
+        )
 
     @classmethod
     def _qbt_optimize_config(cls, selected_qbt: dict | None = None) -> tuple[bool, str, dict]:

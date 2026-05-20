@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.15] - 2026-05-21
+
+### Changed
+
+- Improved BitTorrent "Fix permissions" behavior:
+  - Supports non-qB clients (`deluge`, `transmission`, `rtorrent`) via their corresponding config/permission repair flow.
+  - For Docker qBittorrent, added mount accessibility checks and clear diagnostics when target paths are not mounted into container.
+- Stabilized qBittorrent integration around host-network deployments by aligning runtime checks with the active container setup.
+
 ## [0.9.14] - 2026-05-21
 
 ### Added
