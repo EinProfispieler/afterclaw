@@ -1,41 +1,49 @@
 # AfterClaw [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M21ZSG35)
 
-**AfterClaw** is a unified control center for home and small-studio servers.
-It brings file browsing, transfer visibility, service control, DDNS, and lightweight clipboard sharing into one operational surface.
+AfterClaw is a self-hosted control center for home/NAS server workflows.
+It unifies directory link generation, HTTP transfer, qBittorrent/DDNS operations, and web terminal access in one UI.
 
-Language: **English (Default)** | [简体中文](#简体中文)
+Website: [https://www.afterclaw.xyz](https://www.afterclaw.xyz)  
+Language: English | [简体中文](#简体中文)
 
 ![AfterClaw Control Dashboard](docs/screenshots/afterclaw-control-dashboard-latest.png)
 
-## Use Case — netdisk media libraries
+## What Problem It Solves
 
-If you run **POPCorn (爆米花)**, **VidHub**, or a similar app, your movies and TV live on a netdisk so they can be streamed on demand. The hard part is getting the media *onto* the netdisk: the netdisk client throttles upload ratio and needs a browser tab held open the whole time.
+Most home server workflows break down into many separate scripts and panels:
 
-AfterClaw is the server-side uploader for that workflow:
+- one tool for upload
+- another for service status
+- another for DDNS
+- another for terminal access
 
-1. **Clean the names** — the naming module tidies messy movie and TV filenames so the library stays consistent.
-2. **Stream-upload to netdisk** — the HTTP transfer pipeline pushes large files with resume support, no throttled client and no browser tab to babysit.
-3. **Play from netdisk** — POPCorn / VidHub read the uploaded library straight from the netdisk. Per-process upload speed for 百度网盘 / 光鸭网盘 / 阿里云盘 is visible on the process-net page.
+AfterClaw collapses these into one operational surface so setup, migration, and troubleshooting stay consistent.
 
-## Why AfterClaw
+## Main Use Case
 
-AfterClaw was built to solve a practical problem: server workflows become fragile when they are spread across too many scripts and panels.
+If your media stack uses netdisk-backed playback (for example POPCorn / VidHub):
 
-With one dashboard, teams can:
+1. normalize media filenames
+2. stream-upload large files with resume
+3. monitor throughput and service state centrally
 
-- keep operations consistent across laptops, mini PCs, and NAS environments
-- reduce migration friction when paths and services change between machines
-- recover faster with a single place to inspect system and transfer status
+This is the core loop AfterClaw is designed for.
 
-## Core Capabilities
+## Core Modules
 
-- **Unified dashboard** for system health, transfer activity, and service status
-- **Directory service** to browse `STORAGE_ROOT` and generate file links
-- **HTTP transfer pipeline** with large-file streaming and resume support
-- **Service operations** for qBittorrent, DDNS, and HTTP service controls
-- **Web terminal** with key file management for remote maintenance
-- **ShareClip module** for lightweight clipboard-style sharing
-- **LAN-first safety model** with controllable public transfer exposure
+- Dashboard: system health, transfer activity, service status
+- Directory Service: browse `STORAGE_ROOT`, generate file links
+- HTTP Transfer: large-file stream upload with resume
+- Service Controls: qBittorrent, DDNS, HTTP module controls
+- Web Terminal: remote maintenance + key file management
+- ShareClip: lightweight clipboard-style sharing
+
+## Architecture
+
+- Frontend: embedded web dashboard
+- Runtime: Python app (`python3 -m fcc` / `python3 app.py`)
+- Worker modules: transfer, DDNS, process-network metrics, terminal
+- Optional automation: Ko-fi webhook + member email flow
 
 ## Quick Start
 
@@ -47,13 +55,13 @@ PUBLIC_SCHEME=http \
 python3 -m fcc
 ```
 
-Compatibility entry is also available:
+Compatibility entry:
 
 ```bash
 python3 app.py
 ```
 
-## Install
+## Installation
 
 Recommended:
 
@@ -61,7 +69,7 @@ Recommended:
 sudo bash install.sh
 ```
 
-Platform-specific installers are orchestrated by:
+Platform scripts:
 
 - `scripts/install_ubuntu.sh`
 - `scripts/install_mint.sh`
@@ -74,97 +82,72 @@ Windows (PowerShell as Administrator):
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-## GitHub Actions Build
+## Configuration
 
-Workflow file: `.github/workflows/installers.yml`
+Minimum runtime variables:
 
-- Trigger: `push` and manual `workflow_dispatch`
-- Platforms: Linux, macOS, Windows
-- Output: packaged installers uploaded as Actions artifacts
+- `WEB_PORT`
+- `STORAGE_ROOT`
+- `PUBLIC_HOST`
+- `PUBLIC_SCHEME`
+
+Most operational settings are managed in the in-app `Config` page.
+
+## Ko-fi / Member Automation (Optional)
+
+Current deployment supports:
+
+- Ko-fi webhook ingest
+- event persistence
+- automatic email notifications (Resend)
+
+Recommended endpoint:
+
+- `https://ddns.afterclaw.xyz/webhooks/kofi`
+
+## Build and CI
+
+Workflow: `.github/workflows/installers.yml`
+
+- Trigger: `push`, `workflow_dispatch`
+- Targets: Linux, macOS, Windows
+- Output: installer artifacts
+
+## Roadmap
+
+- member activation (one-time code + password setup)
+- subscription validity + grace-period automation
+- self-service DDNS prefix management with yearly change limits
+
+## Versioning
+
+- Stable (`main`): SemVer tags (`MAJOR.MINOR.PATCH`)
+- Nightly (`nightly`): PEP 440 dev tags (`MAJOR.MINOR.NEXT_PATCH.devYYYYMMDD`)
+- `.dev0` is reserved for local bootstrap and not for stable release
 
 ---
 
 ## 简体中文
 
-<details>
-<summary>切换到中文说明</summary>
+AfterClaw 是面向家庭 / NAS 场景的自托管中控台。  
+它把目录链接生成、HTTP 传输、qBittorrent/DDNS 控制和 Web 终端收敛到一个统一入口。
 
-### 产品定位
+### 解决的问题
 
-**AfterClaw** 是一个面向家庭与小型工作室服务器的一体化中控台。
-它把文件目录、传输看板、服务控制、DDNS 和轻量剪贴板分享收敛到同一个入口。
+家庭服务器常见问题不是“功能不够”，而是“工具太散”：上传、监控、DDNS、终端各在不同面板里，迁移和排障成本高。  
+AfterClaw 的目标就是把这些运维动作集中到一个界面。
 
-### 应用场景：网盘影音库
+### 典型流程
 
-如果你用 **爆米花（POPCorn）**、**VidHub** 或类似应用，电影和剧集会存放在网盘上以便随时在线播放。麻烦的是把片源传**上**网盘：网盘客户端会限制上传倍率，还得一直开着浏览器标签页。
+1. 规范电影/剧集命名
+2. 流式上传大文件（支持续传）
+3. 在一个看板里监控速率与服务状态
 
-AfterClaw 就是这套流程的服务端上传器：
+### 核心模块
 
-1. **整理文件名**——命名模块整理杂乱的电影和剧集文件名，让影音库保持一致。
-2. **流式上传到网盘**——HTTP 传输链路推送大文件并支持断点续传，不再受客户端限速，也不用守着浏览器标签页。
-3. **从网盘播放**——爆米花 / VidHub 直接读取上传到网盘的影音库。百度网盘 / 光鸭网盘 / 阿里云盘的各进程上传速度可在网盘进程网络明细页查看。
-
-### 为什么开发 AfterClaw
-
-核心目标是解决“面板多、脚本散、迁移难”的问题：
-
-- 不同设备（旧笔记本、迷你主机、NAS）之间保持一致的操作体验
-- 机器迁移时减少路径和服务配置漂移
-- 出问题时可以在一个页面快速定位状态并恢复
-
-### 核心能力
-
-- **统一看板**：系统状态、实时传输、服务状态
-- **目录服务**：浏览 `STORAGE_ROOT` 并生成文件链接
-- **HTTP 传输链路**：大文件流式传输与断点续传
-- **服务控制**：页面内控制 qBittorrent / DDNS / HTTP 服务
-- **远程终端**：Web Terminal + key 文件管理
-- **轻量分享**：ShareClip 模块用于剪贴板式内容分享
-- **安全策略**：默认局域网访问，公网传输可独立开关
-
-### 快速启动
-
-```bash
-WEB_PORT=1288 \
-STORAGE_ROOT=/srv/Storage \
-PUBLIC_HOST=example.com:1288 \
-PUBLIC_SCHEME=http \
-python3 -m fcc
-```
-
-兼容入口：
-
-```bash
-python3 app.py
-```
-
-### 安装
-
-推荐执行：
-
-```bash
-sudo bash install.sh
-```
-
-Windows（管理员 PowerShell）：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-### GitHub 自动构建
-
-工作流：`.github/workflows/installers.yml`
-
-- 触发：每次 `push` 和手动触发
-- 平台：Linux / macOS / Windows
-- 产物：自动上传安装包到 Actions Artifacts
-
-</details>
-
-## Versioning / 版本命名规则
-
-- **Stable (`main`)** uses strict SemVer release tags: `MAJOR.MINOR.PATCH` (example: `0.9.6`).
-- **Nightly (`nightly`)** uses PEP 440 development versions: `MAJOR.MINOR.NEXT_PATCH.devYYYYMMDD` (example: `0.9.7.dev20260501`).
-- `.dev0` is reserved for local bootstrap only and must not be used as a published stable version.
-- Promotion rule: nightly verifies first; stable version is updated only when explicitly approved.
+- Dashboard（系统/传输/服务状态）
+- Directory Service（浏览 `STORAGE_ROOT`、生成链接）
+- HTTP Transfer（大文件流式上传）
+- Service Controls（qBittorrent / DDNS / HTTP）
+- Web Terminal（远程维护 + 密钥管理）
+- ShareClip（轻量分享）
