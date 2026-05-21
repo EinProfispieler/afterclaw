@@ -12,7 +12,9 @@ param(
   [string]$DdnsService = $(if ($env:DDNS_SERVICE) { $env:DDNS_SERVICE } else { "ddns-go.service" }),
   [string]$ShareclipStorageRoot = $(if ($env:SHARECLIP_STORAGE_ROOT) { $env:SHARECLIP_STORAGE_ROOT } else { Join-Path (Join-Path $env:ProgramData "AfterClaw") "shareclip\\storage" }),
   [string]$TaskName = "AfterClaw",
-  [switch]$Uninstall
+  [switch]$Uninstall,
+  [switch]$Update,
+  [switch]$Doctor
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +63,70 @@ function Invoke-HostPython {
   }
 }
 
+function Get-LatestReleaseTag {
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    return $null
+  }
+  $lines = git ls-remote --tags --refs "https://github.com/EinProfispieler/afterclaw.git" "v*" 2>$null
+  if (-not $lines) { return $null }
+  $tags = @()
+  foreach ($line in $lines) {
+    $parts = $line -split '\s+'
+    if ($parts.Count -lt 2) { continue }
+    $ref = $parts[1]
+    if ($ref -match 'refs/tags/(.+)$') { $tags += $Matches[1] }
+  }
+  if (-not $tags -or $tags.Count -eq 0) { return $null }
+  return ($tags | Sort-Object { [version](($_ -replace '^v','')) } | Select-Object -Last 1)
+}
+
+function Get-InstalledReleaseTag {
+  param([string]$AppRootDir)
+  $vf = Join-Path $AppRootDir ".afterclaw-version"
+  if (-not (Test-Path $vf)) { return $null }
+  $v = (Get-Content $vf -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
+  if ([string]::IsNullOrWhiteSpace($v)) { return $null }
+  return $v
+}
+
+function Set-InstalledReleaseTag {
+  param([string]$AppRootDir, [string]$Tag)
+  if ([string]::IsNullOrWhiteSpace($Tag)) { return }
+  $vf = Join-Path $AppRootDir ".afterclaw-version"
+  Set-Content -Path $vf -Value $Tag -Encoding UTF8
+}
+
+function Run-Doctor {
+  param([string]$AppRootDir, [string]$Task)
+  Write-Step "Running doctor checks..."
+  $issues = 0
+  $latest = Get-LatestReleaseTag
+  $installed = Get-InstalledReleaseTag -AppRootDir $AppRootDir
+  Write-Host "Latest release    : $(if ($latest) { $latest } else { 'unknown' })"
+  Write-Host "Installed release : $(if ($installed) { $installed } else { 'unknown' })"
+  $taskObj = Get-ScheduledTask -TaskName $Task -ErrorAction SilentlyContinue
+  if ($taskObj) {
+    Write-Host "Task              : OK ($Task)"
+  } else {
+    Write-Host "Task              : WARN (missing $Task)"
+    $issues++
+  }
+  foreach ($name in @("app.py","fcc","web","shareclip","run_afterclaw.ps1",".venv\\Scripts\\python.exe")) {
+    $p = Join-Path $AppRootDir $name
+    if (Test-Path $p) {
+      Write-Host "Integrity         : OK $p"
+    } else {
+      Write-Host "Integrity         : WARN missing $p"
+      $issues++
+    }
+  }
+  if ($issues -eq 0) {
+    Write-Host "Doctor result     : OK"
+  } else {
+    Write-Host "Doctor result     : WARN ($issues issue(s))"
+  }
+}
+
 if (-not (Test-IsAdmin)) {
   throw "Please run this installer in an elevated PowerShell session (Run as Administrator)."
 }
@@ -81,6 +147,21 @@ if ($Uninstall) {
   }
   Write-Host "Uninstall completed (application/data directories were not deleted)."
   exit 0
+}
+
+if ($Doctor) {
+  Run-Doctor -AppRootDir $AppRoot -Task $TaskName
+  exit 0
+}
+
+if ($Update) {
+  $latest = Get-LatestReleaseTag
+  $installed = Get-InstalledReleaseTag -AppRootDir $AppRoot
+  if ($latest -and $installed -and ($latest -eq $installed)) {
+    Write-Host "[AfterClaw] Already on latest release ($installed). Update skipped."
+    exit 0
+  }
+  Write-Step "Update mode: installed=$(if($installed){$installed}else{'unknown'}) latest=$(if($latest){$latest}else{'unknown'})"
 }
 
 
@@ -184,3 +265,6 @@ Write-Host "Dashboard URL: http://127.0.0.1:$WebPort"
 Write-Host "Task name   : $TaskName"
 Write-Host "Task status :"
 Get-ScheduledTask -TaskName $TaskName | Format-Table -AutoSize TaskName, State, TaskPath
+
+$releaseTag = Get-LatestReleaseTag
+Set-InstalledReleaseTag -AppRootDir $AppRoot -Tag $releaseTag

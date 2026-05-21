@@ -1,5 +1,7 @@
 param(
-  [switch]$Uninstall
+  [switch]$Uninstall,
+  [switch]$Update,
+  [switch]$Doctor
 )
 
 $ErrorActionPreference = "Stop"
@@ -12,6 +14,10 @@ if (-not (Test-Path $target)) {
 
 if ($Uninstall) {
   & $target -Uninstall @args
+} elseif ($Update) {
+  & $target -Update @args
+} elseif ($Doctor) {
+  & $target -Doctor @args
 } else {
   & $target @args
 }

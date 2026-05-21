@@ -100,6 +100,18 @@ Windows uninstall (PowerShell as Administrator):
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
+Windows update (PowerShell as Administrator):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Update
+```
+
+Windows doctor (PowerShell as Administrator):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Doctor
+```
+
 ## Configuration
 
 Minimum runtime variables:
@@ -200,4 +212,16 @@ Windows 卸载（管理员 PowerShell）：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+```
+
+Windows 更新（管理员 PowerShell）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Update
+```
+
+Windows 自检（管理员 PowerShell）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Doctor
 ```
