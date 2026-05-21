@@ -1,4 +1,4 @@
-# AfterClaw
+# AfterClaw [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/X0M21ZSG35)
 
 **AfterClaw** is a unified control center for home and small-studio servers.
 It brings file browsing, transfer visibility, service control, DDNS, and lightweight clipboard sharing into one operational surface.
