@@ -40,11 +40,7 @@ log_ok() { echo "${C_OK}[OK]${C_RESET} $*"; }
 log_warn() { echo "${C_WARN}[WARN]${C_RESET} $*"; }
 log_err() { echo "${C_ERR}[ERROR]${C_RESET} $*" >&2; }
 log_line() {
-  if [[ "${HAS_TTY}" -eq 1 ]]; then
-    echo "$*" > /dev/tty
-  else
-    echo "$*"
-  fi
+  echo "$*"
 }
 
 term_cols() {
@@ -361,7 +357,21 @@ run_platform_action() {
       fi
       case "${action}" in
         uninstall) log_info "Running: bash ${SCRIPT_DIR}/scripts/uninstall.sh"; bash "${SCRIPT_DIR}/scripts/uninstall.sh" ;;
-        install|update) log_info "Running: bash ${SCRIPT_DIR}/scripts/install_macos.sh"; bash "${SCRIPT_DIR}/scripts/install_macos.sh" ;;
+        update)
+          local installed_ver
+          installed_ver="$(installed_release_label)"
+          if [[ "${installed_ver}" != "unknown" && "${LATEST_RELEASE_LABEL}" != "unknown" && "${installed_ver}" == "${LATEST_RELEASE_LABEL}" ]]; then
+            log_ok "Already on latest release (${installed_ver}). Update skipped."
+            return 0
+          fi
+          log_info "AfterClaw detected. Installed=${installed_ver}, Latest=${LATEST_RELEASE_LABEL}. Applying update..."
+          log_info "Running: bash ${SCRIPT_DIR}/scripts/install_macos.sh"
+          bash "${SCRIPT_DIR}/scripts/install_macos.sh"
+          ;;
+        install)
+          log_info "Running: bash ${SCRIPT_DIR}/scripts/install_macos.sh"
+          bash "${SCRIPT_DIR}/scripts/install_macos.sh"
+          ;;
         *) log_err "Unknown action: ${action}"; return 1 ;;
       esac
       ;;
