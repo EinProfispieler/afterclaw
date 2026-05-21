@@ -40,14 +40,14 @@ log_warn() { echo "${C_WARN}[WARN]${C_RESET} $*"; }
 log_err() { echo "${C_ERR}[ERROR]${C_RESET} $*" >&2; }
 
 show_banner() {
-  cat <<'EOF'
+  cat <<'EOF' > /dev/tty
    ___   __ _             ____ _                
   / _ | / _| |_ ___ _ _  / ___| | __ ___      __
  / __ |  _|  _/ -_) '_| | |   | |/ _` \ \ /\ / /
 /_/ |_|_|  \__\___|_|   | |___| | (_| |\ V  V / 
                             \____|_|\__,_| \_/\_/  
 EOF
-  echo "AfterClaw Installer (${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL})"
+  echo "AfterClaw Installer (${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL})" > /dev/tty
 }
 
 confirm_action() {
@@ -241,20 +241,20 @@ prompt_action_ascii() {
   fi
   while true; do
     show_banner
-    cat <<'EOF'
+    cat <<'EOF' > /dev/tty
 +--------------------------------------+
 EOF
     if [[ "${installed}" -eq 1 ]]; then
-      cat <<'EOF'
+      cat <<'EOF' > /dev/tty
 |  1) Update                           |
 |  2) Uninstall                        |
 EOF
     else
-      cat <<'EOF'
+      cat <<'EOF' > /dev/tty
 |  1) Install                          |
 EOF
     fi
-    cat <<'EOF'
+    cat <<'EOF' > /dev/tty
 |  4) Doctor                           |
 |  q) Quit                             |
 +--------------------------------------+
