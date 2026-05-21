@@ -78,7 +78,7 @@ curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/inst
 Update (pull latest from GitHub and re-run installer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash -s -- --update
 ```
 
 Platform scripts:
@@ -187,7 +187,7 @@ curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/inst
 更新（从 GitHub 拉取最新版并执行安装）：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash -s -- --update
 ```
 
 Windows（管理员 PowerShell）：
