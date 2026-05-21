@@ -170,8 +170,11 @@ doctor_check_integrity() {
       fi
       app_root="$(awk '
         /<key>WorkingDirectory<\/key>/ {
-          getline
           line=$0
+          if (line !~ /<string>/) {
+            getline
+            line=$0
+          }
           sub(/^.*<string>/, "", line)
           sub(/<\/string>.*$/, "", line)
           print line
