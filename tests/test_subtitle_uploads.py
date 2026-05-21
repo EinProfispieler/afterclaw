@@ -131,7 +131,8 @@ def test_upload_applies_custom_permission_policy(tmp_path: Path):
     d_mode = stat.S_IMODE(target.stat().st_mode)
     f_mode = stat.S_IMODE(f.stat().st_mode)
     if sys.platform.startswith("win"):
-        assert d_mode in (0o775, 0o2775)
+        # Windows ACL mapping may surface as fully-open POSIX bits.
+        assert d_mode in (0o775, 0o2775, 0o777)
         assert f_mode in (0o660, 0o666)
     else:
         # Some Linux filesystems preserve setgid on directory chmod(0o2775).

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Unified installer entrypoint (Phase 1 scaffold)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_SOURCE="${BASH_SOURCE[0]:-$0}"
+SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_SOURCE}")" && pwd)"
 
 # --- Standalone bootstrap --------------------------------------------------
 # When this script runs on its own (e.g. piped from `curl ... | sudo bash`),

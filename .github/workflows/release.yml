@@ -17,7 +17,7 @@ jobs:
         os: [ubuntu-24.04, macos-14, windows-2022]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Build metadata
         shell: bash
@@ -59,7 +59,7 @@ jobs:
           Copy-Item install.cmd "dist/afterclaw-install-windows-$versionTag.cmd" -Force
 
       - name: Upload release build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: afterclaw-release-${{ runner.os }}-${{ github.sha }}
           path: dist/*
@@ -73,7 +73,7 @@ jobs:
       contents: write
     steps:
       - name: Download all release build artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v4
         with:
           pattern: afterclaw-release-*
           merge-multiple: true

@@ -13,10 +13,22 @@ QBT_API_USERNAME="${QBT_API_USERNAME:-}"
 QBT_API_PASSWORD="${QBT_API_PASSWORD:-}"
 DDNS_SERVICE="${DDNS_SERVICE:-ddns-go.service}"
 SHARECLIP_STORAGE_ROOT="${SHARECLIP_STORAGE_ROOT:-${APP_ROOT}/shareclip/storage}"
-PLIST="${HOME}/Library/LaunchAgents/com.fcc.afterclaw.plist"
+SERVICE_LABEL="com.fcc.afterclaw"
+PLIST=""
 PYTHON_BIN="${PYTHON_BIN:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [[ "${EUID}" -eq 0 ]]; then
+  PLIST_DIR="/Library/LaunchDaemons"
+  SERVICE_TARGET="system/${SERVICE_LABEL}"
+  BOOTSTRAP_DOMAIN="system"
+else
+  PLIST_DIR="${HOME}/Library/LaunchAgents"
+  SERVICE_TARGET="gui/$(id -u)/${SERVICE_LABEL}"
+  BOOTSTRAP_DOMAIN="gui/$(id -u)"
+fi
+PLIST="${PLIST_DIR}/${SERVICE_LABEL}.plist"
 
 if [[ -z "${PYTHON_BIN}" ]] && command -v python3 >/dev/null 2>&1; then
   PYTHON_BIN="$(command -v python3)"
@@ -64,7 +76,7 @@ if [[ "${PY_OK}" != "1" ]]; then
   exit 1
 fi
 
-mkdir -p "${APP_ROOT}" "${STORAGE_ROOT}" "${HOME}/Library/LaunchAgents"
+mkdir -p "${APP_ROOT}" "${STORAGE_ROOT}" "${PLIST_DIR}"
 cp "${SCRIPT_DIR}/app.py" "${APP_ROOT}/app.py"
 [[ -d "${SCRIPT_DIR}/fcc" ]] && { rm -rf "${APP_ROOT}/fcc"; cp -a "${SCRIPT_DIR}/fcc" "${APP_ROOT}/fcc"; }
 [[ -d "${SCRIPT_DIR}/ddns" ]] && { rm -rf "${APP_ROOT}/ddns"; cp -a "${SCRIPT_DIR}/ddns" "${APP_ROOT}/ddns"; }
@@ -78,7 +90,7 @@ cat > "${PLIST}" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
   <dict>
-    <key>Label</key><string>com.fcc.afterclaw</string>
+    <key>Label</key><string>${SERVICE_LABEL}</string>
     <key>ProgramArguments</key>
     <array>
       <string>${PYTHON_BIN}</string>
@@ -107,8 +119,15 @@ cat > "${PLIST}" <<EOF
 </plist>
 EOF
 
-launchctl unload "${PLIST}" >/dev/null 2>&1 || true
-launchctl load "${PLIST}"
+if [[ "${EUID}" -eq 0 ]]; then
+  chown root:wheel "${PLIST}"
+  chmod 644 "${PLIST}"
+fi
+
+launchctl bootout "${SERVICE_TARGET}" >/dev/null 2>&1 || true
+launchctl bootstrap "${BOOTSTRAP_DOMAIN}" "${PLIST}"
+launchctl enable "${SERVICE_TARGET}" >/dev/null 2>&1 || true
+launchctl kickstart -k "${SERVICE_TARGET}" >/dev/null 2>&1 || true
 
 echo "安装完成。"
 echo "管理页面: http://127.0.0.1:${WEB_PORT}"
