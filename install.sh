@@ -13,6 +13,60 @@ AFTERCLAW_REPO="${AFTERCLAW_REPO:-https://github.com/EinProfispieler/afterclaw.g
 AFTERCLAW_BRANCH="${AFTERCLAW_BRANCH:-main}"
 AFTERCLAW_SRC="${AFTERCLAW_SRC:-/opt/afterclaw}"
 
+prompt_action_ascii() {
+  local choice=""
+  MENU_ACTION=""
+  while true; do
+    echo "+--------------------------------------+"
+    echo "|          AfterClaw Installer         |"
+    echo "+--------------------------------------+"
+    echo "|  1) Install                          |"
+    echo "|  2) Update                           |"
+    echo "|  3) Uninstall                        |"
+    echo "|  q) Quit                             |"
+    echo "+--------------------------------------+"
+    printf "Select an option [1/2/3/q]: "
+    read -r choice
+    case "${choice}" in
+      1)
+        MENU_ACTION="install"
+        return 0
+        ;;
+      2)
+        MENU_ACTION="update"
+        return 0
+        ;;
+      3)
+        MENU_ACTION="uninstall"
+        return 0
+        ;;
+      q|Q)
+        echo "Canceled."
+        exit 0
+        ;;
+      *)
+        echo "Invalid option: ${choice}"
+        echo
+        ;;
+    esac
+  done
+}
+
+if [[ "$#" -eq 0 && -t 0 && -t 1 ]]; then
+  prompt_action_ascii
+  case "${MENU_ACTION}" in
+    update)
+      set -- --update
+      ;;
+    uninstall)
+      set -- --uninstall
+      ;;
+    *)
+      set --
+      ;;
+  esac
+fi
+
 ACTION="install"
 for arg in "$@"; do
   case "${arg}" in
