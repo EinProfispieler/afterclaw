@@ -25,6 +25,32 @@ for arg in "$@"; do
   esac
 done
 
+is_afterclaw_installed() {
+  local os
+  os="$(uname -s)"
+  case "${os}" in
+    Linux)
+      if command -v systemctl >/dev/null 2>&1; then
+        systemctl list-unit-files 2>/dev/null | grep -q '^storage-http-link-web\.service'
+        return $?
+      fi
+      return 1
+      ;;
+    Darwin)
+      if [[ -f "/Library/LaunchDaemons/com.fcc.afterclaw.plist" ]]; then
+        return 0
+      fi
+      if [[ -f "${HOME}/Library/LaunchAgents/com.fcc.afterclaw.plist" ]]; then
+        return 0
+      fi
+      return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 if [[ "${ACTION}" == "uninstall" ]]; then
   if [[ -x "${SCRIPT_DIR}/scripts/uninstall.sh" ]]; then
     exec bash "${SCRIPT_DIR}/scripts/uninstall.sh"
@@ -51,6 +77,11 @@ if [[ ! -d "${SCRIPT_DIR}/scripts" ]]; then
     exec bash "${AFTERCLAW_SRC}/scripts/uninstall.sh"
   fi
   if [[ "${ACTION}" == "update" ]]; then
+    if is_afterclaw_installed; then
+      echo "AfterClaw detected. Applying update..."
+    else
+      echo "AfterClaw is not installed yet. Running fresh install instead of update..."
+    fi
     exec bash "${AFTERCLAW_SRC}/install.sh"
   fi
   exec bash "${AFTERCLAW_SRC}/install.sh" "$@"
