@@ -9,6 +9,7 @@ AFTERCLAW_BRANCH="${AFTERCLAW_BRANCH:-main}"
 AFTERCLAW_SRC="${AFTERCLAW_SRC:-/opt/afterclaw}"
 SERVICE_LABEL="com.fcc.afterclaw"
 SERVICE_SYSTEMD="storage-http-link-web.service"
+LATEST_REF_LABEL="unknown"
 
 IS_TTY=0
 if [[ -t 0 && -t 1 ]]; then
@@ -46,7 +47,7 @@ show_banner() {
 /_/ |_|_|  \__\___|_|   | |___| | (_| |\ V  V / 
                             \____|_|\__,_| \_/\_/  
 EOF
-  echo "AfterClaw Installer"
+  echo "AfterClaw Installer (${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL})"
 }
 
 confirm_action() {
@@ -89,6 +90,7 @@ run_doctor() {
   echo "EUID              : ${EUID}"
   echo "Script source     : ${SCRIPT_SOURCE}"
   echo "Repo source path  : ${AFTERCLAW_SRC}"
+  echo "Latest upstream   : ${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL}"
   echo "Git available     : $(command -v git >/dev/null 2>&1 && echo yes || echo no)"
   echo "Python3 available : $(command -v python3 >/dev/null 2>&1 && echo yes || echo no)"
   case "$(uname -s)" in
@@ -101,6 +103,18 @@ run_doctor() {
       ;;
   esac
   log_ok "Doctor finished."
+}
+
+refresh_latest_ref_label() {
+  local ref
+  LATEST_REF_LABEL="unknown"
+  if ! command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+  ref="$(git ls-remote --heads "${AFTERCLAW_REPO}" "${AFTERCLAW_BRANCH}" 2>/dev/null | awk 'NR==1{print $1}')"
+  if [[ -n "${ref}" ]]; then
+    LATEST_REF_LABEL="${ref:0:7}"
+  fi
 }
 
 bootstrap_if_needed() {
@@ -132,7 +146,9 @@ bootstrap_if_needed() {
     exit 1
   fi
 
-  exec bash "${AFTERCLAW_SRC}/install.sh" "$@"
+  SCRIPT_SOURCE="${AFTERCLAW_SRC}/install.sh"
+  SCRIPT_DIR="${AFTERCLAW_SRC}"
+  return 0
 }
 
 run_platform_action() {
@@ -147,6 +163,14 @@ run_platform_action() {
 
   case "${os}" in
     Linux)
+      if [[ "${action}" == "install" ]] && is_afterclaw_installed; then
+        log_warn "AfterClaw is already installed. Use update or uninstall."
+        return 1
+      fi
+      if [[ "${action}" == "update" || "${action}" == "uninstall" ]] && ! is_afterclaw_installed; then
+        log_warn "AfterClaw is not installed. Install it first."
+        return 1
+      fi
       if [[ ! -f /etc/os-release ]]; then
         log_err "未找到 /etc/os-release，无法识别发行版"
         return 1
@@ -183,6 +207,14 @@ run_platform_action() {
       esac
       ;;
     Darwin)
+      if [[ "${action}" == "install" ]] && is_afterclaw_installed; then
+        log_warn "AfterClaw is already installed. Use update or uninstall."
+        return 1
+      fi
+      if [[ "${action}" == "update" || "${action}" == "uninstall" ]] && ! is_afterclaw_installed; then
+        log_warn "AfterClaw is not installed. Install it first."
+        return 1
+      fi
       case "${action}" in
         uninstall) bash "${SCRIPT_DIR}/scripts/uninstall.sh" ;;
         install|update) bash "${SCRIPT_DIR}/scripts/install_macos.sh" ;;
@@ -203,27 +235,52 @@ run_platform_action() {
 
 prompt_action_ascii() {
   local choice=""
+  local installed=0
+  if is_afterclaw_installed; then
+    installed=1
+  fi
   while true; do
     show_banner
     cat <<'EOF'
 +--------------------------------------+
+EOF
+    if [[ "${installed}" -eq 1 ]]; then
+      cat <<'EOF'
+|  1) Update                           |
+|  2) Uninstall                        |
+EOF
+    else
+      cat <<'EOF'
 |  1) Install                          |
-|  2) Update                           |
-|  3) Uninstall                        |
+EOF
+    fi
+    cat <<'EOF'
 |  4) Doctor                           |
 |  q) Quit                             |
 +--------------------------------------+
 EOF
-    printf "Select an option [1/2/3/4/q]: " > /dev/tty
+    if [[ "${installed}" -eq 1 ]]; then
+      printf "Select an option [1/2/4/q]: " > /dev/tty
+    else
+      printf "Select an option [1/4/q]: " > /dev/tty
+    fi
     read -r choice < /dev/tty
-    case "${choice}" in
-      1) echo "install"; return 0 ;;
-      2) echo "update"; return 0 ;;
-      3) echo "uninstall"; return 0 ;;
-      4) echo "doctor"; return 0 ;;
-      q|Q) echo "quit"; return 0 ;;
-      *) log_warn "Invalid option: ${choice}"; echo > /dev/tty ;;
-    esac
+    if [[ "${installed}" -eq 1 ]]; then
+      case "${choice}" in
+        1) echo "update"; return 0 ;;
+        2) echo "uninstall"; return 0 ;;
+        4) echo "doctor"; return 0 ;;
+        q|Q) echo "quit"; return 0 ;;
+        *) log_warn "Invalid option: ${choice}"; echo > /dev/tty ;;
+      esac
+    else
+      case "${choice}" in
+        1) echo "install"; return 0 ;;
+        4) echo "doctor"; return 0 ;;
+        q|Q) echo "quit"; return 0 ;;
+        *) log_warn "Invalid option: ${choice}"; echo > /dev/tty ;;
+      esac
+    fi
   done
 }
 
@@ -240,6 +297,17 @@ interactive_main() {
       continue
     fi
 
+    if [[ "${action}" != "doctor" ]]; then
+      set +e
+      bootstrap_if_needed
+      rc=$?
+      set -e
+      if [[ $rc -ne 0 ]]; then
+        log_err "bootstrap failed."
+        continue
+      fi
+    fi
+
     set +e
     run_platform_action "${action}"
     rc=$?
@@ -247,7 +315,9 @@ interactive_main() {
 
     if [[ $rc -eq 0 ]]; then
       log_ok "${action} completed."
-      exit 0
+      printf "Press Enter to return to menu..." > /dev/tty
+      read -r _ < /dev/tty
+      continue
     fi
 
     echo
@@ -256,37 +326,15 @@ interactive_main() {
     read -r ans < /dev/tty
     case "${ans}" in
       r|R) ;;
-      m|M) ;;
+      m|M) continue ;;
       *) exit "${rc}" ;;
     esac
   done
 }
 
 if [[ "$#" -eq 0 && "${HAS_TTY}" -eq 1 ]]; then
-  if [[ -d "${SCRIPT_DIR}/scripts" ]]; then
-    interactive_main
-  else
-    show_banner > /dev/tty
-    cat <<'EOF' > /dev/tty
-+--------------------------------------+
-|  1) Install                          |
-|  2) Update                           |
-|  3) Uninstall                        |
-|  4) Doctor                           |
-|  q) Quit                             |
-+--------------------------------------+
-EOF
-    printf "Select an option [1/2/3/4/q]: " > /dev/tty
-    read -r PREBOOT_CHOICE < /dev/tty
-    case "${PREBOOT_CHOICE}" in
-      1) set -- ;;
-      2) set -- --update ;;
-      3) set -- --uninstall ;;
-      4) set -- --doctor ;;
-      q|Q) echo "Canceled." > /dev/tty; exit 0 ;;
-      *) log_warn "Invalid option: ${PREBOOT_CHOICE}"; exit 1 ;;
-    esac
-  fi
+  refresh_latest_ref_label
+  interactive_main
 fi
 
 ACTION="install"
@@ -304,5 +352,6 @@ for arg in "$@"; do
   esac
 done
 
+refresh_latest_ref_label
 bootstrap_if_needed "$@"
 run_platform_action "${ACTION}"
