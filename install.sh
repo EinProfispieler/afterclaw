@@ -39,15 +39,35 @@ log_ok() { echo "${C_OK}[OK]${C_RESET} $*"; }
 log_warn() { echo "${C_WARN}[WARN]${C_RESET} $*"; }
 log_err() { echo "${C_ERR}[ERROR]${C_RESET} $*" >&2; }
 
+term_cols() {
+  local cols
+  cols="$(tput cols 2>/dev/null || echo 80)"
+  if [[ -z "${cols}" || "${cols}" -lt 40 ]]; then
+    cols=80
+  fi
+  echo "${cols}"
+}
+
+print_centered_tty() {
+  local text="$1"
+  local cols pad
+  cols="$(term_cols)"
+  if [[ "${#text}" -ge "${cols}" ]]; then
+    echo "${text}" > /dev/tty
+    return
+  fi
+  pad=$(( (cols - ${#text}) / 2 ))
+  printf "%*s%s\n" "${pad}" "" "${text}" > /dev/tty
+}
+
 show_banner() {
-  cat <<'EOF' > /dev/tty
-   ___   __ _             ____ _                
-  / _ | / _| |_ ___ _ _  / ___| | __ ___      __
- / __ |  _|  _/ -_) '_| | |   | |/ _` \ \ /\ / /
-/_/ |_|_|  \__\___|_|   | |___| | (_| |\ V  V / 
-                            \____|_|\__,_| \_/\_/  
-EOF
-  echo "AfterClaw Installer (${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL})" > /dev/tty
+  print_centered_tty "      _    __ _            ____ _                "
+  print_centered_tty "     / \\  / _| |_ ___ _ _ / ___| | __ ___      __"
+  print_centered_tty "    / _ \\| |_| __/ _ \\ '__| |   | |/ _\` \\ \\ /\\ / /"
+  print_centered_tty "   / ___ \\  _| ||  __/ |  | |___| | (_| |\\ V  V / "
+  print_centered_tty "  /_/   \\_\\_|  \\__\\___|_|   \\____|_|\\__,_| \\_/\\_/  "
+  print_centered_tty ""
+  print_centered_tty "AfterClaw Installer (${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL})"
 }
 
 confirm_action() {
@@ -131,19 +151,23 @@ bootstrap_if_needed() {
     exit 1
   fi
 
-  if [[ -d "${AFTERCLAW_SRC}/.git" ]]; then
-    log_info "Updating existing AfterClaw checkout in ${AFTERCLAW_SRC} ..."
-    if ! git -C "${AFTERCLAW_SRC}" pull --ff-only --quiet; then
-      log_warn "Quiet update failed, retrying with full output..."
-      git -C "${AFTERCLAW_SRC}" pull --ff-only
+    if [[ -d "${AFTERCLAW_SRC}/.git" ]]; then
+      log_info "Updating existing AfterClaw checkout in ${AFTERCLAW_SRC} ..."
+      log_info "Running: git -C ${AFTERCLAW_SRC} pull --ff-only --quiet"
+      if ! git -C "${AFTERCLAW_SRC}" pull --ff-only --quiet; then
+        log_warn "Quiet update failed, retrying with full output..."
+        log_info "Running: git -C ${AFTERCLAW_SRC} pull --ff-only"
+        git -C "${AFTERCLAW_SRC}" pull --ff-only
+      fi
+    else
+      log_info "Fetching AfterClaw into ${AFTERCLAW_SRC} ..."
+      log_info "Running: git clone --depth 1 --branch ${AFTERCLAW_BRANCH} --quiet ${AFTERCLAW_REPO} ${AFTERCLAW_SRC}"
+      if ! git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" --quiet "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"; then
+        log_warn "Quiet clone failed, retrying with full output..."
+        log_info "Running: git clone --depth 1 --branch ${AFTERCLAW_BRANCH} ${AFTERCLAW_REPO} ${AFTERCLAW_SRC}"
+        git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"
+      fi
     fi
-  else
-    log_info "Fetching AfterClaw into ${AFTERCLAW_SRC} ..."
-    if ! git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" --quiet "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"; then
-      log_warn "Quiet clone failed, retrying with full output..."
-      git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"
-    fi
-  fi
 
   if [[ ! -x "${AFTERCLAW_SRC}/install.sh" ]]; then
     log_err "Bootstrap failed: ${AFTERCLAW_SRC}/install.sh not found or not executable."
@@ -183,6 +207,7 @@ run_platform_action() {
       . /etc/os-release
       case "${action}" in
         uninstall)
+          log_info "Running: bash ${SCRIPT_DIR}/scripts/uninstall.sh"
           bash "${SCRIPT_DIR}/scripts/uninstall.sh"
           ;;
         update)
@@ -199,8 +224,8 @@ run_platform_action() {
           ;;
         install)
           case "${ID:-}" in
-            ubuntu|debian) bash "${SCRIPT_DIR}/scripts/install_ubuntu.sh" ;;
-            linuxmint) bash "${SCRIPT_DIR}/scripts/install_mint.sh" ;;
+            ubuntu|debian) log_info "Running: bash ${SCRIPT_DIR}/scripts/install_ubuntu.sh"; bash "${SCRIPT_DIR}/scripts/install_ubuntu.sh" ;;
+            linuxmint) log_info "Running: bash ${SCRIPT_DIR}/scripts/install_mint.sh"; bash "${SCRIPT_DIR}/scripts/install_mint.sh" ;;
             *) log_err "不支持的 Linux 发行版: ${ID:-unknown}"; return 1 ;;
           esac
           ;;
@@ -220,8 +245,8 @@ run_platform_action() {
         return 1
       fi
       case "${action}" in
-        uninstall) bash "${SCRIPT_DIR}/scripts/uninstall.sh" ;;
-        install|update) bash "${SCRIPT_DIR}/scripts/install_macos.sh" ;;
+        uninstall) log_info "Running: bash ${SCRIPT_DIR}/scripts/uninstall.sh"; bash "${SCRIPT_DIR}/scripts/uninstall.sh" ;;
+        install|update) log_info "Running: bash ${SCRIPT_DIR}/scripts/install_macos.sh"; bash "${SCRIPT_DIR}/scripts/install_macos.sh" ;;
         *) log_err "Unknown action: ${action}"; return 1 ;;
       esac
       ;;
@@ -244,25 +269,20 @@ prompt_action_ascii() {
     installed=1
   fi
   while true; do
-    show_banner
-    cat <<'EOF' > /dev/tty
-+--------------------------------------+
-EOF
-    if [[ "${installed}" -eq 1 ]]; then
-      cat <<'EOF' > /dev/tty
-|  1) Update                           |
-|  2) Uninstall                        |
-EOF
-    else
-      cat <<'EOF' > /dev/tty
-|  1) Install                          |
-EOF
+    if [[ "${HAS_TTY}" -eq 1 ]]; then
+      printf '\033[2J\033[H' > /dev/tty
     fi
-    cat <<'EOF' > /dev/tty
-|  4) Doctor                           |
-|  q) Quit                             |
-+--------------------------------------+
-EOF
+    show_banner
+    print_centered_tty "+--------------------------------------+"
+    if [[ "${installed}" -eq 1 ]]; then
+      print_centered_tty "|  1) Update                           |"
+      print_centered_tty "|  2) Uninstall                        |"
+    else
+      print_centered_tty "|  1) Install                          |"
+    fi
+    print_centered_tty "|  4) Doctor                           |"
+    print_centered_tty "|  q) Quit                             |"
+    print_centered_tty "+--------------------------------------+"
     if [[ "${installed}" -eq 1 ]]; then
       printf "Select an option [1/2/4/q]: " > /dev/tty
     else
