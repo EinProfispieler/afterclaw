@@ -5,7 +5,7 @@ It brings file browsing, transfer visibility, service control, DDNS, and lightwe
 
 Language: **English (Default)** | [简体中文](#简体中文)
 
-![AfterClaw Control Dashboard](website/assets/dashboard-control.png)
+![AfterClaw Control Dashboard](docs/screenshots/afterclaw-control-dashboard-latest.png)
 
 ## Use Case — netdisk media libraries
 
