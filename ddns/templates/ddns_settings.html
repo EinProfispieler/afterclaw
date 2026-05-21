@@ -154,8 +154,24 @@
 
     .sep { height: 1px; background: var(--border); margin: 14px 0; }
 
+    #ddnsPage[data-embed="1"] {
+      background: transparent;
+      min-height: auto;
+    }
+    #ddnsPage[data-embed="1"] .wrap {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+      padding: 0;
+    }
+    #ddnsPage[data-embed="1"] .page-head {
+      display: none;
+    }
     #ddnsPage[data-embed="1"] .back-link { display: none; }
     #ddnsPage[data-embed="1"] .head-actions { display: none; }
+    #ddnsPage[data-embed="1"] .card:first-of-type {
+      margin-top: 0;
+    }
   </style>
 </head>
 <body id="ddnsPage">
