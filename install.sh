@@ -14,6 +14,10 @@ IS_TTY=0
 if [[ -t 0 && -t 1 ]]; then
   IS_TTY=1
 fi
+HAS_TTY=0
+if [[ -r /dev/tty && -w /dev/tty ]]; then
+  HAS_TTY=1
+fi
 
 if [[ "${IS_TTY}" -eq 1 ]]; then
   C_RESET=$'\033[0m'
@@ -48,11 +52,11 @@ EOF
 confirm_action() {
   local action="$1"
   local ans
-  if [[ "${IS_TTY}" -ne 1 ]]; then
+  if [[ "${HAS_TTY}" -ne 1 ]]; then
     return 0
   fi
-  printf "Proceed with %s? [Y/n]: " "${action}"
-  read -r ans
+  printf "Proceed with %s? [Y/n]: " "${action}" > /dev/tty
+  read -r ans < /dev/tty
   case "${ans:-Y}" in
     y|Y|yes|YES|"") return 0 ;;
     *) return 1 ;;
@@ -204,15 +208,15 @@ prompt_action_ascii() {
 |  q) Quit                             |
 +--------------------------------------+
 EOF
-    printf "Select an option [1/2/3/4/q]: "
-    read -r choice
+    printf "Select an option [1/2/3/4/q]: " > /dev/tty
+    read -r choice < /dev/tty
     case "${choice}" in
       1) echo "install"; return 0 ;;
       2) echo "update"; return 0 ;;
       3) echo "uninstall"; return 0 ;;
       4) echo "doctor"; return 0 ;;
       q|Q) echo "quit"; return 0 ;;
-      *) log_warn "Invalid option: ${choice}"; echo ;;
+      *) log_warn "Invalid option: ${choice}"; echo > /dev/tty ;;
     esac
   done
 }
@@ -242,8 +246,8 @@ interactive_main() {
 
     echo
     log_err "${action} failed."
-    printf "Next step: [r]etry / [m]enu / [q]uit: "
-    read -r ans
+    printf "Next step: [r]etry / [m]enu / [q]uit: " > /dev/tty
+    read -r ans < /dev/tty
     case "${ans}" in
       r|R) ;;
       m|M) ;;
@@ -267,7 +271,7 @@ for arg in "$@"; do
   esac
 done
 
-if [[ "$#" -eq 0 && "${IS_TTY}" -eq 1 ]]; then
+if [[ "$#" -eq 0 && "${HAS_TTY}" -eq 1 ]]; then
   bootstrap_if_needed
   interactive_main
 fi
