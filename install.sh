@@ -10,6 +10,7 @@ AFTERCLAW_SRC="${AFTERCLAW_SRC:-/opt/afterclaw}"
 SERVICE_LABEL="com.fcc.afterclaw"
 SERVICE_SYSTEMD="storage-http-link-web.service"
 LATEST_REF_LABEL="unknown"
+LATEST_RELEASE_LABEL="unknown"
 
 IS_TTY=0
 if [[ -t 0 && -t 1 ]]; then
@@ -67,7 +68,7 @@ show_banner() {
   print_centered_tty "   / ___ \\  _| ||  __/ |  | |___| | (_| |\\ V  V / "
   print_centered_tty "  /_/   \\_\\_|  \\__\\___|_|   \\____|_|\\__,_| \\_/\\_/  "
   print_centered_tty ""
-  print_centered_tty "AfterClaw Installer (${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL})"
+  print_centered_tty "AfterClaw Installer (${LATEST_RELEASE_LABEL})"
 }
 
 confirm_action() {
@@ -115,6 +116,7 @@ run_doctor() {
   echo "Script source     : ${SCRIPT_SOURCE}"
   echo "Repo source path  : ${AFTERCLAW_SRC}"
   echo "Latest upstream   : ${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL}"
+  echo "Latest release    : ${LATEST_RELEASE_LABEL}"
   echo "Git available     : $(command -v git >/dev/null 2>&1 && echo yes || echo no)"
   echo "Python3 available : $(command -v python3 >/dev/null 2>&1 && echo yes || echo no)"
   case "$(uname -s)" in
@@ -138,6 +140,32 @@ refresh_latest_ref_label() {
   ref="$(git ls-remote --heads "${AFTERCLAW_REPO}" "${AFTERCLAW_BRANCH}" 2>/dev/null | awk 'NR==1{print $1}')"
   if [[ -n "${ref}" ]]; then
     LATEST_REF_LABEL="${ref:0:7}"
+  fi
+}
+
+refresh_latest_release_label() {
+  local tag
+  LATEST_RELEASE_LABEL="unknown"
+  if ! command -v git >/dev/null 2>&1; then
+    return 0
+  fi
+  tag="$(git ls-remote --tags --refs "${AFTERCLAW_REPO}" 'v*' 2>/dev/null | awk -F'/' '{print $NF}' | sort -V | tail -n1)"
+  if [[ -n "${tag}" ]]; then
+    LATEST_RELEASE_LABEL="${tag}"
+  fi
+}
+
+installed_release_label() {
+  local tag=""
+  if [[ ! -d "${AFTERCLAW_SRC}/.git" ]]; then
+    echo "unknown"
+    return 0
+  fi
+  tag="$(git -C "${AFTERCLAW_SRC}" describe --tags --abbrev=0 2>/dev/null || true)"
+  if [[ -n "${tag}" ]]; then
+    echo "${tag}"
+  else
+    echo "unknown"
   fi
 }
 
@@ -211,8 +239,14 @@ run_platform_action() {
           bash "${SCRIPT_DIR}/scripts/uninstall.sh"
           ;;
         update)
+          local installed_ver
+          installed_ver="$(installed_release_label)"
+          if [[ "${installed_ver}" != "unknown" && "${LATEST_RELEASE_LABEL}" != "unknown" && "${installed_ver}" == "${LATEST_RELEASE_LABEL}" ]]; then
+            log_ok "Already on latest release (${installed_ver}). Update skipped."
+            return 0
+          fi
           if is_afterclaw_installed; then
-            log_info "AfterClaw detected. Applying update..."
+            log_info "AfterClaw detected. Installed=${installed_ver}, Latest=${LATEST_RELEASE_LABEL}. Applying update..."
           else
             log_warn "AfterClaw is not installed yet. Running fresh install instead of update..."
           fi
@@ -265,10 +299,11 @@ run_platform_action() {
 prompt_action_ascii() {
   local choice=""
   local installed=0
-  if is_afterclaw_installed; then
-    installed=1
-  fi
   while true; do
+    installed=0
+    if is_afterclaw_installed; then
+      installed=1
+    fi
     if [[ "${HAS_TTY}" -eq 1 ]]; then
       printf '\033[2J\033[H' > /dev/tty
     fi
@@ -313,7 +348,7 @@ interactive_main() {
   while true; do
     action="$(prompt_action_ascii)"
     if [[ "${action}" == "quit" ]]; then
-      echo "Canceled."
+      echo "Exited AfterClaw installer."
       exit 0
     fi
     if ! confirm_action "${action}"; then
@@ -358,6 +393,7 @@ interactive_main() {
 
 if [[ "$#" -eq 0 && "${HAS_TTY}" -eq 1 ]]; then
   refresh_latest_ref_label
+  refresh_latest_release_label
   interactive_main
 fi
 
@@ -377,5 +413,6 @@ for arg in "$@"; do
 done
 
 refresh_latest_ref_label
+refresh_latest_release_label
 bootstrap_if_needed "$@"
 run_platform_action "${ACTION}"
