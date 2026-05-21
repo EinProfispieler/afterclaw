@@ -63,3 +63,27 @@ def test_token_match_supports_x_style(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["skip"] is False
     assert rows[0]["new_rel"].endswith("The.Rookie.S08E03.1080p.WEB-DL.eng.srt")
+
+
+def test_token_match_supports_3digit_style(tmp_path: Path):
+    root = tmp_path / "storage"
+    d = root / "show"
+    d.mkdir(parents=True)
+    (d / "My.Show.S02E13.1080p.mkv").write_text("v")
+    (d / "My.Show.213.eng.srt").write_text("s")
+    rows = simplify_plan(build_alignment_plan(root, "show", recursive=False))
+    assert len(rows) == 1
+    assert rows[0]["skip"] is False
+    assert rows[0]["new_rel"].endswith("My.Show.S02E13.1080p.eng.srt")
+
+
+def test_token_match_supports_cn_season_style(tmp_path: Path):
+    root = tmp_path / "storage"
+    d = root / "show"
+    d.mkdir(parents=True)
+    (d / "Drama.S01E13.1080p.mkv").write_text("v")
+    (d / "剧名.第一季.13.zh.srt").write_text("s")
+    rows = simplify_plan(build_alignment_plan(root, "show", recursive=False))
+    assert len(rows) == 1
+    assert rows[0]["skip"] is False
+    assert rows[0]["new_rel"].endswith("Drama.S01E13.1080p.zh.srt")

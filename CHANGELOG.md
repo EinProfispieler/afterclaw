@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.9.16] - 2026-05-21
+
+### Added
+
+- Subtitle alignment supports mixed-language season patterns such as `第一季` / `第1季` combined with two-digit episode numbers (for example, `第1季.13` -> `S01E13`).
+
+### Changed
+
+- Subtitle alignment compatibility expanded to cover additional token styles in one flow: `SxEx`, `x` style (`8x03`), compact 3-digit style (`213` -> `S02E13`), and Chinese season text variants.
+- BitTorrent fix flow now returns stronger diagnostics and applies path-move preference repair for qBittorrent Docker deployments.
+
 ## [0.9.15] - 2026-05-21
 
 ### Changed

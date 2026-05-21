@@ -8481,6 +8481,84 @@ class AppHandler(BaseHTTPRequestHandler):
             }
 
     @classmethod
+    def _qbt_fix_move_preferences(cls) -> tuple[bool, str, dict]:
+        desired = {
+            "category_changed_tmm_enabled": True,
+            "torrent_changed_tmm_enabled": True,
+            "save_path_changed_tmm_enabled": True,
+        }
+        last_err = ""
+        for base in cls._qbt_candidate_base_urls():
+            try:
+                body = urlencode({"json": json.dumps(desired, ensure_ascii=False)}).encode("utf-8")
+                cls._qbt_api_call_with_auth(
+                    base,
+                    "/api/v2/app/setPreferences",
+                    method="POST",
+                    body=body,
+                    content_type="application/x-www-form-urlencoded",
+                )
+                return True, "qB path-move preferences repaired", {"base_url": base, "desired": desired}
+            except Exception as exc:
+                last_err = str(exc)
+        return False, (last_err or "qB WebUI unavailable"), {"desired": desired}
+
+    @classmethod
+    def _qbt_collect_category_paths(cls) -> list[str]:
+        for base in cls._qbt_candidate_base_urls():
+            try:
+                code, text = cls._qbt_api_call_with_auth(base, "/api/v2/torrents/categories", method="GET")
+                if int(code) >= 400:
+                    continue
+                data = json.loads(text or "{}")
+                if not isinstance(data, dict):
+                    continue
+                out = []
+                seen = set()
+                for _name, meta in data.items():
+                    if not isinstance(meta, dict):
+                        continue
+                    p = str(meta.get("savePath", "") or meta.get("save_path", "") or "").strip()
+                    if not p or p in seen:
+                        continue
+                    seen.add(p)
+                    out.append(p)
+                return out
+            except Exception:
+                continue
+        return []
+
+    @classmethod
+    def _qbt_docker_check_paths_writable(cls, container: str, paths: list[str]) -> list[dict[str, str]]:
+        checks: list[dict[str, str]] = []
+        seen = set()
+        for raw in (paths or []):
+            p = str(raw or "").strip()
+            if not p or p in seen or not p.startswith("/"):
+                continue
+            seen.add(p)
+            test_file = p.rstrip("/") + "/.afterclaw_perm_test"
+            cmd = (
+                "set -e; "
+                + f"mkdir -p {shlex.quote(p)}; "
+                + f"touch {shlex.quote(test_file)}; "
+                + f"rm -f {shlex.quote(test_file)}"
+            )
+            proc = subprocess.run(
+                ["docker", "exec", container, "sh", "-lc", cmd],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+            if proc.returncode == 0:
+                checks.append({"path": p, "ok": "true", "message": "ok"})
+            else:
+                msg = (proc.stderr or proc.stdout or "").strip()[-280:] or f"exit {proc.returncode}"
+                checks.append({"path": p, "ok": "false", "message": msg})
+        return checks
+
+    @classmethod
     def _qbt_fix_docker_mount_check(cls, container: str) -> tuple[bool, str, dict]:
         mounts: list[dict[str, str]] = []
         try:
@@ -8533,8 +8611,27 @@ class AppHandler(BaseHTTPRequestHandler):
             "has_private_mount": has_private_mount,
             "has_root_mount": has_root_mount,
         }
+        pref_ok, pref_msg, pref_detail = cls._qbt_fix_move_preferences()
+        detail["move_pref_ok"] = pref_ok
+        detail["move_pref_msg"] = pref_msg
+        detail["move_pref_detail"] = pref_detail
+        category_paths = cls._qbt_collect_category_paths()
+        check_paths = category_paths[:] if category_paths else [f"{http_root}/Private", f"{http_root}/BT"]
+        path_checks = cls._qbt_docker_check_paths_writable(container, check_paths)
+        detail["category_paths"] = category_paths
+        detail["path_checks"] = path_checks
+        bad_paths = [x for x in path_checks if str(x.get("ok")) != "true"]
+
         if has_private_mount or has_root_mount:
-            return True, "Docker 挂载检查通过：容器可访问 HTTP 根目录或 Private 目录", detail
+            if bad_paths:
+                return (
+                    False,
+                    "Docker 挂载可见，但分类目录写入失败。请修复目录权限或容器用户映射后重试。",
+                    detail,
+                )
+            if not pref_ok:
+                return False, "Docker 挂载检查通过，但 qB 路径迁移配置修复失败。", detail
+            return True, "Docker 挂载与分类目录写入检查通过，已修复分类迁移配置", detail
         return (
             False,
             "Docker 挂载检查失败：容器未挂载 Private 目录。请为容器添加卷映射后重建（例如 /srv/Storage/Private:/private），并在 qB 中使用容器内路径。",
