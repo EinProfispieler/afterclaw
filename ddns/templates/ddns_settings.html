@@ -156,7 +156,9 @@
 
     #ddnsPage[data-embed="1"] {
       background: transparent;
-      min-height: auto;
+      min-height: 0 !important;
+      margin: 0;
+      padding: 0;
     }
     #ddnsPage[data-embed="1"] .wrap {
       width: 100%;
@@ -492,6 +494,31 @@
       }
     } catch (e) {}
 
+    function notifyParentHeight() {
+      if (document.body.getAttribute("data-embed") !== "1") return;
+      var wrap = document.querySelector(".wrap");
+      var h = wrap ? wrap.scrollHeight : 0;
+      if (!h || h < 1) {
+        var de = document.documentElement;
+        var bd = document.body;
+        h = Math.max(
+          de ? de.scrollHeight : 0,
+          de ? de.offsetHeight : 0,
+          bd ? bd.scrollHeight : 0,
+          bd ? bd.offsetHeight : 0
+        );
+      }
+      if (window.parent && window.parent !== window && h > 0) {
+        window.parent.postMessage({ type: "ddns-embed-height", height: h + 8 }, "*");
+      }
+    }
+    window.addEventListener("load", notifyParentHeight);
+    window.addEventListener("resize", notifyParentHeight);
+    if (window.MutationObserver) {
+      var mo = new MutationObserver(function(){ notifyParentHeight(); });
+      mo.observe(document.documentElement, { childList: true, subtree: true, attributes: true });
+    }
+
     /* ── 主题 ── */
     var THEME_KEY = "fc-theme";
     function getTheme() { return localStorage.getItem(THEME_KEY) || "light"; }
@@ -577,6 +604,7 @@
         var el = $(id);
         if (el) el.style.display = show.indexOf(id) >= 0 ? "" : "none";
       });
+      notifyParentHeight();
     }
     $("ddnsProvider").addEventListener("change", syncProviderUI);
 
@@ -677,6 +705,7 @@
 
         syncProviderUI();
         ["ip4", "ip6"].forEach(function (v) { syncIpSourceUI(v); });
+        notifyParentHeight();
 
       }).catch(function (e) { setStatus("加载失败: " + e.message, true); });
     }

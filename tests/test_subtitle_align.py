@@ -87,3 +87,27 @@ def test_token_match_supports_cn_season_style(tmp_path: Path):
     assert len(rows) == 1
     assert rows[0]["skip"] is False
     assert rows[0]["new_rel"].endswith("Drama.S01E13.1080p.zh.srt")
+
+
+def test_token_match_supports_season_ep_style(tmp_path: Path):
+    root = tmp_path / "storage"
+    d = root / "show"
+    d.mkdir(parents=True)
+    (d / "Numb3rs.S03E01.1080p.mkv").write_text("v")
+    (d / "Numb3rs.Season3.EP01.cht.srt").write_text("s")
+    rows = simplify_plan(build_alignment_plan(root, "show", recursive=False))
+    assert len(rows) == 1
+    assert rows[0]["skip"] is False
+    assert rows[0]["new_rel"].endswith("Numb3rs.S03E01.1080p.cht.srt")
+
+
+def test_token_match_supports_season_e_style(tmp_path: Path):
+    root = tmp_path / "storage"
+    d = root / "show"
+    d.mkdir(parents=True)
+    (d / "Numb3rs.S03E02.1080p.mkv").write_text("v")
+    (d / "Numb3rs.Season3.E02.cht.srt").write_text("s")
+    rows = simplify_plan(build_alignment_plan(root, "show", recursive=False))
+    assert len(rows) == 1
+    assert rows[0]["skip"] is False
+    assert rows[0]["new_rel"].endswith("Numb3rs.S03E02.1080p.cht.srt")

@@ -30,6 +30,7 @@ SUBTITLE_EXTENSIONS = {
     ".idx",
 }
 TOKEN_RE = re.compile(r"(?i)(?:s(\d{1,2})e(\d{1,2})|(\d{1,2})x(\d{1,2}))")
+TOKEN_SEASON_EP_RE = re.compile(r"(?i)season\W*(\d{1,2})\W*e(?:p)?\W*(\d{1,2})")
 TOKEN_3DIGIT_RE = re.compile(r"(?<!\d)(\d)(\d{2})(?!\d)")
 SEASON_CN_RE = re.compile(r"第([0-9一二三四五六七八九十]{1,3})季")
 EP_2DIGIT_RE = re.compile(r"(?<!\d)(\d{2})(?!\d)")
@@ -73,6 +74,10 @@ def _token_parse(stem: str) -> tuple[str, int]:
         episode = m.group(2) or m.group(4)
         if season is not None and episode is not None:
             return f"S{int(season):02d}E{int(episode):02d}", int(m.end())
+    # Compatibility: Season3.EP01 / Season 3 EP01
+    mse = TOKEN_SEASON_EP_RE.search(text)
+    if mse:
+        return f"S{int(mse.group(1)):02d}E{int(mse.group(2)):02d}", int(mse.end())
     # Compatibility: 第1季.13 / 第一季.13 -> S01E13
     ms = SEASON_CN_RE.search(text)
     if ms:

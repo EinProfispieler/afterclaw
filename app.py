@@ -12,6 +12,7 @@ import os
 import pwd
 import pty
 import re
+import secrets
 import shlex
 import shutil
 import struct
@@ -1837,6 +1838,17 @@ def build_frontend_html() -> str:
   </script>
   <link rel="stylesheet" href="/dashboard.css" />
   <script src="/i18n.js?v=20260430d"></script>
+  <style>
+    .member-modal-mask{position:fixed;inset:0;background:rgba(2,8,23,.62);display:none;align-items:center;justify-content:center;z-index:9999;padding:16px}
+    .member-modal-mask.show{display:flex}
+    .member-modal{width:min(460px,100%);background:var(--surface,#0f172a);border:1px solid var(--border,rgba(148,163,184,.35));border-radius:14px;padding:18px}
+    .member-modal h3{margin:0 0 12px;font-size:24px}
+    .member-modal .field{display:grid;gap:6px;margin:10px 0}
+    .member-modal .actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+    .member-modal .status{min-height:20px;margin-top:8px;font-size:13px;color:var(--muted,#93a4bd)}
+    .member-modal .status.err{color:var(--danger,#f87171)}
+    .member-modal input{width:100%}
+  </style>
 </head>
 <body>
   <div class="wrap">
@@ -1858,6 +1870,7 @@ def build_frontend_html() -> str:
     </div>
     <div class="tabs-actions">
       <a id="terminalQuickLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
+      <button type="button" id="memberQuickBtn" class="gear-btn" title="Member" aria-label="Member"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18.5h16v-2.2l-3.4-1.6-2.6 1.8h-4l-2.6-1.8L4 16.3z"></path><path d="M6.2 7.2l2.8.6L12 5.2l3 2.6 2.8-.6-.8 4.1L12 14.4 7 11.3z"></path></svg></button>
       <a href="/config" class="gear-btn" title="Config" aria-label="Config"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .74 1.7 1.7 0 0 0-.2 1v.2a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-.2-1 1.7 1.7 0 0 0-1-.74 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.74-1 1.7 1.7 0 0 0-1-.2h-.2a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1-.2 1.7 1.7 0 0 0 .74-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.74 1.7 1.7 0 0 0 .2-1v-.2a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 .2 1 1.7 1.7 0 0 0 1 .74 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .74 1 1.7 1.7 0 0 0 1 .2h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1 .2 1.7 1.7 0 0 0-.74 1z"></path></svg></a>
       <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
       <select id="langSelect" class="lang-select" title="Language">
@@ -2146,6 +2159,24 @@ sudo systemctl restart storage-http-link-web
   </div>
 
   <div id="toastContainer"></div>
+  <div id="memberQuickModal" class="member-modal-mask" aria-hidden="true">
+    <div class="member-modal" role="dialog" aria-modal="true" aria-label="Member verify">
+      <h3>Member</h3>
+      <div class="field">
+        <label for="memberQuickId">Member ID</label>
+        <input id="memberQuickId" placeholder="e.g. MBR-2026-0001" />
+      </div>
+      <div class="field">
+        <label for="memberQuickPassword">Password</label>
+        <input id="memberQuickPassword" type="password" placeholder="Your member password" />
+      </div>
+      <div id="memberQuickStatus" class="status"></div>
+      <div class="actions">
+        <button type="button" id="memberQuickCloseBtn" class="secondary">Close</button>
+        <button type="button" id="memberQuickVerifyBtn">Verify</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const i18nReady = (window.fccI18n && window.fccI18n.initPage)
@@ -2213,6 +2244,13 @@ sudo systemctl restart storage-http-link-web
     const clipRefreshLatestBtn = document.getElementById("clipRefreshLatestBtn");
     const clipRefreshHistoryBtn = document.getElementById("clipRefreshHistoryBtn");
     const terminalQuickLink = document.getElementById("terminalQuickLink");
+    const memberQuickBtn = document.getElementById("memberQuickBtn");
+    const memberQuickModal = document.getElementById("memberQuickModal");
+    const memberQuickId = document.getElementById("memberQuickId");
+    const memberQuickPassword = document.getElementById("memberQuickPassword");
+    const memberQuickStatus = document.getElementById("memberQuickStatus");
+    const memberQuickCloseBtn = document.getElementById("memberQuickCloseBtn");
+    const memberQuickVerifyBtn = document.getElementById("memberQuickVerifyBtn");
     const langSelect = document.getElementById("langSelect");
     
     // Backup elements
@@ -2307,6 +2345,53 @@ sudo systemctl restart storage-http-link-web
       setTimeout(() => {
         if (t.parentNode) t.parentNode.removeChild(t);
       }, 3000);
+    }
+
+    function setMemberQuickStatus(msg, isErr) {
+      if (!memberQuickStatus) return;
+      memberQuickStatus.textContent = String(msg || "");
+      memberQuickStatus.className = "status" + (isErr ? " err" : "");
+    }
+
+    function openMemberQuickModal() {
+      if (!memberQuickModal) return;
+      memberQuickModal.classList.add("show");
+      memberQuickModal.setAttribute("aria-hidden", "false");
+      setMemberQuickStatus("");
+      if (memberQuickId) memberQuickId.focus();
+    }
+
+    function closeMemberQuickModal() {
+      if (!memberQuickModal) return;
+      memberQuickModal.classList.remove("show");
+      memberQuickModal.setAttribute("aria-hidden", "true");
+      setMemberQuickStatus("");
+      if (memberQuickPassword) memberQuickPassword.value = "";
+    }
+
+    async function verifyMemberQuick() {
+      const memberId = String((memberQuickId && memberQuickId.value) || "").trim();
+      const password = String((memberQuickPassword && memberQuickPassword.value) || "").trim();
+      if (!memberId || !password) {
+        setMemberQuickStatus("Please enter Member ID and password.", true);
+        return;
+      }
+      try {
+        setMemberQuickStatus("Verifying...");
+        const r = await fetch("/api/member/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ member_id: memberId, password: password }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d || d.ok === false) throw new Error(String((d && d.error) || "Verify failed"));
+        localStorage.setItem("memberSessionToken", String(d.session_token || ""));
+        localStorage.setItem("memberSessionMemberId", String((d.member && d.member.member_id) || ""));
+        localStorage.setItem("memberSessionEmail", String((d.member && d.member.email) || ""));
+        setMemberQuickStatus("Verified. You can now use Exclusive settings in Config.");
+      } catch (e) {
+        setMemberQuickStatus(String(e.message || e), true);
+      }
     }
 
     function toggleTheme() {
@@ -3550,6 +3635,7 @@ sudo systemctl restart storage-http-link-web
 
     async function runSubtitleAlignPreview() {
       if (!subtitleAlignStatus || !subtitleAlignPreview || !subtitleAlignApplyBtn) return;
+      const isZh = !!(langSelect && String(langSelect.value || "").toLowerCase().indexOf("zh") === 0);
       subtitleAlignStatus.className = "status-bar muted";
       subtitleAlignStatus.textContent = "Previewing align...";
       subtitleAlignPreview.style.display = "none";
@@ -3570,7 +3656,7 @@ sudo systemctl restart storage-http-link-web
         const skipped = moves.filter((m) => !!m.skip);
         lastSubtitleAlignMoves = runnable;
         if (!moves.length) {
-          subtitleAlignStatus.textContent = "No subtitle rename needed.";
+          subtitleAlignStatus.textContent = isZh ? "已对齐：无需重命名字幕。" : "Already aligned: no subtitle rename needed.";
           return;
         }
         subtitleAlignPreview.innerHTML = moves.map((m) => {
@@ -3583,7 +3669,11 @@ sudo systemctl restart storage-http-link-web
           return `<div class="sub-align-row"><div class="sub-align-src">${fromText}</div><div class="sub-align-arrow">to</div><div class="sub-align-dst">${toText}</div></div>`;
         }).join("");
         subtitleAlignPreview.style.display = "block";
-        subtitleAlignStatus.textContent = `Total ${moves.length}, executable ${runnable.length}, skipped ${skipped.length}.`;
+        if (runnable.length === 0 && skipped.length === 0) {
+          subtitleAlignStatus.textContent = isZh ? "已对齐：无需重命名字幕。" : "Already aligned: no subtitle rename needed.";
+        } else {
+          subtitleAlignStatus.textContent = `Total ${moves.length}, executable ${runnable.length}, skipped ${skipped.length}.`;
+        }
         subtitleAlignApplyBtn.disabled = runnable.length === 0;
       } catch (e) {
         subtitleAlignStatus.className = "status-bar err";
@@ -3722,6 +3812,8 @@ sudo systemctl restart storage-http-link-web
         subtitleUploadStatus.className = "status-bar err";
         subtitleUploadStatus.textContent = "上传失败：" + e.message;
       } finally {
+        // Always clear selected files after an upload attempt to avoid accidental re-upload.
+        subtitleUploadInput.value = "";
         subtitleUploadBtn.disabled = false;
       }
     }
@@ -3918,6 +4010,19 @@ sudo systemctl restart storage-http-link-web
     });
     document.getElementById("ddnsRestartBtn").addEventListener("click", () => controlService("ddns", "restart"));
     document.getElementById("themeToggleBtn").addEventListener("click", toggleTheme);
+    if (memberQuickBtn) memberQuickBtn.addEventListener("click", openMemberQuickModal);
+    if (memberQuickCloseBtn) memberQuickCloseBtn.addEventListener("click", closeMemberQuickModal);
+    if (memberQuickVerifyBtn) memberQuickVerifyBtn.addEventListener("click", verifyMemberQuick);
+    if (memberQuickModal) {
+      memberQuickModal.addEventListener("click", (ev) => {
+        if (ev.target === memberQuickModal) closeMemberQuickModal();
+      });
+    }
+    if (memberQuickPassword) {
+      memberQuickPassword.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") verifyMemberQuick();
+      });
+    }
     switchCleanMode("rename");
     document.getElementById("openPubNewBtn").addEventListener("click", () => {
       window.open("/?id=pub", "_blank", "noopener,noreferrer");
@@ -4592,14 +4697,14 @@ def build_config_html() -> str:
           transparent 72%
         ),
         var(--surface-soft);
-      min-height: 70vh;
     }
     #ddnsFrame {
       width: 100%;
-      min-height: 70vh;
+      height: 520px;
       border: 0;
       display: block;
       background: transparent;
+      overflow: hidden;
     }
     .brush-icon {
       width: 15px;
@@ -4650,11 +4755,13 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.bt" data-i18n-fallback="BitTorrent">BitTorrent</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
+        <button id="cfgTabExclusive" class="cfg-tab" type="button" data-tab="exclusive" data-i18n-fallback="Exclusive" style="display:none">Exclusive</button>
         <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup" style="display:none">Backup</button>
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
         <a href="/" class="back-link" data-i18n="← Back to AfterClaw" data-i18n-fallback="← Back to AfterClaw">← Back to AfterClaw</a>
+        <a href="/member" class="gear-btn" title="Member" aria-label="Member">👑</a>
         <a id="terminalHeadLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
         <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
         <select id="langSelect" class="lang-select" title="Language">
@@ -4933,10 +5040,35 @@ def build_config_html() -> str:
 
     <section id="panel-ddns" class="cfg-panel">
       <div class="card">
-        <span class="card-title">DDNS</span>
         <div class="ddns-frame-wrap">
           <iframe id="ddnsFrame" src="/ddns?embed=1" title="DDNS Config"></iframe>
         </div>
+      </div>
+    </section>
+
+    <section id="panel-exclusive" class="cfg-panel">
+      <div class="card">
+        <span class="card-title">Exclusive</span>
+        <p class="cfg-help">Member-only DDNS assignment bound to your donation email.</p>
+        <div class="cfg-grid" style="margin-top:12px;">
+          <label class="cfg-item inline-check">
+            <input type="checkbox" id="memberDdnsEnabled" />
+            <span class="title">Enable DDNS</span>
+          </label>
+          <div class="cfg-item">
+            <div class="title">Assigned DDNS Address</div>
+            <div id="memberDdnsAddress" class="cfg-code">-</div>
+          </div>
+          <label class="cfg-item">
+            <div class="title">Change Domain Prefix</div>
+            <input id="memberPrefixInput" placeholder="e.g. myhome" />
+            <p id="memberPrefixLimit" class="cfg-help">You can change prefix at most 2 times per year.</p>
+          </label>
+        </div>
+        <div class="cfg-actions">
+          <button type="button" id="saveMemberDdnsBtn">Save Exclusive DDNS</button>
+        </div>
+        <p id="exclusiveStatus" class="cfg-status"></p>
       </div>
     </section>
 
@@ -6122,14 +6254,14 @@ def build_config_html() -> str:
     }
     function switchTab(name){
       var tab = (name || "").trim() || "general";
-      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, netdisk:1 };
+      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, exclusive:1, netdisk:1 };
       if (!valid[tab]) tab = "general";
       var btns = Array.prototype.slice.call(document.querySelectorAll(".cfg-tab"));
       for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
         b.classList.toggle("active", b.getAttribute("data-tab") === tab);
       }
-      ["general","http","qbt","terminal","ddns","netdisk"].forEach(function(t){
+      ["general","http","qbt","terminal","ddns","exclusive","netdisk"].forEach(function(t){
         var p = byId("panel-" + t);
         if (p) p.classList.toggle("active", t === tab);
       });
@@ -6137,9 +6269,102 @@ def build_config_html() -> str:
       try { history.replaceState(null, "", "#"+tab); } catch (e) {}
     }
 
+    function memberSessionToken(){
+      try { return String(localStorage.getItem("memberSessionToken") || "").trim(); } catch (e) { return ""; }
+    }
+    async function memberApi(path, method, payload){
+      var tok = memberSessionToken();
+      if (!tok) throw new Error("Please verify member account first at /member");
+      var opts = { method: method || "GET", headers: { "X-Member-Session": tok } };
+      if (payload) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(payload);
+      }
+      return await apiJson(path, opts);
+    }
+    async function loadExclusiveProfile(){
+      var tabBtn = byId("cfgTabExclusive");
+      if (!tabBtn) return;
+      var tok = memberSessionToken();
+      if (!tok) {
+        tabBtn.style.display = "none";
+        return;
+      }
+      try {
+        var d = await memberApi("/api/member/profile", "GET");
+        tabBtn.style.display = "";
+        byId("memberDdnsEnabled").checked = !!(d.member && d.member.ddns_enabled);
+        byId("memberDdnsAddress").textContent = String((d.member && d.member.ddns_fqdn) || "-");
+        byId("memberPrefixInput").value = String((d.member && d.member.ddns_prefix) || "");
+        byId("memberPrefixLimit").textContent = "Prefix changes this year: "
+          + String((d.member && d.member.prefix_change_used_this_year) || 0)
+          + " / 2";
+      } catch (err) {
+        tabBtn.style.display = "none";
+      }
+    }
+
+    function syncDdnsFrameHeight(px) {
+      var f = byId("ddnsFrame");
+      if (!f) return;
+      var n = parseInt(px, 10);
+      if (!Number.isFinite(n) || n < 240) return;
+      f.style.height = String(n) + "px";
+    }
+
+    function syncDdnsFrameHeightFromDom() {
+      var f = byId("ddnsFrame");
+      if (!f || !f.contentWindow || !f.contentWindow.document) return;
+      var d = f.contentWindow.document;
+      var de = d.documentElement;
+      var bd = d.body;
+      var h = Math.max(
+        de ? de.scrollHeight : 0,
+        de ? de.offsetHeight : 0,
+        bd ? bd.scrollHeight : 0,
+        bd ? bd.offsetHeight : 0
+      );
+      if (h > 0) syncDdnsFrameHeight(h + 8);
+    }
+
+    window.addEventListener("message", function(ev){
+      if (!ev || !ev.data || typeof ev.data !== "object") return;
+      if (ev.data.type !== "ddns-embed-height") return;
+      syncDdnsFrameHeight(ev.data.height);
+    });
+    (function(){
+      var f = byId("ddnsFrame");
+      if (!f) return;
+      f.addEventListener("load", function(){
+        syncDdnsFrameHeightFromDom();
+        setTimeout(syncDdnsFrameHeightFromDom, 120);
+        setTimeout(syncDdnsFrameHeightFromDom, 600);
+      });
+    })();
+
     Array.prototype.slice.call(document.querySelectorAll(".cfg-tab")).forEach(function(btn){
       btn.addEventListener("click", function(){ switchTab(btn.getAttribute("data-tab")); });
     });
+
+    if (byId("saveMemberDdnsBtn")) {
+      byId("saveMemberDdnsBtn").addEventListener("click", async function(){
+        try {
+          var payload = {
+            ddns_enabled: !!(byId("memberDdnsEnabled") && byId("memberDdnsEnabled").checked),
+            ddns_prefix: String((byId("memberPrefixInput") && byId("memberPrefixInput").value) || "").trim()
+          };
+          var d = await memberApi("/api/member/ddns/config", "POST", payload);
+          byId("memberDdnsAddress").textContent = String((d.member && d.member.ddns_fqdn) || "-");
+          byId("memberPrefixInput").value = String((d.member && d.member.ddns_prefix) || "");
+          byId("memberPrefixLimit").textContent = "Prefix changes this year: "
+            + String((d.member && d.member.prefix_change_used_this_year) || 0)
+            + " / 2";
+          setStatus("exclusiveStatus", "Exclusive DDNS updated", false);
+        } catch (err) {
+          setStatus("exclusiveStatus", "Update failed: " + err.message, true);
+        }
+      });
+    }
 
     byId("themeToggleBtn").addEventListener("click", function(){
       applyTheme(getTheme() === "dark" ? "light" : "dark");
@@ -6175,6 +6400,8 @@ def build_config_html() -> str:
         }
       });
     }
+
+    loadExclusiveProfile();
 
     byId("saveModulesBtn").addEventListener("click", async function(){
       try {
@@ -6752,12 +6979,12 @@ def build_config_html() -> str:
     }
     function switchTab(name){
       var tab = (name || "").trim() || "general";
-      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1 };
+      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, exclusive:1, netdisk:1 };
       if (!valid[tab]) tab = "general";
       Array.prototype.slice.call(document.querySelectorAll(".cfg-tab")).forEach(function(btn){
         btn.classList.toggle("active", btn.getAttribute("data-tab") === tab);
       });
-      ["general","http","qbt","terminal","ddns"].forEach(function(t){
+      ["general","http","qbt","terminal","ddns","exclusive","netdisk"].forEach(function(t){
         var p = byId("panel-" + t);
         if (p) p.classList.toggle("active", t === tab);
       });
@@ -7217,6 +7444,223 @@ def build_terminal_html() -> str:
 </html>
 """
     return _inject_page_title(html, "Web Terminal")
+
+
+def _member_accounts_path() -> Path:
+    return _APP_ROOT_DIR / "member_accounts.json"
+
+
+def _load_member_accounts() -> list[dict]:
+    p = _member_accounts_path()
+    if not p.exists():
+        return []
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if isinstance(raw, dict):
+        data = raw.get("accounts")
+        if isinstance(data, list):
+            return [x for x in data if isinstance(x, dict)]
+    if isinstance(raw, list):
+        return [x for x in raw if isinstance(x, dict)]
+    return []
+
+
+def _save_member_accounts(accounts: list[dict]) -> None:
+    p = _member_accounts_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"accounts": accounts}
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+MEMBER_DDNS_BASE_DOMAIN = os.environ.get("MEMBER_DDNS_BASE_DOMAIN", "afterclaw.xyz").strip() or "afterclaw.xyz"
+MEMBER_PREFIX_CHANGE_LIMIT_PER_YEAR = 2
+MEMBER_PREFIX_MIN_LEN = 3
+MEMBER_PREFIX_MAX_LEN = 24
+MEMBER_SESSION_TTL_SEC = 30 * 24 * 3600
+_member_lock = threading.Lock()
+_member_sessions: dict[str, dict] = {}
+
+
+def _member_prefix_sanitize(raw: str) -> str:
+    s = str(raw or "").strip().lower()
+    s = re.sub(r"[^a-z0-9-]", "", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    if len(s) < MEMBER_PREFIX_MIN_LEN or len(s) > MEMBER_PREFIX_MAX_LEN:
+        raise ValueError(f"Prefix length must be {MEMBER_PREFIX_MIN_LEN}-{MEMBER_PREFIX_MAX_LEN}")
+    return s
+
+
+def _member_build_fqdn(prefix: str) -> str:
+    return f"{prefix}.{MEMBER_DDNS_BASE_DOMAIN}"
+
+
+def _member_now_ts() -> int:
+    return int(time.time())
+
+
+def _member_issue_session(member_id: str, email: str) -> str:
+    token = secrets.token_urlsafe(24)
+    with _member_lock:
+        _member_sessions[token] = {
+            "member_id": member_id,
+            "email": email,
+            "exp": _member_now_ts() + MEMBER_SESSION_TTL_SEC,
+        }
+    return token
+
+
+def _member_get_session(token: str) -> dict | None:
+    t = str(token or "").strip()
+    if not t:
+        return None
+    with _member_lock:
+        sess = _member_sessions.get(t)
+        if not sess:
+            return None
+        if int(sess.get("exp", 0)) <= _member_now_ts():
+            _member_sessions.pop(t, None)
+            return None
+        return dict(sess)
+
+
+def _member_find_account(accounts: list[dict], member_id: str, email: str) -> tuple[int, dict] | tuple[None, None]:
+    for i, item in enumerate(accounts):
+        if str(item.get("member_id", "")).strip() == member_id and str(item.get("email", "")).strip().lower() == email.lower():
+            return i, item
+    return None, None
+
+
+def build_member_html() -> str:
+    html = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Member Activation</title>
+  <script>
+    (function(){
+      try {
+        var t = localStorage.getItem("fc-theme");
+        if (!t) { t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"; }
+        document.documentElement.setAttribute("data-theme", t);
+      } catch(e){}
+    })();
+  </script>
+  <link rel="stylesheet" href="/dashboard.css" />
+  <style>
+    .member-card { max-width: 760px; margin: 0 auto; }
+    .member-grid { display: grid; gap: 12px; }
+    .member-result { margin-top: 10px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; background: var(--surface-soft); }
+    .mono { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="page-head">
+      <div class="head-row">
+        <div>
+          <a href="/" class="back-link">← Back to AfterClaw</a>
+          <h1>Member</h1>
+          <p class="page-sub">Enter Member ID and Password received after donation.</p>
+        </div>
+        <div class="head-actions">
+          <button type="button" id="themeToggleBtn" class="secondary">Theme</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="card member-card">
+      <span class="card-title">Member Activation</span>
+      <div class="member-grid" style="margin-top:12px;">
+        <label class="cfg-item">
+          <div class="title">Member ID</div>
+          <input id="memberId" placeholder="e.g. MBR-2026-0001" />
+        </label>
+        <label class="cfg-item">
+          <div class="title">Password</div>
+          <input id="memberPassword" type="password" placeholder="Your member password" />
+        </label>
+      </div>
+      <div class="cfg-actions">
+        <button type="button" id="memberLoginBtn">Verify</button>
+        <button type="button" id="goExclusiveBtn" class="secondary" style="display:none;">Open Exclusive</button>
+      </div>
+      <p id="memberStatus" class="status-line"></p>
+      <div id="memberResult" class="member-result" style="display:none;"></div>
+      <p class="cfg-help" style="margin-top:10px;">No ID/password yet? Contact support with your donation email.</p>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    var THEME_KEY = "fc-theme";
+    function getTheme(){ return localStorage.getItem(THEME_KEY) || "light"; }
+    function applyTheme(t){
+      document.documentElement.setAttribute("data-theme", t);
+      try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+    }
+    document.getElementById("themeToggleBtn").addEventListener("click", function(){
+      applyTheme(getTheme() === "dark" ? "light" : "dark");
+    });
+    applyTheme(getTheme());
+
+    function setStatus(msg, isErr){
+      var el = document.getElementById("memberStatus");
+      el.textContent = msg || "";
+      el.className = isErr ? "status-line err" : "status-line";
+    }
+    function showResult(member){
+      var el = document.getElementById("memberResult");
+      if (!member) { el.style.display = "none"; return; }
+      el.style.display = "";
+      el.innerHTML = "<div><strong>Status:</strong> " + String(member.status || "-") + "</div>"
+        + "<div><strong>Member ID:</strong> <span class='mono'>" + String(member.member_id || "-") + "</span></div>"
+        + "<div><strong>Email:</strong> " + String(member.email || "-") + "</div>"
+        + "<div><strong>DDNS:</strong> <span class='mono'>" + String(member.ddns_fqdn || "-") + "</span></div>"
+        + "<div><strong>Note:</strong> " + String(member.note || "-") + "</div>";
+    }
+    async function verify(){
+      var memberId = String(document.getElementById("memberId").value || "").trim();
+      var password = String(document.getElementById("memberPassword").value || "").trim();
+      if (!memberId || !password) {
+        setStatus("Member ID and Password are required.", true);
+        showResult(null);
+        return;
+      }
+      try {
+        var r = await fetch("/api/member/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ member_id: memberId, password: password })
+        });
+        var d = await r.json().catch(function(){ return {}; });
+        if (!r.ok || !d.ok) throw new Error((d && d.error) || ("Request failed " + r.status));
+        if (d.session_token) {
+          localStorage.setItem("memberSessionToken", String(d.session_token));
+          localStorage.setItem("memberSessionMemberId", String((d.member && d.member.member_id) || ""));
+          localStorage.setItem("memberSessionEmail", String((d.member && d.member.email) || ""));
+        }
+        setStatus("Member verified. Exclusive features unlocked.", false);
+        showResult(d.member || null);
+        var b = document.getElementById("goExclusiveBtn");
+        if (b) b.style.display = "";
+      } catch (e) {
+        setStatus("Verify failed: " + (e && e.message ? e.message : "unknown error"), true);
+        showResult(null);
+      }
+    }
+    document.getElementById("memberLoginBtn").addEventListener("click", verify);
+    document.getElementById("goExclusiveBtn").addEventListener("click", function(){
+      window.location.href = "/config#exclusive";
+    });
+  })();
+  </script>
+</body>
+</html>
+"""
+    return _inject_page_title(html, "Member")
 
 
 def human_size(size: int) -> str:
@@ -10583,6 +11027,11 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             self._send_html(build_terminal_html())
             return
+        if parsed.path == "/member":
+            if not self._require_lan():
+                return
+            self._send_html(build_member_html())
+            return
         if parsed.path == "/process-net":
             if not self._require_lan():
                 return
@@ -10699,6 +11148,41 @@ class AppHandler(BaseHTTPRequestHandler):
             if not self._require_lan():
                 return
             self._send_json({"config": load_app_config(_APP_ROOT_DIR)})
+            return
+
+        if parsed.path == "/api/member/profile":
+            if not self._require_lan():
+                return
+            token = str(self.headers.get("X-Member-Session", "") or "").strip()
+            sess = _member_get_session(token)
+            if not sess:
+                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
+                return
+            member_id = str(sess.get("member_id", ""))
+            email = str(sess.get("email", ""))
+            accounts = _load_member_accounts()
+            _, item = _member_find_account(accounts, member_id, email)
+            if not item:
+                self._error("Member not found", status=HTTPStatus.NOT_FOUND)
+                return
+            now = _member_now_ts()
+            year_start = now - 365 * 24 * 3600
+            changes = [int(x) for x in (item.get("prefix_change_ts") or []) if isinstance(x, (int, float)) and int(x) >= year_start]
+            self._send_json(
+                {
+                    "ok": True,
+                    "member": {
+                        "member_id": str(item.get("member_id", "")),
+                        "email": str(item.get("email", "")),
+                        "status": str(item.get("status", "active")),
+                        "note": str(item.get("note", "")),
+                        "ddns_enabled": bool(item.get("ddns_enabled", False)),
+                        "ddns_prefix": str(item.get("ddns_prefix", "")),
+                        "ddns_fqdn": str(item.get("ddns_fqdn", "")),
+                        "prefix_change_used_this_year": len(changes),
+                    },
+                }
+            )
             return
 
         if parsed.path == "/api/qbt/discover":
@@ -10916,6 +11400,15 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             return
+        if parsed.path == "/member":
+            if not self._require_lan():
+                return
+            payload = build_member_html().encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            return
         if parsed.path == "/process-net":
             if not self._require_lan():
                 return
@@ -10963,6 +11456,111 @@ class AppHandler(BaseHTTPRequestHandler):
         
         # Try module routes
         if self._dispatch_module_route(parsed, "POST"):
+            return
+
+        if parsed.path == "/api/member/login":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            member_id = str((body or {}).get("member_id", "") or "").strip()
+            password = str((body or {}).get("password", "") or "").strip()
+            if not member_id or not password:
+                self._error("member_id and password are required", status=HTTPStatus.BAD_REQUEST)
+                return
+            matched = None
+            for item in _load_member_accounts():
+                mid = str(item.get("member_id", "") or "").strip()
+                pwd = str(item.get("password", "") or "").strip()
+                if mid == member_id and pwd == password:
+                    matched = item
+                    break
+            if not matched:
+                self._error("Invalid member credentials", status=HTTPStatus.FORBIDDEN)
+                return
+            session_token = _member_issue_session(
+                str(matched.get("member_id", "")),
+                str(matched.get("email", "")),
+            )
+            now = _member_now_ts()
+            year_start = now - 365 * 24 * 3600
+            changes = [int(x) for x in (matched.get("prefix_change_ts") or []) if isinstance(x, (int, float)) and int(x) >= year_start]
+            self._send_json(
+                {
+                    "ok": True,
+                    "session_token": session_token,
+                    "member": {
+                        "member_id": str(matched.get("member_id", "")),
+                        "email": str(matched.get("email", "")),
+                        "status": str(matched.get("status", "active")),
+                        "note": str(matched.get("note", "")),
+                        "ddns_enabled": bool(matched.get("ddns_enabled", False)),
+                        "ddns_prefix": str(matched.get("ddns_prefix", "")),
+                        "ddns_fqdn": str(matched.get("ddns_fqdn", "")),
+                        "prefix_change_used_this_year": len(changes),
+                    },
+                }
+            )
+            return
+
+        if parsed.path == "/api/member/ddns/config":
+            if not self._require_lan():
+                return
+            token = str(self.headers.get("X-Member-Session", "") or "").strip()
+            sess = _member_get_session(token)
+            if not sess:
+                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
+                return
+            body = self._parse_body()
+            ddns_enabled = bool((body or {}).get("ddns_enabled", False))
+            prefix_raw = str((body or {}).get("ddns_prefix", "") or "").strip()
+            accounts = _load_member_accounts()
+            idx, item = _member_find_account(
+                accounts,
+                str(sess.get("member_id", "")),
+                str(sess.get("email", "")),
+            )
+            if item is None or idx is None:
+                self._error("Member not found", status=HTTPStatus.NOT_FOUND)
+                return
+            now = _member_now_ts()
+            year_start = now - 365 * 24 * 3600
+            history = [int(x) for x in (item.get("prefix_change_ts") or []) if isinstance(x, (int, float)) and int(x) >= year_start]
+            old_prefix = str(item.get("ddns_prefix", "") or "").strip()
+            new_prefix = old_prefix
+            if prefix_raw:
+                try:
+                    new_prefix = _member_prefix_sanitize(prefix_raw)
+                except ValueError as exc:
+                    self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
+                    return
+                if new_prefix != old_prefix:
+                    if len(history) >= MEMBER_PREFIX_CHANGE_LIMIT_PER_YEAR:
+                        self._error("Domain prefix change limit reached (2/year)", status=HTTPStatus.FORBIDDEN)
+                        return
+                    history.append(now)
+            item["ddns_enabled"] = ddns_enabled
+            item["ddns_prefix"] = new_prefix
+            item["ddns_fqdn"] = _member_build_fqdn(new_prefix) if new_prefix else ""
+            item["prefix_change_ts"] = history
+            item["updated_at"] = now
+            item["status"] = str(item.get("status", "active") or "active")
+            accounts[idx] = item
+            _save_member_accounts(accounts)
+            self._send_json(
+                {
+                    "ok": True,
+                    "member": {
+                        "member_id": str(item.get("member_id", "")),
+                        "email": str(item.get("email", "")),
+                        "status": str(item.get("status", "active")),
+                        "note": str(item.get("note", "")),
+                        "ddns_enabled": bool(item.get("ddns_enabled", False)),
+                        "ddns_prefix": str(item.get("ddns_prefix", "")),
+                        "ddns_fqdn": str(item.get("ddns_fqdn", "")),
+                        "prefix_change_used_this_year": len(history),
+                    },
+                }
+            )
             return
 
         if parsed.path == "/api/terminal/start":
