@@ -246,6 +246,14 @@ installed_release_label() {
   fi
 }
 
+installed_commit_label() {
+  if [[ ! -d "${AFTERCLAW_SRC}/.git" ]]; then
+    echo "unknown"
+    return 0
+  fi
+  git -C "${AFTERCLAW_SRC}" rev-parse --short HEAD 2>/dev/null || echo "unknown"
+}
+
 bootstrap_if_needed() {
   if [[ -d "${SCRIPT_DIR}/scripts" ]]; then
     return 0
@@ -316,17 +324,19 @@ run_platform_action() {
           bash "${SCRIPT_DIR}/scripts/uninstall.sh"
           ;;
         update)
-          local installed_ver
+          local installed_ver installed_commit latest_commit
           installed_ver="$(installed_release_label)"
+          installed_commit="$(installed_commit_label)"
+          latest_commit="${LATEST_REF_LABEL}"
+          if [[ "${installed_commit}" != "unknown" && "${latest_commit}" != "unknown" && "${installed_commit}" == "${latest_commit}" ]]; then
+            log_ok "Already on latest commit (${installed_commit}). Update skipped."
+            return 0
+          fi
           if [[ "${installed_ver}" != "unknown" && "${LATEST_RELEASE_LABEL}" != "unknown" && "${installed_ver}" == "${LATEST_RELEASE_LABEL}" ]]; then
             log_ok "Already on latest release (${installed_ver}). Update skipped."
             return 0
           fi
-          if is_afterclaw_installed; then
-            log_info "AfterClaw detected. Installed=${installed_ver}, Latest=${LATEST_RELEASE_LABEL}. Applying update..."
-          else
-            log_warn "AfterClaw is not installed yet. Running fresh install instead of update..."
-          fi
+          log_info "AfterClaw detected. InstalledRelease=${installed_ver}, LatestRelease=${LATEST_RELEASE_LABEL}, InstalledCommit=${installed_commit}, LatestCommit=${latest_commit}. Applying update..."
           case "${ID:-}" in
             ubuntu|debian) bash "${SCRIPT_DIR}/scripts/install_ubuntu.sh" ;;
             linuxmint) bash "${SCRIPT_DIR}/scripts/install_mint.sh" ;;
@@ -358,13 +368,19 @@ run_platform_action() {
       case "${action}" in
         uninstall) log_info "Running: bash ${SCRIPT_DIR}/scripts/uninstall.sh"; bash "${SCRIPT_DIR}/scripts/uninstall.sh" ;;
         update)
-          local installed_ver
+          local installed_ver installed_commit latest_commit
           installed_ver="$(installed_release_label)"
+          installed_commit="$(installed_commit_label)"
+          latest_commit="${LATEST_REF_LABEL}"
+          if [[ "${installed_commit}" != "unknown" && "${latest_commit}" != "unknown" && "${installed_commit}" == "${latest_commit}" ]]; then
+            log_ok "Already on latest commit (${installed_commit}). Update skipped."
+            return 0
+          fi
           if [[ "${installed_ver}" != "unknown" && "${LATEST_RELEASE_LABEL}" != "unknown" && "${installed_ver}" == "${LATEST_RELEASE_LABEL}" ]]; then
             log_ok "Already on latest release (${installed_ver}). Update skipped."
             return 0
           fi
-          log_info "AfterClaw detected. Installed=${installed_ver}, Latest=${LATEST_RELEASE_LABEL}. Applying update..."
+          log_info "AfterClaw detected. InstalledRelease=${installed_ver}, LatestRelease=${LATEST_RELEASE_LABEL}, InstalledCommit=${installed_commit}, LatestCommit=${latest_commit}. Applying update..."
           log_info "Running: bash ${SCRIPT_DIR}/scripts/install_macos.sh"
           bash "${SCRIPT_DIR}/scripts/install_macos.sh"
           ;;
@@ -442,7 +458,7 @@ interactive_main() {
       echo "Exited AfterClaw installer."
       exit 0
     fi
-    if ! confirm_action "${action}"; then
+    if [[ "${action}" != "doctor" ]] && ! confirm_action "${action}"; then
       log_warn "Canceled ${action}."
       continue
     fi
