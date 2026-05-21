@@ -21,7 +21,7 @@ if [[ -r /dev/tty && -w /dev/tty ]]; then
   HAS_TTY=1
 fi
 
-if [[ "${IS_TTY}" -eq 1 ]]; then
+if [[ "${HAS_TTY}" -eq 1 ]]; then
   C_RESET=$'\033[0m'
   C_INFO=$'\033[1;34m'
   C_OK=$'\033[1;32m'
@@ -168,8 +168,25 @@ doctor_check_integrity() {
         log_line "  - WARN: missing plist ${plist_file}"
         return 1
       fi
-      app_root="$(awk 'prev && /<string>/{gsub(/.*<string>|<\\/string>.*/,""); print; exit} /<key>WorkingDirectory<\\/key>/{prev=1}' "${plist_file}")"
-      app_py="$(awk '/app\.py<\\/string>/{gsub(/.*<string>|<\\/string>.*/,""); print; exit}' "${plist_file}")"
+      app_root="$(awk '
+        /<key>WorkingDirectory<\/key>/ {
+          getline
+          line=$0
+          sub(/^.*<string>/, "", line)
+          sub(/<\/string>.*$/, "", line)
+          print line
+          exit
+        }
+      ' "${plist_file}")"
+      app_py="$(awk '
+        /app\.py<\/string>/ {
+          line=$0
+          sub(/^.*<string>/, "", line)
+          sub(/<\/string>.*$/, "", line)
+          print line
+          exit
+        }
+      ' "${plist_file}")"
       ;;
     *)
       log_line "  - WARN: unsupported OS for integrity check"
