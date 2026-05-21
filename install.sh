@@ -39,6 +39,13 @@ log_info() { echo "${C_INFO}[INFO]${C_RESET} $*"; }
 log_ok() { echo "${C_OK}[OK]${C_RESET} $*"; }
 log_warn() { echo "${C_WARN}[WARN]${C_RESET} $*"; }
 log_err() { echo "${C_ERR}[ERROR]${C_RESET} $*" >&2; }
+log_line() {
+  if [[ "${HAS_TTY}" -eq 1 ]]; then
+    echo "$*" > /dev/tty
+  else
+    echo "$*"
+  fi
+}
 
 term_cols() {
   local cols
@@ -110,6 +117,7 @@ is_afterclaw_installed() {
 
 run_doctor() {
   local issues=0
+  local installed_ver
   log_info "Running environment checks..."
   echo "OS                : $(uname -s)"
   echo "User              : $(id -un)"
@@ -118,6 +126,8 @@ run_doctor() {
   echo "Repo source path  : ${AFTERCLAW_SRC}"
   echo "Latest upstream   : ${AFTERCLAW_BRANCH}@${LATEST_REF_LABEL}"
   echo "Latest release    : ${LATEST_RELEASE_LABEL}"
+  installed_ver="$(installed_release_label)"
+  echo "Installed release : ${installed_ver}"
   echo "Git available     : $(command -v git >/dev/null 2>&1 && echo yes || echo no)"
   echo "Python3 available : $(command -v python3 >/dev/null 2>&1 && echo yes || echo no)"
   case "$(uname -s)" in
@@ -140,13 +150,13 @@ run_doctor() {
 doctor_check_integrity() {
   local os app_root app_py unit_file plist_file missing=0
   os="$(uname -s)"
-  echo "Integrity check   :"
+  log_line "Integrity check   :"
 
   case "${os}" in
     Linux)
       unit_file="/etc/systemd/system/${SERVICE_SYSTEMD}"
       if [[ ! -f "${unit_file}" ]]; then
-        echo "  - WARN: missing service file ${unit_file}"
+        log_line "  - WARN: missing service file ${unit_file}"
         return 1
       fi
       app_root="$(awk -F= '/^WorkingDirectory=/{print $2; exit}' "${unit_file}")"
@@ -159,40 +169,44 @@ doctor_check_integrity() {
         plist_file="${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist"
       fi
       if [[ ! -f "${plist_file}" ]]; then
-        echo "  - WARN: missing plist ${plist_file}"
+        log_line "  - WARN: missing plist ${plist_file}"
         return 1
       fi
       app_root="$(awk 'prev && /<string>/{gsub(/.*<string>|<\\/string>.*/,""); print; exit} /<key>WorkingDirectory<\\/key>/{prev=1}' "${plist_file}")"
       app_py="$(awk '/app\.py<\\/string>/{gsub(/.*<string>|<\\/string>.*/,""); print; exit}' "${plist_file}")"
       ;;
     *)
-      echo "  - WARN: unsupported OS for integrity check"
+      log_line "  - WARN: unsupported OS for integrity check"
       return 1
       ;;
   esac
 
   if [[ -z "${app_root}" ]]; then
-    echo "  - WARN: unable to detect app root from service config"
+    log_line "  - WARN: unable to detect app root from service config"
     missing=1
   elif [[ ! -d "${app_root}" ]]; then
-    echo "  - WARN: app root not found: ${app_root}"
+    log_line "  - WARN: app root not found: ${app_root}"
     missing=1
   else
     for path in "app.py" "fcc" "web" "shareclip"; do
       if [[ ! -e "${app_root}/${path}" ]]; then
-        echo "  - WARN: missing ${app_root}/${path}"
+        log_line "  - WARN: missing ${app_root}/${path}"
         missing=1
+      else
+        log_line "  - OK: ${app_root}/${path}"
       fi
     done
   fi
 
   if [[ -n "${app_py}" && ! -f "${app_py}" ]]; then
-    echo "  - WARN: configured app entry not found: ${app_py}"
+    log_line "  - WARN: configured app entry not found: ${app_py}"
     missing=1
+  elif [[ -n "${app_py}" ]]; then
+    log_line "  - OK: entrypoint ${app_py}"
   fi
 
   if [[ "${missing}" -eq 0 ]]; then
-    echo "  - OK: installed copy looks complete"
+    log_line "  - OK: installed copy looks complete"
     return 0
   fi
   return 1
