@@ -109,6 +109,7 @@ is_afterclaw_installed() {
 }
 
 run_doctor() {
+  local issues=0
   log_info "Running environment checks..."
   echo "OS                : $(uname -s)"
   echo "User              : $(id -un)"
@@ -128,7 +129,73 @@ run_doctor() {
       echo "Launchd plist     : $(is_afterclaw_installed && echo yes || echo no)"
       ;;
   esac
-  log_ok "Doctor finished."
+  doctor_check_integrity || issues=1
+  if [[ "${issues}" -eq 0 ]]; then
+    log_ok "Doctor finished. No integrity issues found."
+  else
+    log_warn "Doctor finished with integrity warnings."
+  fi
+}
+
+doctor_check_integrity() {
+  local os app_root app_py unit_file plist_file missing=0
+  os="$(uname -s)"
+  echo "Integrity check   :"
+
+  case "${os}" in
+    Linux)
+      unit_file="/etc/systemd/system/${SERVICE_SYSTEMD}"
+      if [[ ! -f "${unit_file}" ]]; then
+        echo "  - WARN: missing service file ${unit_file}"
+        return 1
+      fi
+      app_root="$(awk -F= '/^WorkingDirectory=/{print $2; exit}' "${unit_file}")"
+      app_py="$(awk -F= '/^ExecStart=/{print $2; exit}' "${unit_file}" | awk '{print $NF}')"
+      ;;
+    Darwin)
+      if [[ "${EUID}" -eq 0 ]]; then
+        plist_file="/Library/LaunchDaemons/${SERVICE_LABEL}.plist"
+      else
+        plist_file="${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist"
+      fi
+      if [[ ! -f "${plist_file}" ]]; then
+        echo "  - WARN: missing plist ${plist_file}"
+        return 1
+      fi
+      app_root="$(awk 'prev && /<string>/{gsub(/.*<string>|<\\/string>.*/,""); print; exit} /<key>WorkingDirectory<\\/key>/{prev=1}' "${plist_file}")"
+      app_py="$(awk '/app\.py<\\/string>/{gsub(/.*<string>|<\\/string>.*/,""); print; exit}' "${plist_file}")"
+      ;;
+    *)
+      echo "  - WARN: unsupported OS for integrity check"
+      return 1
+      ;;
+  esac
+
+  if [[ -z "${app_root}" ]]; then
+    echo "  - WARN: unable to detect app root from service config"
+    missing=1
+  elif [[ ! -d "${app_root}" ]]; then
+    echo "  - WARN: app root not found: ${app_root}"
+    missing=1
+  else
+    for path in "app.py" "fcc" "web" "shareclip"; do
+      if [[ ! -e "${app_root}/${path}" ]]; then
+        echo "  - WARN: missing ${app_root}/${path}"
+        missing=1
+      fi
+    done
+  fi
+
+  if [[ -n "${app_py}" && ! -f "${app_py}" ]]; then
+    echo "  - WARN: configured app entry not found: ${app_py}"
+    missing=1
+  fi
+
+  if [[ "${missing}" -eq 0 ]]; then
+    echo "  - OK: installed copy looks complete"
+    return 0
+  fi
+  return 1
 }
 
 refresh_latest_ref_label() {
