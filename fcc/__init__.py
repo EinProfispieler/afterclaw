@@ -2,5 +2,5 @@
 
 __all__ = ["__version__", "__branch__"]
 
-__version__ = "0.9.11"
+__version__ = "1.0.0"
 __branch__ = "main"

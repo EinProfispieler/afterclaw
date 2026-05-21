@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-05-22
+
+### Changed
+
+- Bumped stable release version to `1.0.0`.
+
 ## [0.9.16] - 2026-05-21
 
 ### Added
