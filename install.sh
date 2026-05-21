@@ -115,10 +115,16 @@ bootstrap_if_needed() {
 
   if [[ -d "${AFTERCLAW_SRC}/.git" ]]; then
     log_info "Updating existing AfterClaw checkout in ${AFTERCLAW_SRC} ..."
-    git -C "${AFTERCLAW_SRC}" pull --ff-only
+    if ! git -C "${AFTERCLAW_SRC}" pull --ff-only --quiet; then
+      log_warn "Quiet update failed, retrying with full output..."
+      git -C "${AFTERCLAW_SRC}" pull --ff-only
+    fi
   else
     log_info "Fetching AfterClaw into ${AFTERCLAW_SRC} ..."
-    git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"
+    if ! git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" --quiet "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"; then
+      log_warn "Quiet clone failed, retrying with full output..."
+      git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"
+    fi
   fi
 
   if [[ ! -x "${AFTERCLAW_SRC}/install.sh" ]]; then
@@ -256,6 +262,33 @@ interactive_main() {
   done
 }
 
+if [[ "$#" -eq 0 && "${HAS_TTY}" -eq 1 ]]; then
+  if [[ -d "${SCRIPT_DIR}/scripts" ]]; then
+    interactive_main
+  else
+    show_banner > /dev/tty
+    cat <<'EOF' > /dev/tty
++--------------------------------------+
+|  1) Install                          |
+|  2) Update                           |
+|  3) Uninstall                        |
+|  4) Doctor                           |
+|  q) Quit                             |
++--------------------------------------+
+EOF
+    printf "Select an option [1/2/3/4/q]: " > /dev/tty
+    read -r PREBOOT_CHOICE < /dev/tty
+    case "${PREBOOT_CHOICE}" in
+      1) set -- ;;
+      2) set -- --update ;;
+      3) set -- --uninstall ;;
+      4) set -- --doctor ;;
+      q|Q) echo "Canceled." > /dev/tty; exit 0 ;;
+      *) log_warn "Invalid option: ${PREBOOT_CHOICE}"; exit 1 ;;
+    esac
+  fi
+fi
+
 ACTION="install"
 for arg in "$@"; do
   case "${arg}" in
@@ -270,11 +303,6 @@ for arg in "$@"; do
       ;;
   esac
 done
-
-if [[ "$#" -eq 0 && "${HAS_TTY}" -eq 1 ]]; then
-  bootstrap_if_needed
-  interactive_main
-fi
 
 bootstrap_if_needed "$@"
 run_platform_action "${ACTION}"
