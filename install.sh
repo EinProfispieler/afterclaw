@@ -74,7 +74,11 @@ is_afterclaw_installed() {
       return 1
       ;;
     Darwin)
-      [[ -f "/Library/LaunchDaemons/${SERVICE_LABEL}.plist" || -f "${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist" ]]
+      if [[ "${EUID}" -eq 0 ]]; then
+        [[ -f "/Library/LaunchDaemons/${SERVICE_LABEL}.plist" ]]
+        return $?
+      fi
+      [[ -f "${HOME}/Library/LaunchAgents/${SERVICE_LABEL}.plist" ]]
       return $?
       ;;
     *)
