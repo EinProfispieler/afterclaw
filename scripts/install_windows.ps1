@@ -11,7 +11,8 @@ param(
   [string]$QbtApiPassword = $(if ($env:QBT_API_PASSWORD) { $env:QBT_API_PASSWORD } else { "" }),
   [string]$DdnsService = $(if ($env:DDNS_SERVICE) { $env:DDNS_SERVICE } else { "ddns-go.service" }),
   [string]$ShareclipStorageRoot = $(if ($env:SHARECLIP_STORAGE_ROOT) { $env:SHARECLIP_STORAGE_ROOT } else { Join-Path (Join-Path $env:ProgramData "AfterClaw") "shareclip\\storage" }),
-  [string]$TaskName = "AfterClaw"
+  [string]$TaskName = "AfterClaw",
+  [switch]$Uninstall
 )
 
 $ErrorActionPreference = "Stop"
@@ -69,6 +70,19 @@ $venvDir = Join-Path $AppRoot ".venv"
 $venvPython = Join-Path $venvDir "Scripts\\python.exe"
 $runnerScript = Join-Path $AppRoot "run_afterclaw.ps1"
 $mainScript = Join-Path $AppRoot "app.py"
+
+if ($Uninstall) {
+  Write-Step "Uninstall mode: removing startup task..."
+  if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    Write-Step "Scheduled task '$TaskName' removed."
+  } else {
+    Write-Step "Scheduled task '$TaskName' not found."
+  }
+  Write-Host "Uninstall completed (application/data directories were not deleted)."
+  exit 0
+}
+
 
 Write-Step "Preparing Python 3..."
 if (-not (Get-HostPythonCommand)) {

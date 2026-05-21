@@ -12,6 +12,11 @@ SCRIPT_DIR="$(cd "$(dirname "${SCRIPT_SOURCE}")" && pwd)"
 AFTERCLAW_REPO="${AFTERCLAW_REPO:-https://github.com/EinProfispieler/afterclaw.git}"
 AFTERCLAW_BRANCH="${AFTERCLAW_BRANCH:-main}"
 AFTERCLAW_SRC="${AFTERCLAW_SRC:-/opt/afterclaw}"
+if [[ "${1:-}" == "--uninstall" || "${1:-}" == "-u" ]]; then
+  if [[ -x "${SCRIPT_DIR}/scripts/uninstall.sh" ]]; then
+    exec bash "${SCRIPT_DIR}/scripts/uninstall.sh"
+  fi
+fi
 
 if [[ ! -d "${SCRIPT_DIR}/scripts" ]]; then
   if ! command -v git >/dev/null 2>&1; then
@@ -24,6 +29,13 @@ if [[ ! -d "${SCRIPT_DIR}/scripts" ]]; then
   else
     echo "Fetching AfterClaw into ${AFTERCLAW_SRC} ..."
     git clone --depth 1 --branch "${AFTERCLAW_BRANCH}" "${AFTERCLAW_REPO}" "${AFTERCLAW_SRC}"
+  fi
+  if [[ "${1:-}" == "--uninstall" || "${1:-}" == "-u" ]]; then
+    if [[ ! -x "${AFTERCLAW_SRC}/scripts/uninstall.sh" ]]; then
+      echo "Bootstrap failed: uninstall script not found at ${AFTERCLAW_SRC}/scripts/uninstall.sh" >&2
+      exit 1
+    fi
+    exec bash "${AFTERCLAW_SRC}/scripts/uninstall.sh"
   fi
   exec bash "${AFTERCLAW_SRC}/install.sh" "$@"
 fi

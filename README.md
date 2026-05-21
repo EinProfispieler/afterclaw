@@ -66,7 +66,19 @@ python3 app.py
 Recommended:
 
 ```bash
-sudo bash install.sh
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
+```
+
+Uninstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash -s -- --uninstall
+```
+
+Update (pull latest from GitHub and re-run installer):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
 ```
 
 Platform scripts:
@@ -80,6 +92,12 @@ Windows (PowerShell as Administrator):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Windows uninstall (PowerShell as Administrator):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
 ```
 
 ## Configuration
@@ -151,3 +169,35 @@ AfterClaw 的目标就是把这些运维动作集中到一个界面。
 - Service Controls（qBittorrent / DDNS / HTTP）
 - Web Terminal（远程维护 + 密钥管理）
 - ShareClip（轻量分享）
+
+### 安装 / 卸载 / 更新
+
+推荐安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
+```
+
+卸载（仅移除服务，不删除程序与数据目录）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash -s -- --uninstall
+```
+
+更新（从 GitHub 拉取最新版并执行安装）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
+```
+
+Windows（管理员 PowerShell）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Windows 卸载（管理员 PowerShell）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Uninstall
+```
