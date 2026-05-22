@@ -449,45 +449,63 @@ button.secondary:hover {
     margin-left: 0;
   }
 }
-.bt-speed-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
+.bt-speed-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
 }
-.bt-down {
-  color: #60a5fa;
-  font-weight: 700;
-}
-.bt-up {
-  color: #34d399;
-  font-weight: 700;
-}
-.bt-sep {
-  color: var(--text-muted);
-  margin: 0 6px;
-}
-.bt-stat-row {
-  margin-top: 6px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.bt-pill {
+.bt-speed-item {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
   border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface-soft) 78%, var(--panel-tint) 22%);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-soft) 80%, var(--panel-tint) 20%);
+  white-space: nowrap;
 }
-.bt-pill .k {
+.bt-speed-item .k {
+  font-weight: 700;
+  min-width: 12px;
+}
+.bt-speed-item .v {
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.bt-speed-item.bt-down { color: #60a5fa; }
+.bt-speed-item.bt-up { color: #34d399; }
+.bt-stat-lines {
+  display: grid;
+  gap: 6px;
+}
+.bt-stat-line {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.bt-stat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-soft) 84%, var(--panel-tint) 16%);
+  white-space: nowrap;
+}
+.bt-stat-item .k {
   color: var(--text-muted);
 }
-.bt-pill .v {
+.bt-stat-item .v {
   color: var(--text);
   font-weight: 700;
+}
+@media (max-width: 760px) {
+  .bt-stat-line {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .tabs {
   display: flex;
@@ -633,13 +651,43 @@ button.secondary:hover {
 .sys-status-line + .sys-status-line { margin-top: 6px; }
 .speed-card-head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px 16px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px 16px;
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
-.speed-card-head .card-title { margin-bottom: 0; }
+.speed-main-row {
+  display: block;
+  margin: 4px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.nd-tabs-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-card);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(15,23,42,0.08);
+}
+.nd-filter-gear {
+  margin-left: auto;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 16px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
 .speed-card-conn {
   display: inline-flex;
   align-items: baseline;
@@ -654,135 +702,142 @@ button.secondary:hover {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
-.speed-totals {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 12px 32px;
-  flex-wrap: wrap;
-  padding: 16px 8px 18px;
-  margin: 6px 0 14px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  user-select: none;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-.speed-totals .speed-side {
+.speed-unified {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  white-space: nowrap;
+  align-items: center;
 }
-.speed-totals:focus-visible {
+.speed-unified-chart {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(15, 23, 42, 0.92) 0 57%, transparent 58%),
+    rgba(148, 163, 184, 0.07);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--border) 72%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--border) 18%, transparent);
+}
+.speed-unified-chart::before {
+  content: "";
+  position: absolute;
+  inset: 15px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--surface-elevated) 90%, #050b1a 10%);
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  z-index: 2;
+}
+.speed-meter-svg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+}
+.speed-meter-svg path {
+  fill: none;
+  stroke-linecap: butt;
+}
+.speed-meter-track {
+  stroke: rgba(148, 163, 184, 0.20);
+}
+.speed-meter-track.down,
+.speed-meter-value.down {
+  stroke-width: 9;
+}
+.speed-meter-track.up,
+.speed-meter-value.up {
+  stroke-width: 9;
+}
+.speed-meter-value.down {
+  stroke: #38bdf8;
+}
+.speed-meter-value.up {
+  stroke: #22c55e;
+}
+.speed-unified-center {
+  position: relative;
+  z-index: 3;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.05;
+}
+.speed-unified-line {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  min-height: 1.1em;
+}
+.speed-unified-line.up { color: #86efac; }
+.speed-unified-line.down { color: #7dd3fc; }
+.speed-unified-unit {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.speed-main-row:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
   border-radius: 8px;
 }
-.speed-totals .speed-arrow {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin-right: 2px;
-  line-height: 1;
-}
-.speed-totals .speed-num {
-  font-size: 30px;
-  font-weight: 700;
-  color: var(--hero-tone);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-  line-height: 1;
-}
-.speed-totals .speed-unit {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-left: 4px;
-  font-weight: 500;
-}
-.speed-totals .speed-sep {
-  width: 1px;
-  align-self: stretch;
-  background: var(--border);
-}
 .speed-sources {
-  font-size: 13px;
-  line-height: 1.4;
-  color: var(--text-muted);
+  width: 100%;
 }
-.speed-sources-empty {
-  text-align: center;
-  padding: 8px 0;
-  color: var(--text-muted);
-}
-.speed-sources-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
-}
-.speed-source-card {
+.speed-dial-grid {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-soft) 55%, transparent);
-  border: 1px solid var(--border);
-  transition: border-color 120ms ease, background-color 120ms ease;
-  min-width: 0;
-}
-.speed-source-card.is-zero { opacity: 0.5; }
-.speed-source-card.is-active {
-  border-color: color-mix(in srgb, var(--hero-tone) 45%, var(--border));
-  background: color-mix(in srgb, var(--hero-tone-soft) 60%, var(--surface-soft) 40%);
-}
-.speed-source-card-name {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  letter-spacing: -0.005em;
-}
-.speed-source-card-stat {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
   flex-wrap: wrap;
-  font-variant-numeric: tabular-nums;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
 }
-.speed-source-card-rate {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
+.speed-dial-box {
+  margin: 0;
+  min-width: 160px;
+  width: 160px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--hero-tone) 32%, var(--border));
+  background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
+  padding: 6px 8px 8px;
+  display: flex;
+  justify-content: center;
 }
-.speed-source-card.is-active .speed-source-card-rate { color: var(--hero-tone); }
-.speed-source-card-arrow {
+.speed-dial-box > legend {
+  padding: 0 8px;
   font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
-  font-weight: 500;
+  text-transform: uppercase;
 }
-.speed-source-card-conn {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.01em;
-  margin-left: auto;
+.speed-dial-box .speed-unified {
+  margin-top: 2px;
 }
 @media (max-width: 520px) {
-  .speed-totals { gap: 10px 18px; padding: 12px 4px 14px; }
-  .speed-totals .speed-num { font-size: 22px; }
-  .speed-totals .speed-sep { display: none; }
-  .speed-sources-cards {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 6px;
+  .speed-main-row {
+    padding-bottom: 8px;
   }
-  .speed-source-card { padding: 8px 10px; }
+  .speed-dial-grid {
+    gap: 8px;
+  }
+  .speed-dial-box {
+    min-width: 144px;
+    width: 144px;
+  }
+  .speed-unified-chart { width: 94px; height: 94px; }
+  .speed-unified-chart::before { inset: 14px; }
+  .speed-unified-line { font-size: 12px; }
+  .speed-unified-unit { font-size: 9px; }
+  .nd-tabs-inline { max-width: 100%; }
+}
+.crown-btn {
+  font-size: 17px;
+  line-height: 1;
 }
 .dir-list {
   margin-top: 10px;
@@ -869,9 +924,47 @@ button.secondary:hover {
   flex-direction: column;
   min-height: 188px;
 }
-.svc-card#qbtSvcCard #qbtClientTabBarWrap {
-  margin: 2px 0 6px !important;
-  min-height: 0;
+.qbt-svc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.qbt-svc-head .svc-name {
+  margin-bottom: 0;
+}
+#qbtClientTabBarWrap {
+  display: inline-flex;
+}
+.qbt-icon-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-soft) 84%, var(--panel-tint) 16%);
+}
+.qbt-icon-tab {
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.qbt-icon-tab.active {
+  color: #fff;
+  background: var(--hero-tone);
+  border-color: color-mix(in srgb, var(--hero-tone) 72%, #ffffff 28%);
 }
 .svc-name { font-weight: 750; margin-bottom: 8px; font-size: 15px; color: var(--text); }
 .svc-meta {
@@ -883,6 +976,10 @@ button.secondary:hover {
   text-overflow: unset;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+.svc-card#qbtSvcCard .svc-meta {
+  overflow-wrap: normal;
+  word-break: normal;
 }
 .svc-card .row {
   margin-top: auto;
@@ -1356,8 +1453,7 @@ select:focus {
 
 /* Dark theme readability hotfix:
    avoid blue-on-deep-blue text in high-density status areas. */
-:root[data-theme="dark"] .speed-totals .speed-num,
-:root[data-theme="dark"] .speed-source-card.is-active .speed-source-card-rate,
+:root[data-theme="dark"] .speed-unified-line,
 :root[data-theme="dark"] .xfer-source,
 :root[data-theme="dark"] .xfer-speed,
 :root[data-theme="dark"] .xfer-sort-btn.active,

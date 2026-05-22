@@ -1870,7 +1870,7 @@ def build_frontend_html() -> str:
     </div>
     <div class="tabs-actions">
       <a id="terminalQuickLink" href="/terminal" class="gear-btn terminal-btn" title="Terminal" aria-label="Terminal"><svg class="ui-icon term-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4.5" y="5.5" width="15" height="13" rx="2.4"></rect><path d="M8 10.2 L10.8 12 L8 13.8"></path><line x1="12.8" y1="13.9" x2="16" y2="13.9"></line></svg></a>
-      <button type="button" id="memberQuickBtn" class="gear-btn" title="Member" aria-label="Member"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18.5h16v-2.2l-3.4-1.6-2.6 1.8h-4l-2.6-1.8L4 16.3z"></path><path d="M6.2 7.2l2.8.6L12 5.2l3 2.6 2.8-.6-.8 4.1L12 14.4 7 11.3z"></path></svg></button>
+      <button type="button" id="memberQuickBtn" class="gear-btn crown-btn" title="Member" aria-label="Member">👑</button>
       <a href="/config" class="gear-btn" title="Config" aria-label="Config"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .74 1.7 1.7 0 0 0-.2 1v.2a2 2 0 1 1-4 0v-.2a1.7 1.7 0 0 0-.2-1 1.7 1.7 0 0 0-1-.74 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.74-1 1.7 1.7 0 0 0-1-.2h-.2a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1-.2 1.7 1.7 0 0 0 .74-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.74 1.7 1.7 0 0 0 .2-1v-.2a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 .2 1 1.7 1.7 0 0 0 1 .74 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 .74 1 1.7 1.7 0 0 0 1 .2h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1 .2 1.7 1.7 0 0 0-.74 1z"></path></svg></a>
       <button type="button" id="themeToggleBtn" class="gear-btn" title="Toggle theme"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"></circle><path d="M12 2.5v2.2M12 19.3v2.2M4.7 4.7l1.6 1.6M17.7 17.7l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.7 19.3l1.6-1.6M17.7 6.3l1.6-1.6"></path></svg></button>
       <select id="langSelect" class="lang-select" title="Language">
@@ -2081,8 +2081,10 @@ sudo systemctl restart storage-http-link-web
     <div id="sysStatus" class="sys-strip muted">系统状态加载中...</div>
     <div class="svc-grid">
       <div class="svc-card" id="qbtSvcCard">
-        <div class="svc-name">BitTorrent Service</div>
-        <div id="qbtClientTabBarWrap" style="display:flex;justify-content:flex-start;margin:6px 0 8px;"></div>
+        <div class="qbt-svc-head">
+          <div class="svc-name">BitTorrent Service</div>
+          <div id="qbtClientTabBarWrap"></div>
+        </div>
         <div id="qbtStatusText" class="svc-meta">加载中...</div>
         <div class="row">
           <button id="qbtStartBtn" class="secondary">Start</button>
@@ -2121,19 +2123,18 @@ sudo systemctl restart storage-http-link-web
 
   <div class="card" id="httpSpeedCard">
     <div class="speed-card-head">
-      <span id="httpSpeedCardTitle" class="card-title">Aggregate HTTP Throughput</span>
       <span class="speed-card-conn">
         <span id="connText" class="speed-card-conn-num">-</span>
         <span class="speed-card-conn-label">active connections</span>
       </span>
     </div>
-    <div id="speedText" class="speed-totals" role="button" tabindex="0" aria-label="Click to switch units">-</div>
-    <div id="sourceSpeedText" class="speed-sources">Loading source speeds...</div>
+    <div id="speedText" class="speed-main-row" role="group" aria-label="Bandwidth meter (1 Gbps scale)">
+      <div id="sourceSpeedText" class="speed-sources">Loading source speeds...</div>
+    </div>
   </div>
 
   <div class="card" id="netdiskCard">
     <div id="ndTabBarWrap" style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:12px;"></div>
-
     <span id="netdiskTransferCardTitle" class="card-title">Aggregate HTTP Session Activity</span>
     <div class="xfer-head">
       <div id="xferSummary" class="xfer-summary">Active Sessions 0</div>
@@ -2294,7 +2295,11 @@ sudo systemctl restart storage-http-link-web
     let latestTotalUpMiBps = 0;
     let latestTotalDownMbps = 0;
     let latestTotalUpMbps = 0;
-    let speedDisplayUnit = "MiB/s";
+    let displayTotalDownMiBps = 0;
+    let displayTotalUpMiBps = 0;
+    let displayTotalDownMbps = 0;
+    let displayTotalUpMbps = 0;
+    let speedDisplayUnit = "Mbps";
     let speedValueReady = false;
     let latestTransferOverview = { count: 0, recent_count: 0, overall_progress_pct: 0 };
     let heroTheme = { hero_preset: "default", hero_custom_bg_file: "", hero_custom_bg_url: "" };
@@ -2816,46 +2821,87 @@ sudo systemctl restart storage-http-link-web
       }
     }
 
-    function makeSpeedSpan(cls, text, ariaHidden) {
-      const el = document.createElement("span");
-      el.className = cls;
-      if (text != null) el.textContent = text;
-      if (ariaHidden) el.setAttribute("aria-hidden", "true");
-      return el;
+    function makeUnifiedSpeedDial(down, up, unit) {
+      const wrap = document.createElement("span");
+      wrap.className = "speed-unified";
+      const chart = document.createElement("span");
+      chart.className = "speed-unified-chart";
+      const downLevel = Math.max(0, Math.min(100, Number(down || 0) / 10));
+      const upLevel = Math.max(0, Math.min(100, Number(up || 0) / 10));
+      const svgNs = "http://www.w3.org/2000/svg";
+      const meter = document.createElementNS(svgNs, "svg");
+      meter.classList.add("speed-meter-svg");
+      meter.setAttribute("viewBox", "0 0 100 100");
+      meter.setAttribute("aria-hidden", "true");
+      const appendArc = (cls, d, level) => {
+        const track = document.createElementNS(svgNs, "path");
+        track.setAttribute("class", "speed-meter-track " + cls);
+        track.setAttribute("d", d);
+        track.setAttribute("pathLength", "100");
+        meter.appendChild(track);
+        const value = document.createElementNS(svgNs, "path");
+        value.setAttribute("class", "speed-meter-value " + cls);
+        value.setAttribute("d", d);
+        value.setAttribute("pathLength", "100");
+        value.setAttribute("stroke-dasharray", level.toFixed(2) + " 100");
+        meter.appendChild(value);
+      };
+      appendArc("up", "M 50 12 A 38 38 0 0 0 50 88", upLevel);
+      appendArc("down", "M 50 12 A 38 38 0 0 1 50 88", downLevel);
+      chart.appendChild(meter);
+      const center = document.createElement("span");
+      center.className = "speed-unified-center";
+      const upLine = document.createElement("span");
+      upLine.className = "speed-unified-line up";
+      upLine.textContent = "↑ " + (Math.abs(up) < 0.01 ? 0 : up).toFixed(2);
+      const downLine = document.createElement("span");
+      downLine.className = "speed-unified-line down";
+      downLine.textContent = "↓ " + (Math.abs(down) < 0.01 ? 0 : down).toFixed(2);
+      const unitLine = document.createElement("span");
+      unitLine.className = "speed-unified-unit";
+      unitLine.textContent = unit;
+      center.appendChild(upLine);
+      center.appendChild(downLine);
+      center.appendChild(unitLine);
+      chart.appendChild(center);
+      wrap.appendChild(chart);
+      return wrap;
     }
-    function makeSpeedSide(arrow, num, unit) {
-      const side = document.createElement("span");
-      side.className = "speed-side";
-      side.appendChild(makeSpeedSpan("speed-arrow", arrow, true));
-      side.appendChild(makeSpeedSpan("speed-num", num));
-      side.appendChild(makeSpeedSpan("speed-unit", unit));
-      return side;
+    function makeSpeedDialBox(label, down, up, unit) {
+      const box = document.createElement("fieldset");
+      box.className = "speed-dial-box";
+      const legend = document.createElement("legend");
+      legend.textContent = label;
+      box.appendChild(legend);
+      box.appendChild(makeUnifiedSpeedDial(down, up, unit));
+      return box;
+    }
+    function syncDisplayTotalsFromRaw() {
+      displayTotalDownMiBps = latestTotalDownMiBps;
+      displayTotalUpMiBps = latestTotalUpMiBps;
+      displayTotalDownMbps = latestTotalDownMbps;
+      displayTotalUpMbps = latestTotalUpMbps;
     }
     function renderSpeedValue() {
       if (!speedText) return;
-      const isMbps = speedDisplayUnit === "Mbps";
-      const unit = isMbps ? "Mbps" : "MiB/s";
-      const down = isMbps ? latestTotalDownMbps : latestTotalDownMiBps;
-      const up = isMbps ? latestTotalUpMbps : latestTotalUpMiBps;
-      while (speedText.firstChild) speedText.removeChild(speedText.firstChild);
-      speedText.appendChild(makeSpeedSide("↓", down.toFixed(2), unit));
-      speedText.appendChild(makeSpeedSpan("speed-sep", null, true));
-      speedText.appendChild(makeSpeedSide("↑", up.toFixed(2), unit));
-      speedText.title = `Click to switch units (current ${speedDisplayUnit}）`;
-      speedText.style.cursor = "pointer";
+      const unit = "Mbps";
+      speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
+      speedText.style.cursor = "default";
+      renderSourceSpeeds(latestSourceStats, unit);
     }
 
     async function loadSpeed() {
       if (!httpModuleOn) {
-        speedText.textContent = "-";
-        speedText.title = "Click to switch units";
+        if (speedText) speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
         connText.textContent = "-";
         speedValueReady = false;
+        latestSourceStats = [];
         latestTotalDownMiBps = 0;
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = trRaw("Per-source throughput unavailable: module disabled");
+        syncDisplayTotalsFromRaw();
+        renderSpeedValue();
         return;
       }
       if (isRealtimePaused()) return;
@@ -2867,25 +2913,26 @@ sudo systemctl restart storage-http-link-web
         const rxMbps = Number(data.rx_mbps || 0);
         const txMiBps = Number(data.tx_mibps || 0);
         const txMbps = Number(data.tx_mbps || 0);
-        // 按“用户本机视角”显示：下载=本机接收(rx)，上传=本机发送(tx)。
-        latestTotalDownMiBps = rxMiBps;
-        latestTotalUpMiBps = txMiBps;
+        // 显示按“下载=服务端接收(rx)、上传=服务端发送(tx)”映射。
+        latestTotalDownMiBps = rxMbps;
+        latestTotalUpMiBps = txMbps;
         latestTotalDownMbps = rxMbps;
         latestTotalUpMbps = txMbps;
+        syncDisplayTotalsFromRaw();
         speedValueReady = true;
         renderSpeedValue();
-        renderSourceSpeeds(latestSourceStats);
         connText.textContent = String(data.active_conn_1288);
       } catch (err) {
-        speedText.textContent = "Failed";
-        speedText.title = "Click to switch units";
+        if (speedText) speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
         connText.textContent = "-";
         speedValueReady = false;
+        latestSourceStats = [];
         latestTotalDownMiBps = 0;
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
-        if (sourceSpeedText) sourceSpeedText.textContent = trRaw("Per-source throughput unavailable");
+        syncDisplayTotalsFromRaw();
+        renderSpeedValue();
       }
     }
 
@@ -2922,43 +2969,7 @@ sudo systemctl restart storage-http-link-web
       if (!map) return true;
       return map[key] !== false;
     }
-    function makeSourceCard(r) {
-      const isActive = r.down > 0 || r.up > 0 || r.count > 0;
-      const card = document.createElement("div");
-      card.className = "speed-source-card " + (isActive ? "is-active" : "is-zero");
-      const name = document.createElement("div");
-      name.className = "speed-source-card-name";
-      name.textContent = r.name;
-      card.appendChild(name);
-      const stat = document.createElement("div");
-      stat.className = "speed-source-card-stat";
-      const mkRate = (arrow, num) => {
-        const rate = document.createElement("span");
-        rate.className = "speed-source-card-rate";
-        const a = document.createElement("span");
-        a.className = "speed-source-card-arrow";
-        a.setAttribute("aria-hidden", "true");
-        a.textContent = arrow;
-        const v = document.createElement("span");
-        v.className = "speed-source-card-num";
-        v.textContent = num;
-        rate.appendChild(a);
-        rate.appendChild(v);
-        return rate;
-      };
-      stat.appendChild(mkRate("↓", r.down.toFixed(2)));
-      stat.appendChild(mkRate("↑", r.up.toFixed(2)));
-      if (r.count > 0) {
-        const conn = document.createElement("span");
-        conn.className = "speed-source-card-conn";
-        conn.textContent = "· " + r.count;
-        conn.title = r.count + " connection" + (r.count === 1 ? "" : "s");
-        stat.appendChild(conn);
-      }
-      card.appendChild(stat);
-      return card;
-    }
-    function renderSourceSpeeds(sourceStats) {
+    function renderSourceSpeeds(sourceStats, unitOverride) {
       if (!sourceSpeedText) return;
       const rows = Array.isArray(sourceStats) ? sourceStats : [];
       const buckets = new Map([
@@ -2974,36 +2985,64 @@ sudo systemctl restart storage-http-link-web
         const source = normalizeSourceName(item.source);
         const bucket = buckets.get(source);
         if (!bucket) continue;
-        bucket.down += Number(item.download_mibps || 0);
-        bucket.up += Number(item.upload_mibps || 0);
+        bucket.down += Number(item.download_mibps || 0) * 8;
+        bucket.up += Number(item.upload_mibps || 0) * 8;
         bucket.count += Number(item.count || 0);
       }
       let knownDown = 0;
       let knownUp = 0;
-      const displayRows = [];
       for (const [name, v] of buckets.entries()) {
         if (!isSourceEnabledByConfig(name)) continue;
         knownDown += v.down;
         knownUp += v.up;
-        displayRows.push({ name, down: v.down, up: v.up, count: Math.floor(v.count) });
       }
-      const otherDown = Math.max(0, latestTotalDownMiBps - knownDown);
-      const otherUp = Math.max(0, latestTotalUpMiBps - knownUp);
-      if (otherDown > 0 || otherUp > 0) {
-        displayRows.push({ name: "Other sources", down: otherDown, up: otherUp, count: 0 });
-      }
-
+      const effectiveDownMiBps = Math.max(latestTotalDownMiBps, knownDown);
+      const effectiveUpMiBps = Math.max(latestTotalUpMiBps, knownUp);
+      displayTotalDownMiBps = effectiveDownMiBps;
+      displayTotalUpMiBps = effectiveUpMiBps;
+      displayTotalDownMbps = effectiveDownMiBps * 8;
+      displayTotalUpMbps = effectiveUpMiBps * 8;
+      const unit = unitOverride || "Mbps";
+      const conv = (v) => v;
       while (sourceSpeedText.firstChild) sourceSpeedText.removeChild(sourceSpeedText.firstChild);
-      if (displayRows.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "speed-sources-empty";
-        empty.textContent = "No netdisks enabled in config";
-        sourceSpeedText.appendChild(empty);
-        return;
-      }
+
+      const baidu = buckets.get("Baidu Netdisk") || { down: 0, up: 0 };
+      const guangya = buckets.get("Guangya Drive") || { down: 0, up: 0 };
+      const aliyun = buckets.get("Aliyun Drive") || { down: 0, up: 0 };
       const wrap = document.createElement("div");
-      wrap.className = "speed-sources-cards";
-      for (const r of displayRows) wrap.appendChild(makeSourceCard(r));
+      wrap.className = "speed-dial-grid";
+      wrap.appendChild(
+        makeSpeedDialBox(
+          "Overall",
+          conv(displayTotalDownMiBps),
+          conv(displayTotalUpMiBps),
+          unit
+        )
+      );
+      wrap.appendChild(
+        makeSpeedDialBox(
+          "BAIDU",
+          conv(baidu.down || 0),
+          conv(baidu.up || 0),
+          unit
+        )
+      );
+      wrap.appendChild(
+        makeSpeedDialBox(
+          "GuangYA",
+          conv(guangya.down || 0),
+          conv(guangya.up || 0),
+          unit
+        )
+      );
+      wrap.appendChild(
+        makeSpeedDialBox(
+          "Aliyun",
+          conv(aliyun.down || 0),
+          conv(aliyun.up || 0),
+          unit
+        )
+      );
       sourceSpeedText.appendChild(wrap);
       sourceSpeedText.removeAttribute("title");
     }
@@ -3166,7 +3205,8 @@ sudo systemctl restart storage-http-link-web
         renderTransfers(data);
       } catch (err) {
         xferSummary.textContent = "Active -";
-        if (sourceSpeedText) sourceSpeedText.textContent = trRaw("Per-source throughput unavailable");
+        latestSourceStats = [];
+        renderSourceSpeeds([]);
       }
     }
 
@@ -3205,16 +3245,28 @@ sudo systemctl restart storage-http-link-web
       const chunks = text.split("|").map((x) => x.trim()).filter(Boolean);
       if (!chunks.length) return escapeHtml(text);
       const speedRaw = chunks.shift() || "";
-      const speedHtml = speedRaw
-        .replace(/↓\s*([^·|]+)/, '<span class="bt-down">↓ $1</span>')
-        .replace(/↑\s*([^·|]+)/, '<span class="bt-up">↑ $1</span>')
-        .replace(/·/g, '<span class="bt-sep">·</span>');
-      const statsHtml = chunks.map((s) => {
+      const downMatch = speedRaw.match(/↓\s*([^·|]+)/);
+      const upMatch = speedRaw.match(/↑\s*([^·|]+)/);
+      const downText = downMatch ? escapeHtml(String(downMatch[1] || "").trim()) : "0B/s";
+      const upText = upMatch ? escapeHtml(String(upMatch[1] || "").trim()) : "0B/s";
+      const statPairs = [];
+      chunks.forEach((s) => {
         const m = s.match(/^([A-Za-z]+)\s+(.+)$/);
-        if (!m) return `<span class="bt-pill">${escapeHtml(s)}</span>`;
-        return `<span class="bt-pill"><span class="k">${escapeHtml(m[1])}</span> <span class="v">${escapeHtml(m[2])}</span></span>`;
-      }).join("");
-      return `<div class="bt-speed-row">${speedHtml}</div><div class="bt-stat-row">${statsHtml}</div>`;
+        if (!m) return;
+        const k = String(m[1] || "").trim();
+        const v = String(m[2] || "").trim();
+        statPairs.push([k, v]);
+      });
+      const row1Order = ["Seeding", "Downloading", "Active", "Total"];
+      const row2Order = ["Connections", "DHT"];
+      const statsMap = {};
+      statPairs.forEach(([k, v]) => { statsMap[k] = v; });
+      const makeStat = (k, v) =>
+        `<span class="bt-stat-item"><span class="k">${escapeHtml(k)}</span><span class="v">${escapeHtml(v)}</span></span>`
+      ;
+      const row1Html = row1Order.filter((k) => statsMap[k] != null).map((k) => makeStat(k, statsMap[k])).join("");
+      const row2Html = row2Order.filter((k) => statsMap[k] != null).map((k) => makeStat(k, statsMap[k])).join("");
+      return `<div class="bt-speed-grid"><span class="bt-speed-item bt-down"><span class="k">↓</span><span class="v">${downText}</span></span><span class="bt-speed-item bt-up"><span class="k">↑</span><span class="v">${upText}</span></span></div><div class="bt-stat-lines"><div class="bt-stat-line">${row1Html}</div><div class="bt-stat-line">${row2Html}</div></div>`;
     }
 
     function btClientLabel(key) {
@@ -3225,6 +3277,15 @@ sudo systemctl restart storage-http-link-web
         rtorrent: "rTorrent",
       };
       return map[String(key || "").toLowerCase()] || String(key || "");
+    }
+    function btClientIcon(key) {
+      const map = {
+        qbittorrent: "Q",
+        deluge: "D",
+        transmission: "T",
+        rtorrent: "R",
+      };
+      return map[String(key || "").toLowerCase()] || "?";
     }
 
     function btEnabledClients() {
@@ -3299,22 +3360,23 @@ sudo systemctl restart storage-http-link-web
 
     function renderBtClientTabs() {
       if (!qbtClientTabBarWrap) return;
-      const keys = btEnabledClients();
+      const keys = ["qbittorrent", "deluge", "transmission", "rtorrent"];
       if (!keys.length) {
         qbtClientTabBarWrap.innerHTML = "";
         qbtClientTabBarWrap.style.display = "none";
         return;
       }
-      qbtClientTabBarWrap.style.display = "flex";
-      const tabKeys = keys.length > 1 ? ["overall"].concat(keys) : keys.slice();
-      if (!tabKeys.includes(btActiveClient)) btActiveClient = tabKeys[0];
+      qbtClientTabBarWrap.style.display = "inline-flex";
+      if (!keys.includes(btActiveClient)) btActiveClient = keys[0];
       const bar = document.createElement("div");
-      bar.className = "xfer-sort-group";
-      for (const k of tabKeys) {
+      bar.className = "qbt-icon-tabs";
+      for (const k of keys) {
         const btn = document.createElement("button");
         btn.type = "button";
-        btn.className = "xfer-sort-btn" + (k === btActiveClient ? " active" : "");
-        btn.textContent = k === "overall" ? "Overall" : btClientLabel(k);
+        btn.className = "qbt-icon-tab" + (k === btActiveClient ? " active" : "");
+        btn.textContent = btClientIcon(k);
+        btn.title = btClientLabel(k);
+        btn.setAttribute("aria-label", btClientLabel(k));
         btn.addEventListener("click", async () => {
           if (btActiveClient === k) return;
           btActiveClient = k;
@@ -3334,11 +3396,8 @@ sudo systemctl restart storage-http-link-web
       const restText = `Memory: ${s.mem_used_human || "-"} / ${s.mem_total_human || "-"} | Disk: ${s.disk_used_human || "-"} / ${s.disk_total_human || "-"} | Uptime: ${s.uptime_human || "-"}`;
       sysStatus.innerHTML = `<div class="sys-status-line">${cpuText}</div><div class="sys-status-line">${restText}</div>`;
       const btMap = btClientStatusMap || {};
-      const btOverall = buildBtOverallQbt(btMap);
       let qbtSvc = data.qbt;
-      if (btActiveClient === "overall" && btOverall) {
-        qbtSvc = btOverall;
-      } else if (btMap[btActiveClient]) {
+      if (btMap[btActiveClient]) {
         qbtSvc = btMap[btActiveClient];
       }
       qbtStatusText.innerHTML = svcText(qbtSvc);
@@ -3418,7 +3477,7 @@ sudo systemctl restart storage-http-link-web
       const reqTs = Date.now();
       try {
         const activeClients = btEnabledClients();
-        const selectedClient = (btActiveClient && btActiveClient !== "overall") ? btActiveClient : (activeClients[0] || "qbittorrent");
+        const selectedClient = btActiveClient || (activeClients[0] || "qbittorrent");
         const statusUrl = activeClients.length
           ? ("/api/control/status?client=" + encodeURIComponent(selectedClient))
           : "/api/control/status";
@@ -3447,7 +3506,7 @@ sudo systemctl restart storage-http-link-web
         const data = await getJson("/api/control/service", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ service, action, client: (btActiveClient && btActiveClient !== "overall") ? btActiveClient : (btEnabledClients()[0] || "qbittorrent") }),
+          body: JSON.stringify({ service, action, client: btActiveClient || (btEnabledClients()[0] || "qbittorrent") }),
         });
         if (service === "self" && action === "restart") {
           setStatus("已发送Restart命令，服务即将Restart。");
@@ -4096,13 +4155,8 @@ sudo systemctl restart storage-http-link-web
       });
     });
     if (speedText) {
-      speedText.title = "Click to switch units (current MiB/s）";
-      speedText.style.cursor = "pointer";
-      speedText.addEventListener("click", () => {
-        if (!speedValueReady) return;
-        speedDisplayUnit = speedDisplayUnit === "MiB/s" ? "Mbps" : "MiB/s";
-        renderSpeedValue();
-      });
+      speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
+      speedText.style.cursor = "default";
     }
 
     const ndDetailArea = document.getElementById("ndDetailArea");
@@ -4173,13 +4227,13 @@ sudo systemctl restart storage-http-link-web
     function ndRenderTabs() {
       if (!ndTabBarWrap) return;
       const enabled = ndGetEnabledList();
-      let html = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px;background:var(--bg-card);border-radius:999px;border:1px solid var(--border);box-shadow:0 4px 16px rgba(15,23,42,0.08);">';
+      let html = '<div class="nd-tabs-inline">';
       html += '<button type="button" class="nd-filter-tab" data-ndtab="" style="background:' + (!ndActiveTab ? "var(--hero-tone,var(--accent));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.15);" : "transparent;color:var(--text-muted);") + 'border:none;padding:8px 16px;border-radius:999px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">All</button>';
       for (const s of enabled) {
         const isActive = ndActiveTab === s.key;
         html += '<button type="button" class="nd-filter-tab" data-ndtab="' + ndEsc(s.key) + '" style="background:' + (isActive ? "var(--hero-tone,var(--accent));color:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.15);" : "transparent;color:var(--text-muted);") + 'border:none;padding:8px 16px;border-radius:999px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap;">' + ndEsc(s.label) + '</button>';
       }
-      html += '<a href="/config#netdisk" class="nd-filter-tab" style="margin-left:auto;background:transparent;color:var(--text-muted);border:none;padding:6px 12px;border-radius:999px;font-size:16px;cursor:pointer;text-decoration:none;white-space:nowrap;" title="Configure visible sources">⚙️</a>';
+      html += '<a href="/config#netdisk" class="nd-filter-tab nd-filter-gear" title="Configure visible sources">⚙️</a>';
       html += '</div>';
       ndTabBarWrap.innerHTML = html;
       ndTabBarWrap.querySelectorAll(".nd-filter-tab[data-ndtab]").forEach(btn => {
@@ -4582,6 +4636,20 @@ def build_config_html() -> str:
       grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 14px;
     }
+    .http-main-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: start;
+    }
+    @media (max-width: 1180px) {
+      .http-main-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 900px) {
+      .http-main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
     .cfg-module-list { display:flex; flex-direction:column; gap:14px; margin-top:14px; }
     .cfg-module-item {
       border: 1px solid color-mix(in srgb, var(--panel-border-accent, var(--accent-soft)) 42%, var(--border) 58%);
@@ -4880,7 +4948,7 @@ def build_config_html() -> str:
           </label>
         </div>
         <p class="cfg-help">Current HTTP root: <strong id="httpStorageRoot">-</strong></p>
-        <div class="cfg-grid" style="margin-top:12px;">
+        <div class="cfg-grid http-main-grid" style="margin-top:12px;">
           <label class="cfg-item">
             <div class="title">HTTP Root Directory (any path under / is allowed)</div>
             <p class="cfg-help">Use an absolute path, e.g. <code>/</code>, <code>/srv/Storage</code>, <code>/home/user</code>.</p>
@@ -4895,6 +4963,16 @@ def build_config_html() -> str:
             <p class="cfg-help">When opening "Directory Service" on homepage, it jumps to this default directory.</p>
             <input id="httpDefaultDir" placeholder="e.g. BT/TV or ." />
           </label>
+          <div class="cfg-item">
+            <div class="title">Directory Browser (target server)</div>
+            <div class="row" style="margin-top:8px;">
+              <input id="httpBrowseDir" class="grow" placeholder="e.g. ." />
+              <button type="button" id="httpBrowseLoadBtn" class="secondary">Load subdirectories</button>
+              <button type="button" id="httpBrowseParentBtn" class="secondary">Parent</button>
+            </div>
+            <p class="cfg-help" style="margin-top:8px;">Click a subdirectory below to set it as default quickly.</p>
+            <div id="httpDirList" class="dir-list" style="max-height:230px;"></div>
+          </div>
           <div class="cfg-item" style="grid-column: 1 / -1;">
             <div class="title">Source IP pools (1288 training)</div>
             <p class="cfg-help">Maintain source pools with one IP/CIDR per line. Matched IPs are labeled by source before UA/Referer keyword matching.</p>
@@ -4921,16 +4999,6 @@ def build_config_html() -> str:
               </div>
               <p id="httpPoolSourceMeta" class="cfg-help" style="margin-top:8px;"></p>
             </div>
-          </div>
-          <div class="cfg-item">
-            <div class="title">Directory Browser (target server)</div>
-            <div class="row" style="margin-top:8px;">
-              <input id="httpBrowseDir" class="grow" placeholder="e.g. ." />
-              <button type="button" id="httpBrowseLoadBtn" class="secondary">Load subdirectories</button>
-              <button type="button" id="httpBrowseParentBtn" class="secondary">Parent</button>
-            </div>
-            <p class="cfg-help" style="margin-top:8px;">Click a subdirectory below to set it as default quickly.</p>
-            <div id="httpDirList" class="dir-list" style="max-height:230px;"></div>
           </div>
         </div>
         <div class="cfg-actions">
