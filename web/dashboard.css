@@ -695,6 +695,9 @@ button.secondary:hover {
   color: var(--text-muted);
   font-size: 13px;
 }
+#httpSpeedCard .speed-card-conn {
+  display: none;
+}
 .speed-card-conn-num {
   font-weight: 700;
   font-size: 15px;
@@ -773,8 +776,15 @@ button.secondary:hover {
   letter-spacing: -0.01em;
   min-height: 1.1em;
 }
-.speed-unified-line.up { color: #86efac; }
-.speed-unified-line.down { color: #7dd3fc; }
+.speed-unified-line.up .speed-unified-arrow { color: #22c55e; }
+.speed-unified-line.down .speed-unified-arrow { color: #38bdf8; }
+.speed-unified-arrow {
+  font-weight: 800;
+  margin-right: 1px;
+}
+.speed-unified-line .speed-unified-num {
+  color: #e2e8f0;
+}
 .speed-unified-unit {
   margin-top: 2px;
   font-size: 10px;
@@ -805,18 +815,59 @@ button.secondary:hover {
   background: color-mix(in srgb, var(--surface-soft) 82%, transparent);
   padding: 6px 8px 8px;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: stretch;
 }
-.speed-dial-box > legend {
-  padding: 0 8px;
+.speed-dial-legend {
+  position: relative;
+  display: flex;
+  align-items: center;
+  margin: 0 2px 6px;
+  padding: 0 38px 0 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.speed-dial-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.06em;
   color: var(--text-muted);
   text-transform: uppercase;
+  flex: 1 1 auto;
+}
+.speed-dial-title::after {
+  content: "";
+  flex: 1 1 auto;
+  min-width: 10px;
+  height: 1px;
+  background: color-mix(in srgb, var(--hero-tone) 36%, var(--border));
+}
+.speed-dial-count {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--hero-tone) 48%, var(--border));
+  background: color-mix(in srgb, var(--surface-elevated) 90%, transparent);
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 .speed-dial-box .speed-unified {
-  margin-top: 2px;
+  margin-top: 0;
+  justify-content: center;
 }
 @media (max-width: 520px) {
   .speed-main-row {

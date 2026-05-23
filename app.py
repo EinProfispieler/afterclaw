@@ -2299,6 +2299,7 @@ sudo systemctl restart storage-http-link-web
     let displayTotalUpMiBps = 0;
     let displayTotalDownMbps = 0;
     let displayTotalUpMbps = 0;
+    let latestOverallConnCount = 0;
     let speedDisplayUnit = "Mbps";
     let speedValueReady = false;
     let latestTransferOverview = { count: 0, recent_count: 0, overall_progress_pct: 0 };
@@ -2853,10 +2854,24 @@ sudo systemctl restart storage-http-link-web
       center.className = "speed-unified-center";
       const upLine = document.createElement("span");
       upLine.className = "speed-unified-line up";
-      upLine.textContent = "↑ " + (Math.abs(up) < 0.01 ? 0 : up).toFixed(2);
+      const upArrow = document.createElement("span");
+      upArrow.className = "speed-unified-arrow up";
+      upArrow.textContent = "↑";
+      const upNum = document.createElement("span");
+      upNum.className = "speed-unified-num up";
+      upNum.textContent = " " + (Math.abs(up) < 0.01 ? 0 : up).toFixed(2);
+      upLine.appendChild(upArrow);
+      upLine.appendChild(upNum);
       const downLine = document.createElement("span");
       downLine.className = "speed-unified-line down";
-      downLine.textContent = "↓ " + (Math.abs(down) < 0.01 ? 0 : down).toFixed(2);
+      const downArrow = document.createElement("span");
+      downArrow.className = "speed-unified-arrow down";
+      downArrow.textContent = "↓";
+      const downNum = document.createElement("span");
+      downNum.className = "speed-unified-num down";
+      downNum.textContent = " " + (Math.abs(down) < 0.01 ? 0 : down).toFixed(2);
+      downLine.appendChild(downArrow);
+      downLine.appendChild(downNum);
       const unitLine = document.createElement("span");
       unitLine.className = "speed-unified-unit";
       unitLine.textContent = unit;
@@ -2867,11 +2882,20 @@ sudo systemctl restart storage-http-link-web
       wrap.appendChild(chart);
       return wrap;
     }
-    function makeSpeedDialBox(label, down, up, unit) {
+    function makeSpeedDialBox(label, down, up, unit, count) {
       const box = document.createElement("fieldset");
       box.className = "speed-dial-box";
       const legend = document.createElement("legend");
-      legend.textContent = label;
+      legend.className = "speed-dial-legend";
+      const title = document.createElement("span");
+      title.className = "speed-dial-title";
+      title.textContent = label;
+      const countBadge = document.createElement("span");
+      countBadge.className = "speed-dial-count";
+      countBadge.textContent = String(Math.max(0, Math.floor(Number(count || 0))));
+      countBadge.title = "Active connections";
+      legend.appendChild(title);
+      legend.appendChild(countBadge);
       box.appendChild(legend);
       box.appendChild(makeUnifiedSpeedDial(down, up, unit));
       return box;
@@ -2884,15 +2908,15 @@ sudo systemctl restart storage-http-link-web
     }
     function renderSpeedValue() {
       if (!speedText) return;
-      const unit = "Mbps";
-      speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
-      speedText.style.cursor = "default";
+      const unit = speedDisplayUnit === "MiB/s" ? "MiB/s" : "Mbps";
+      speedText.title = `Click to switch unit (current ${unit})`;
+      speedText.style.cursor = "pointer";
       renderSourceSpeeds(latestSourceStats, unit);
     }
 
     async function loadSpeed() {
       if (!httpModuleOn) {
-        if (speedText) speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
+        if (speedText) speedText.title = "Click to switch unit";
         connText.textContent = "-";
         speedValueReady = false;
         latestSourceStats = [];
@@ -2914,16 +2938,17 @@ sudo systemctl restart storage-http-link-web
         const txMiBps = Number(data.tx_mibps || 0);
         const txMbps = Number(data.tx_mbps || 0);
         // 显示按“下载=服务端接收(rx)、上传=服务端发送(tx)”映射。
-        latestTotalDownMiBps = rxMbps;
-        latestTotalUpMiBps = txMbps;
+        latestTotalDownMiBps = rxMiBps;
+        latestTotalUpMiBps = txMiBps;
         latestTotalDownMbps = rxMbps;
         latestTotalUpMbps = txMbps;
+        latestOverallConnCount = Number(data.active_conn_1288 || 0);
         syncDisplayTotalsFromRaw();
         speedValueReady = true;
         renderSpeedValue();
         connText.textContent = String(data.active_conn_1288);
       } catch (err) {
-        if (speedText) speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
+        if (speedText) speedText.title = "Click to switch unit";
         connText.textContent = "-";
         speedValueReady = false;
         latestSourceStats = [];
@@ -2931,6 +2956,7 @@ sudo systemctl restart storage-http-link-web
         latestTotalUpMiBps = 0;
         latestTotalDownMbps = 0;
         latestTotalUpMbps = 0;
+        latestOverallConnCount = 0;
         syncDisplayTotalsFromRaw();
         renderSpeedValue();
       }
@@ -2972,6 +2998,7 @@ sudo systemctl restart storage-http-link-web
     function renderSourceSpeeds(sourceStats, unitOverride) {
       if (!sourceSpeedText) return;
       const rows = Array.isArray(sourceStats) ? sourceStats : [];
+      const transferRows = Array.isArray(latestTransfers) ? latestTransfers : [];
       const buckets = new Map([
         ["Baidu Netdisk", { down: 0, up: 0, count: 0 }],
         ["Guangya Drive", { down: 0, up: 0, count: 0 }],
@@ -2985,9 +3012,18 @@ sudo systemctl restart storage-http-link-web
         const source = normalizeSourceName(item.source);
         const bucket = buckets.get(source);
         if (!bucket) continue;
-        bucket.down += Number(item.download_mibps || 0) * 8;
-        bucket.up += Number(item.upload_mibps || 0) * 8;
-        bucket.count += Number(item.count || 0);
+        bucket.down += Number(item.download_mibps || 0);
+        bucket.up += Number(item.upload_mibps || 0);
+      }
+      // Keep badge counts on one denominator: active (not-done) transfer sessions.
+      let overallActiveCount = 0;
+      for (const tr of transferRows) {
+        if (tr && tr.done) continue;
+        overallActiveCount += 1;
+        const source = normalizeSourceName(tr && tr.source);
+        const bucket = buckets.get(source);
+        if (!bucket) continue;
+        bucket.count += 1;
       }
       let knownDown = 0;
       let knownUp = 0;
@@ -2996,19 +3032,19 @@ sudo systemctl restart storage-http-link-web
         knownDown += v.down;
         knownUp += v.up;
       }
-      const effectiveDownMiBps = Math.max(latestTotalDownMiBps, knownDown);
-      const effectiveUpMiBps = Math.max(latestTotalUpMiBps, knownUp);
-      displayTotalDownMiBps = effectiveDownMiBps;
-      displayTotalUpMiBps = effectiveUpMiBps;
-      displayTotalDownMbps = effectiveDownMiBps * 8;
-      displayTotalUpMbps = effectiveUpMiBps * 8;
+      const effectiveDownMiB = Math.max(latestTotalDownMiBps, knownDown);
+      const effectiveUpMiB = Math.max(latestTotalUpMiBps, knownUp);
+      displayTotalDownMiBps = effectiveDownMiB;
+      displayTotalUpMiBps = effectiveUpMiB;
+      displayTotalDownMbps = effectiveDownMiB * 8;
+      displayTotalUpMbps = effectiveUpMiB * 8;
       const unit = unitOverride || "Mbps";
-      const conv = (v) => v;
+      const conv = (v) => (unit === "MiB/s" ? v : (v * 8));
       while (sourceSpeedText.firstChild) sourceSpeedText.removeChild(sourceSpeedText.firstChild);
 
-      const baidu = buckets.get("Baidu Netdisk") || { down: 0, up: 0 };
-      const guangya = buckets.get("Guangya Drive") || { down: 0, up: 0 };
-      const aliyun = buckets.get("Aliyun Drive") || { down: 0, up: 0 };
+      const baidu = buckets.get("Baidu Netdisk") || { down: 0, up: 0, count: 0 };
+      const guangya = buckets.get("Guangya Drive") || { down: 0, up: 0, count: 0 };
+      const aliyun = buckets.get("Aliyun Drive") || { down: 0, up: 0, count: 0 };
       const wrap = document.createElement("div");
       wrap.className = "speed-dial-grid";
       wrap.appendChild(
@@ -3016,7 +3052,8 @@ sudo systemctl restart storage-http-link-web
           "Overall",
           conv(displayTotalDownMiBps),
           conv(displayTotalUpMiBps),
-          unit
+          unit,
+          overallActiveCount
         )
       );
       wrap.appendChild(
@@ -3024,7 +3061,8 @@ sudo systemctl restart storage-http-link-web
           "BAIDU",
           conv(baidu.down || 0),
           conv(baidu.up || 0),
-          unit
+          unit,
+          baidu.count || 0
         )
       );
       wrap.appendChild(
@@ -3032,7 +3070,8 @@ sudo systemctl restart storage-http-link-web
           "GuangYA",
           conv(guangya.down || 0),
           conv(guangya.up || 0),
-          unit
+          unit,
+          guangya.count || 0
         )
       );
       wrap.appendChild(
@@ -3040,7 +3079,8 @@ sudo systemctl restart storage-http-link-web
           "Aliyun",
           conv(aliyun.down || 0),
           conv(aliyun.up || 0),
-          unit
+          unit,
+          aliyun.count || 0
         )
       );
       sourceSpeedText.appendChild(wrap);
@@ -3186,7 +3226,7 @@ sudo systemctl restart storage-http-link-web
         latestTransfers = [];
         latestSourceStats = [];
         latestTransferOverview = { count: 0, recent_count: 0, overall_progress_pct: 0 };
-        renderSourceSpeeds(latestSourceStats);
+        renderSourceSpeeds(latestSourceStats, speedDisplayUnit);
         return;
       }
       if (isRealtimePaused()) return;
@@ -3201,12 +3241,12 @@ sudo systemctl restart storage-http-link-web
           recent_count: Number(data.recent_count || 0),
           overall_progress_pct: Number(data.overall_progress_pct || 0),
         };
-        renderSourceSpeeds(latestSourceStats);
+        renderSourceSpeeds(latestSourceStats, speedDisplayUnit);
         renderTransfers(data);
       } catch (err) {
         xferSummary.textContent = "Active -";
         latestSourceStats = [];
-        renderSourceSpeeds([]);
+        renderSourceSpeeds([], speedDisplayUnit);
       }
     }
 
@@ -4155,8 +4195,12 @@ sudo systemctl restart storage-http-link-web
       });
     });
     if (speedText) {
-      speedText.title = "Numbers in Mbps, ring scale is 1 Gbps";
-      speedText.style.cursor = "default";
+      speedText.title = "Click to switch unit";
+      speedText.style.cursor = "pointer";
+      speedText.addEventListener("click", () => {
+        speedDisplayUnit = speedDisplayUnit === "Mbps" ? "MiB/s" : "Mbps";
+        renderSpeedValue();
+      });
     }
 
     const ndDetailArea = document.getElementById("ndDetailArea");
@@ -4904,23 +4948,6 @@ def build_config_html() -> str:
         </div>
         <p id="upgradeStatus" class="cfg-status"></p>
         <p id="upgradeMeta" class="cfg-help"></p>
-      </div>
-      <div class="card">
-        <span class="card-title">
-          <svg class="brush-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.2 4.2l5.6 5.6-9.8 9.8-6.7 1 1-6.7 9.9-9.7z"></path><path d="M12.1 6.3l5.6 5.6"></path></svg>
-          Theme
-        </span>
-        <div class="theme-panel" style="margin-top:10px;">
-          <div class="theme-preset-group">
-            <button type="button" class="theme-preset-btn" data-hero-preset="default">Default</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="aurora">Aurora</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="sunset">Sunset</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="frost">Frost</button>
-            <button type="button" class="theme-preset-btn" data-hero-preset="afterclaw_clouds">Clouds at Dusk</button>
-          </div>
-          <p id="cfgThemeMeta" class="cfg-help">Current theme: Default</p>
-          <p id="cfgThemeStatus" class="cfg-help">Presets only switch tab background colors.</p>
-        </div>
       </div>
     </section>
 
@@ -11060,6 +11087,17 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
+        if parsed.path.startswith("/ui/"):
+            if not self._require_lan():
+                return
+            if self._send_static_asset(
+                parsed.path.lstrip("/"),
+                send_body=True,
+                cache_control="no-store, max-age=0",
+            ):
+                return
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
+            return
         if parsed.path.startswith("/locales/"):
             if not self._require_lan():
                 return
@@ -11111,6 +11149,17 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
+        if parsed.path == "/":
+            if not self._require_lan():
+                return
+            if self._send_static_asset(
+                "ui/index.html",
+                send_body=True,
+                cache_control="no-store, max-age=0",
+            ):
+                return
+            self._send_html(build_frontend_html())
+            return
         if self._dispatch_ddnsgo_proxy(parsed, "GET", True):
             return
         if self._dispatch_shareclip_flask(parsed, "GET", True):
@@ -11118,12 +11167,6 @@ class AppHandler(BaseHTTPRequestHandler):
         
         # Try module routes
         if self._dispatch_module_route(parsed, "GET"):
-            return
-        
-        if parsed.path == "/":
-            if not self._require_lan():
-                return
-            self._send_html(build_frontend_html())
             return
 
         if parsed.path == "/ddns":
@@ -11434,6 +11477,17 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
             return
+        if parsed.path.startswith("/ui/"):
+            if not self._require_lan():
+                return
+            if self._send_static_asset(
+                parsed.path.lstrip("/"),
+                send_body=False,
+                cache_control="no-store, max-age=0",
+            ):
+                return
+            self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
+            return
         if parsed.path.startswith("/locales/"):
             if not self._require_lan():
                 return
@@ -11487,6 +11541,23 @@ class AppHandler(BaseHTTPRequestHandler):
             ):
                 return
             self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
+            return
+        if parsed.path == "/":
+            if not self._require_lan():
+                return
+            if self._send_static_asset(
+                "ui/index.html",
+                send_body=False,
+                cache_control="no-store, max-age=0",
+            ):
+                return
+            payload = build_frontend_html().encode("utf-8")
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store, max-age=0")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
             return
         if self._dispatch_ddnsgo_proxy(parsed, "HEAD", True):
             return
