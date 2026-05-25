@@ -6,7 +6,28 @@ It unifies directory link generation, HTTP transfer, qBittorrent/DDNS operations
 Website: [https://www.afterclaw.xyz](https://www.afterclaw.xyz)  
 Language: English | [简体中文](#简体中文)
 
-![AfterClaw Control Dashboard](docs/screenshots/afterclaw-control-dashboard-latest.png)
+## New UI Screenshots
+
+### Dashboard (Light)
+![AfterClaw Dashboard Light](docs/screenshots/ui-dashboard-light.png)
+
+### Dashboard (Dark)
+![AfterClaw Dashboard Dark](docs/screenshots/ui-dashboard-dark.png)
+
+### HTTPD Workspace
+![AfterClaw HTTPD](docs/screenshots/ui-httpd.png)
+
+### ShareClip
+![AfterClaw ShareClip](docs/screenshots/ui-shareclip.png)
+
+### Web Terminal
+![AfterClaw Web Terminal](docs/screenshots/ui-web-terminal.png)
+
+### Services Overview
+![AfterClaw Services](docs/screenshots/ui-attachment-1.png)
+
+### Docker Recommendations
+![AfterClaw Docker Recommendations](docs/screenshots/ui-attachment-2.png)
 
 ## What Problem It Solves
 
@@ -35,6 +56,7 @@ This is the core loop AfterClaw is designed for.
 - Directory Service: browse `STORAGE_ROOT`, generate file links
 - HTTP Transfer: large-file stream upload with resume
 - Service Controls: qBittorrent, DDNS, HTTP module controls
+- Docker: container inventory, image pull, install form, and safe start/stop/remove controls
 - Web Terminal: remote maintenance + key file management
 - ShareClip: lightweight clipboard-style sharing
 
