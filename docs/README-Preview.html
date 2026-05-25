@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>README · afterclaw</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown.min.css"/>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  body {
+    margin: 0;
+    background: #0d1117;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    color: #c9d1d9;
+  }
+  .gh-chrome {
+    max-width: 1012px;
+    margin: 0 auto;
+    padding: 24px 32px 60px;
+  }
+  .gh-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0 18px;
+    border-bottom: 1px solid #30363d;
+    margin-bottom: 24px;
+    font-size: 14px;
+  }
+  .gh-bar .repo {
+    color: #58a6ff;
+    font-weight: 600;
+  }
+  .gh-bar .slash { color: #6e7681; }
+  .gh-bar .branch {
+    margin-left: auto;
+    background: #21262d;
+    border: 1px solid #30363d;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #c9d1d9;
+  }
+  .file-card {
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #0d1117;
+  }
+  .file-card .head {
+    background: #161b22;
+    padding: 10px 16px;
+    border-bottom: 1px solid #30363d;
+    font-size: 13px;
+    color: #8b949e;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .file-card .head .name { color: #c9d1d9; font-weight: 600; }
+  .markdown-body {
+    box-sizing: border-box;
+    min-width: 200px;
+    padding: 32px 40px 48px;
+    background: #0d1117;
+    color-scheme: dark;
+  }
+  /* GitHub dark theme override for marked-rendered content */
+  .markdown-body { color: #e6edf3 !important; }
+  .markdown-body a { color: #2f81f7; }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3 { border-bottom-color: #30363d; }
+  .markdown-body code, .markdown-body pre { background: #161b22; }
+  .markdown-body pre { border: 1px solid #30363d; }
+  .markdown-body table tr { background: #0d1117; border-top-color: #30363d; }
+  .markdown-body table tr:nth-child(2n) { background: #161b22; }
+  .markdown-body table td, .markdown-body table th { border-color: #30363d; }
+  .markdown-body blockquote {
+    color: #8b949e; border-left-color: #30363d;
+  }
+  .markdown-body hr { background: #30363d; }
+</style>
+</head>
+<body>
+<div class="gh-chrome">
+  <div class="gh-bar">
+    <span class="slash">▢</span>
+    <span class="repo">afterclaw</span>
+    <span class="slash">/</span>
+    <span style="color:#c9d1d9;font-weight:600">afterclaw</span>
+    <span class="branch">⎇ main</span>
+  </div>
+  <div class="file-card">
+    <div class="head">
+      <span>📖</span>
+      <span class="name">README.md</span>
+      <span style="margin-left:auto;color:#8b949e">Preview · GitHub Dark</span>
+    </div>
+    <article id="md" class="markdown-body"></article>
+  </div>
+</div>
+<script>
+fetch('README.md').then(r => r.text()).then(md => {
+  document.getElementById('md').innerHTML = marked.parse(md);
+});
+</script>
+</body>
+</html>

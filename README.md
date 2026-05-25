@@ -178,6 +178,14 @@ Workflow: `.github/workflows/installers.yml`
 - Targets: Linux, macOS, Windows
 - Output: installer artifacts
 
+## README Design Preview
+
+For local README styling preview (GitHub dark-like chrome), open:
+
+- `docs/README-Preview.html`
+
+This file is for local authoring preview only. GitHub repository homepage still renders `README.md` directly.
+
 ## Roadmap
 
 - member activation (one-time code + password setup)
