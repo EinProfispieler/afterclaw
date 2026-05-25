@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AfterClaw Demo · Verify</title>
+  <style>
+    :root {
+      --paper: #f4f1ea;
+      --paper-2: #ebe7dd;
+      --card: #fbf9f4;
+      --ink: #251f17;
+      --ink-2: #5a4f3f;
+      --ink-3: #968a76;
+      --rule: rgba(37,31,23,0.10);
+      --rule-2: rgba(37,31,23,0.18);
+      --good: oklch(0.62 0.12 145);
+      --good-soft: oklch(0.62 0.12 145 / 0.18);
+      --accent: oklch(0.65 0.13 30);
+      --shadow-2: 0 1px 0 rgba(37,31,23,0.04), 0 24px 60px -16px rgba(37,31,23,0.22);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(rgba(37,31,23,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(37,31,23,0.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px, 28px 28px, auto;
+      color: var(--ink);
+      font-family: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      padding: 40px 20px;
+    }
+    .auth-card {
+      width: min(420px, 100%);
+      background: linear-gradient(170deg, var(--paper-2) 0%, var(--card) 60%);
+      border: 1px solid var(--rule-2);
+      border-radius: 20px;
+      padding: 30px 28px 26px;
+      box-shadow: var(--shadow-2), 0 0 0 1px rgba(255,255,255,0.04) inset;
+      position: relative;
+      overflow: hidden;
+    }
+    .auth-card::before {
+      content: "";
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--good);
+      opacity: .86;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+    .mascot {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 1.5px solid var(--ink);
+      background-image: url("/web/ui/afterclaw-mascot.jpg");
+      background-size: 220% auto;
+      background-position: 78% 30%;
+    }
+    .brand {
+      font-family: "Caveat", ui-rounded, "Segoe Script", cursive;
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .brand b { color: var(--accent); }
+    .verify-icon-wrap { display: flex; justify-content: center; margin-bottom: 18px; }
+    .verify-ring {
+      width: 72px; height: 72px; border-radius: 50%;
+      background: var(--good-soft);
+      border: 1.5px solid var(--good);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+    .verify-ring svg { width: 34px; height: 34px; stroke: var(--good); fill: none; stroke-width: 2.4; }
+    .verify-ring path {
+      stroke-dasharray: 50;
+      stroke-dashoffset: 50;
+      animation: draw-check .5s ease forwards .2s;
+    }
+    .verify-ring::after {
+      content: "";
+      position: absolute;
+      inset: -6px;
+      border-radius: 50%;
+      border: 1.5px solid var(--good);
+      opacity: 0;
+      animation: pulse-ring .9s ease-out forwards .15s;
+    }
+    @keyframes draw-check { to { stroke-dashoffset: 0; } }
+    @keyframes pulse-ring { 0% { inset: -4px; opacity: .5; } 100% { inset: -10px; opacity: 0; } }
+    .head { text-align: center; margin-bottom: 18px; }
+    .eyebrow {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 10px;
+      letter-spacing: .20em;
+      text-transform: uppercase;
+      color: var(--ink-3);
+      margin-bottom: 6px;
+    }
+    .title {
+      margin: 0 0 8px;
+      font-family: "Caveat", ui-rounded, "Segoe Script", cursive;
+      font-size: 42px;
+      line-height: 1;
+    }
+    .sub {
+      margin: 0;
+      font-size: 14px;
+      color: var(--ink-3);
+      line-height: 1.55;
+    }
+    .meta {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      margin: 20px 0 22px;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 11px;
+      color: var(--ink-3);
+    }
+    .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--good);
+      box-shadow: 0 0 0 3px var(--good-soft);
+    }
+    .code {
+      text-align: center;
+      border: 1px dashed var(--rule-2);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: 14px;
+      color: var(--ink-2);
+      background: rgba(255,255,255,.45);
+    }
+    .btn {
+      margin-top: 18px;
+      width: 100%;
+      border: 0;
+      border-radius: 11px;
+      padding: 11px 14px;
+      background: var(--good);
+      color: #fff;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <article class="auth-card">
+    <div class="logo">
+      <div class="mascot"></div>
+      <div class="brand">after<b>Claw</b></div>
+    </div>
+    <div class="verify-icon-wrap">
+      <div class="verify-ring" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M5 12l5 5L19 8"></path></svg>
+      </div>
+    </div>
+    <div class="head">
+      <div class="eyebrow">AFTERCLAW · NAS-01</div>
+      <h1 class="title">Verified</h1>
+      <p class="sub">Your account is active now. You can close this page and return to login.</p>
+    </div>
+    <div class="meta"><span class="dot"></span><span>Email confirmation completed</span></div>
+    <div class="code">AC000123</div>
+    <button class="btn" type="button">Back to Login</button>
+  </article>
+</body>
+</html>

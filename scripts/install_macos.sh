@@ -48,6 +48,10 @@ if [[ -z "${PYTHON_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
   exit 1
 fi
 
+if command -v brew >/dev/null 2>&1; then
+  brew list smartmontools >/dev/null 2>&1 || brew install smartmontools || true
+fi
+
 PY_OK="$("${PYTHON_BIN}" - <<'PY'
 import sys
 print("1" if sys.version_info >= (3, 10) else "0")
@@ -84,6 +88,14 @@ cp "${SCRIPT_DIR}/app.py" "${APP_ROOT}/app.py"
 [[ -d "${SCRIPT_DIR}/naming" ]] && { rm -rf "${APP_ROOT}/naming"; cp -a "${SCRIPT_DIR}/naming" "${APP_ROOT}/naming"; }
 [[ -d "${SCRIPT_DIR}/shareclip" ]] && { rm -rf "${APP_ROOT}/shareclip"; cp -a "${SCRIPT_DIR}/shareclip" "${APP_ROOT}/shareclip"; }
 chmod +x "${APP_ROOT}/app.py"
+
+if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
+  "${PYTHON_BIN}" -m pip install --upgrade pip >/dev/null 2>&1 || true
+  "${PYTHON_BIN}" -m pip install -r "${SCRIPT_DIR}/requirements.txt" || {
+    echo "pip 安装 requirements 失败，可稍后手动执行：" >&2
+    echo "  ${PYTHON_BIN} -m pip install -r ${SCRIPT_DIR}/requirements.txt" >&2
+  }
+fi
 
 cat > "${PLIST}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

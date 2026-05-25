@@ -14,6 +14,7 @@ QBT_API_USERNAME="${QBT_API_USERNAME:-}"
 QBT_API_PASSWORD="${QBT_API_PASSWORD:-}"
 DDNS_SERVICE="${DDNS_SERVICE:-ddns-go.service}"
 SHARECLIP_STORAGE_ROOT="${SHARECLIP_STORAGE_ROOT:-${APP_ROOT}/shareclip/storage}"
+AFTERCLAW_DOCKER_ROOT="${AFTERCLAW_DOCKER_ROOT:-/var/lib/afterclaw/docker}"
 SERVICE_NAME="storage-http-link-web"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -25,7 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "[1/5] 安装 Python 与依赖..."
 apt update
-apt install -y python3 python3-flask python3-pip
+apt install -y python3 python3-flask python3-pip smartmontools
 if [[ -f "${SCRIPT_DIR}/requirements.txt" ]]; then
   python3 -m pip install --no-input -q -r "${SCRIPT_DIR}/requirements.txt" || {
     echo "pip 安装依赖失败，可稍后手动: pip3 install -r requirements.txt" >&2
@@ -35,6 +36,8 @@ fi
 echo "[2/5] 准备目录..."
 mkdir -p "${APP_ROOT}"
 mkdir -p "${STORAGE_ROOT}"
+mkdir -p "${AFTERCLAW_DOCKER_ROOT}"
+chmod 750 "${AFTERCLAW_DOCKER_ROOT}" || true
 
 echo "[3/5] 复制程序..."
 cp "${SCRIPT_DIR}/app.py" "${APP_ROOT}/app.py"
@@ -81,6 +84,7 @@ Environment=QBT_API_USERNAME=${QBT_API_USERNAME}
 Environment=QBT_API_PASSWORD=${QBT_API_PASSWORD}
 Environment=DDNS_SERVICE=${DDNS_SERVICE}
 Environment=SHARECLIP_STORAGE_ROOT=${SHARECLIP_STORAGE_ROOT}
+Environment=AFTERCLAW_DOCKER_ROOT=${AFTERCLAW_DOCKER_ROOT}
 WorkingDirectory=${APP_ROOT}
 ExecStart=/usr/bin/python3 ${APP_ROOT}/app.py
 Restart=always
@@ -99,4 +103,5 @@ echo "安装完成。"
 echo "管理页面（局域网）: http://<LAN_IP>:${WEB_PORT}"
 echo "下载前缀（外网）  : ${PUBLIC_SCHEME}://${PUBLIC_HOST}"
 echo "ShareClip 已内置在 1288 进程，数据目录: ${SHARECLIP_STORAGE_ROOT}"
+echo "Docker 数据建议目录: ${AFTERCLAW_DOCKER_ROOT}"
 echo "服务状态: systemctl status ${SERVICE_NAME}"

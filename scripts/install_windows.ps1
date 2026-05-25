@@ -232,6 +232,18 @@ if (Test-Path $requirementsFile) {
   }
 }
 
+Write-Step "Ensuring SMART tool (optional on Windows)..."
+if (Get-Command smartctl.exe -ErrorAction SilentlyContinue) {
+  Write-Step "smartctl already present."
+} elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+  winget install --id smartmontools.smartmontools --source winget --silent --accept-package-agreements --accept-source-agreements
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "smartmontools install failed (continuing). Per-disk SMART will show unavailable until installed."
+  }
+} else {
+  Write-Warning "winget unavailable. smartmontools not installed; SMART data may be unavailable."
+}
+
 Write-Step "Creating runtime script..."
 $runnerLines = @(
   '$ErrorActionPreference = "Stop"',

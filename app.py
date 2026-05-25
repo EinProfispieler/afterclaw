@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import base64
 import configparser
+import hashlib
+import hmac
 import http.cookiejar
 import fcntl
 import json
@@ -11,6 +13,7 @@ import mimetypes
 import os
 import pwd
 import pty
+import platform
 import re
 import secrets
 import shlex
@@ -22,9 +25,11 @@ import tempfile
 import threading
 import time
 import termios
+import socket
 import urllib.error
 import urllib.request
 import uuid
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -75,6 +80,16 @@ def get_shareclip_app():
     return _shareclip_app
 
 
+def _env_int(name: str, default: int, minimum: int | None = None) -> int:
+    try:
+        value = int(str(os.environ.get(name, str(default))).strip() or str(default))
+    except (TypeError, ValueError):
+        value = int(default)
+    if minimum is not None:
+        value = max(int(minimum), value)
+    return value
+
+
 DEFAULT_STORAGE_ROOT = Path(os.environ.get("STORAGE_ROOT", "/srv/Storage")).resolve()
 DEFAULT_WEB_PORT = int(os.environ.get("WEB_PORT", "1288"))
 ACTIVE_WEB_PORT = DEFAULT_WEB_PORT
@@ -97,6 +112,129 @@ DEFAULT_QBT_DOCKER_CONTAINERS = tuple(
     ).split(",")
     if x.strip()
 )
+DOCKER_RECOMMENDATIONS = [
+    {
+        "id": "jellyfin",
+        "name": "Jellyfin",
+        "image": "jellyfin/jellyfin",
+        "category": "media",
+        "ports": ["8096"],
+        "volumes": ["/srv/Storage/Media:/media", "/srv/Storage/AppData/jellyfin:/config"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Open-source media server; good first NAS media container.",
+    },
+    {
+        "id": "navidrome",
+        "name": "Navidrome",
+        "image": "deluan/navidrome",
+        "category": "media",
+        "ports": ["4533"],
+        "volumes": ["/srv/Storage/Music:/music", "/srv/Storage/AppData/navidrome:/data"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Lightweight music server for local libraries.",
+    },
+    {
+        "id": "audiobookshelf",
+        "name": "Audiobookshelf",
+        "image": "ghcr.io/advplyr/audiobookshelf",
+        "category": "media",
+        "ports": ["13378"],
+        "volumes": ["/srv/Storage/Audiobooks:/audiobooks", "/srv/Storage/AppData/audiobookshelf:/config"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Audiobooks and podcasts with mobile-friendly clients.",
+    },
+    {
+        "id": "immich",
+        "name": "Immich",
+        "image": "ghcr.io/immich-app/immich-server",
+        "category": "photos",
+        "ports": ["2283"],
+        "volumes": ["/srv/Storage/Photos:/usr/src/app/upload"],
+        "arch": ["amd64", "arm64"],
+        "risk": "compose",
+        "notes": "Photo backup stack; recommended through compose, not single-container install.",
+    },
+    {
+        "id": "qbittorrent",
+        "name": "qBittorrent",
+        "image": "lscr.io/linuxserver/qbittorrent",
+        "category": "download",
+        "ports": ["8080", "6881"],
+        "volumes": ["/srv/Storage/BT:/downloads", "/srv/Storage/AppData/qbittorrent:/config"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Already integrated with AfterClaw torrent status and controls.",
+    },
+    {
+        "id": "deluge",
+        "name": "Deluge",
+        "image": "lscr.io/linuxserver/deluge",
+        "category": "download",
+        "ports": ["8112", "58846", "58946"],
+        "volumes": ["/srv/Storage/BT:/downloads", "/srv/Storage/AppData/deluge:/config"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Supported for Docker container discovery and service control; full stats are planned.",
+    },
+    {
+        "id": "transmission",
+        "name": "Transmission",
+        "image": "lscr.io/linuxserver/transmission",
+        "category": "download",
+        "ports": ["9091", "51413"],
+        "volumes": ["/srv/Storage/BT:/downloads", "/srv/Storage/AppData/transmission:/config"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Simple BitTorrent client; Docker control discovery is supported.",
+    },
+    {
+        "id": "rtorrent-rutorrent",
+        "name": "rTorrent / ruTorrent",
+        "image": "crazymax/rtorrent-rutorrent",
+        "category": "download",
+        "ports": ["8080", "5000", "51413"],
+        "volumes": ["/srv/Storage/BT:/downloads", "/srv/Storage/AppData/rtorrent:/data"],
+        "arch": ["amd64", "arm64"],
+        "risk": "advanced",
+        "notes": "Advanced torrent stack; discovery aliases are supported, stats integration is planned.",
+    },
+    {
+        "id": "filebrowser",
+        "name": "File Browser",
+        "image": "filebrowser/filebrowser",
+        "category": "files",
+        "ports": ["8080"],
+        "volumes": ["/srv/Storage:/srv", "/srv/Storage/AppData/filebrowser:/database"],
+        "arch": ["amd64", "arm64"],
+        "risk": "auth",
+        "notes": "Useful LAN file UI; require authentication before exposing.",
+    },
+    {
+        "id": "syncthing",
+        "name": "Syncthing",
+        "image": "syncthing/syncthing",
+        "category": "sync",
+        "ports": ["8384", "22000"],
+        "volumes": ["/srv/Storage/Sync:/var/syncthing"],
+        "arch": ["amd64", "arm64"],
+        "risk": "lan",
+        "notes": "Peer-to-peer sync for phones and laptops.",
+    },
+    {
+        "id": "kopia",
+        "name": "Kopia",
+        "image": "kopia/kopia",
+        "category": "backup",
+        "ports": ["51515"],
+        "volumes": ["/srv/Storage:/source:ro", "/srv/Storage/AppData/kopia:/app/config"],
+        "arch": ["amd64", "arm64"],
+        "risk": "backup",
+        "notes": "Encrypted backup tool; start with read-only source mounts.",
+    },
+]
 DEFAULT_DDNS_SERVICE = os.environ.get("DDNS_SERVICE", "").strip()
 APP_CONFIG_FILE_NAME = "app_config.json"
 TERMINAL_KEYS_DIR_NAME = "terminal_keys"
@@ -184,6 +322,9 @@ else:
 DEFAULT_TRANSFER_RECENT_TTL_SEC = float(
     os.environ.get("TRANSFER_RECENT_TTL_SEC", "15").strip() or "15"
 )
+DEFAULT_HTTP_MAX_ACTIVE_DOWNLOADS = _env_int("HTTP_MAX_ACTIVE_DOWNLOADS", 384, 1)
+DEFAULT_HTTP_MAX_PER_IP_DOWNLOADS = _env_int("HTTP_MAX_PER_IP_DOWNLOADS", 64, 1)
+DEFAULT_TERMINAL_HISTORY_MAX = _env_int("TERMINAL_HISTORY_MAX", 500, 50)
 DEFAULT_SUBTITLE_OWNER_UID = int(os.environ.get("SUBTITLE_OWNER_UID", "501"))
 DEFAULT_SUBTITLE_OWNER_GID = int(os.environ.get("SUBTITLE_OWNER_GID", "20"))
 DEFAULT_SUBTITLE_FILE_MODE = os.environ.get("SUBTITLE_FILE_MODE", "664").strip() or "664"
@@ -1228,6 +1369,7 @@ def default_app_config() -> dict:
         "modules": {
             "qbt": True,
             "ddns": True,
+            "docker": True,
             "shareclip": True,
             "http": True,
         },
@@ -1283,6 +1425,8 @@ def default_app_config() -> dict:
         "ui": {
             "hero_preset": "default",
             "hero_custom_bg_file": "",
+            "system_name": "",
+            "brand_logo_url": "",
         },
         "netdisk_sources": {
             "baidu": True,
@@ -1305,7 +1449,7 @@ def normalize_app_config(raw) -> dict:
             )
         mods = raw.get("modules")
         if isinstance(mods, dict):
-            for k in ("qbt", "ddns", "shareclip", "http"):
+            for k in ("qbt", "ddns", "docker", "shareclip", "http"):
                 if k in mods:
                     base["modules"][k] = bool(mods.get(k))
             if "http" not in mods and "http_monitor" in mods:
@@ -1434,6 +1578,10 @@ def normalize_app_config(raw) -> dict:
                 base["ui"]["hero_preset"] = _normalize_ui_hero_preset(
                     ui.get("hero_preset")
                 )
+            if "system_name" in ui:
+                base["ui"]["system_name"] = str(ui.get("system_name", "") or "").strip()[:64]
+            if "brand_logo_url" in ui:
+                base["ui"]["brand_logo_url"] = str(ui.get("brand_logo_url", "") or "").strip()[:1024]
         nd = raw.get("netdisk_sources")
         if isinstance(nd, dict):
             nd_cfg = base.setdefault("netdisk_sources", {})
@@ -1481,6 +1629,8 @@ def normalize_app_config(raw) -> dict:
         (base.get("ui") or {}).get("hero_preset", "default")
     )
     base["ui"]["hero_custom_bg_file"] = ""
+    base["ui"]["system_name"] = str((base.get("ui") or {}).get("system_name", "") or "").strip()[:64]
+    base["ui"]["brand_logo_url"] = str((base.get("ui") or {}).get("brand_logo_url", "") or "").strip()[:1024]
     base["version"] = 1
     return base
 
@@ -1780,6 +1930,8 @@ def shareclip_route_match(path: str, query_id_pub: bool) -> bool:
     if path == "/api/config":
         return True
     if path.startswith("/clips/"):
+        return True
+    if path.startswith("/clip-files/"):
         return True
     return False
 
@@ -4847,6 +4999,38 @@ def build_config_html() -> str:
         justify-content: center;
       }
     }
+    /* Proto-aligned skin override */
+    body {
+      background:
+        radial-gradient(1200px 700px at 78% 8%, rgba(31, 71, 146, 0.22), transparent 60%),
+        linear-gradient(180deg, #071426 0%, #091a33 46%, #071425 100%) !important;
+    }
+    .wrap {
+      max-width: 1480px;
+    }
+    .page-head,
+    .cfg-panel,
+    .cfg-item,
+    .cfg-module-item,
+    .ddns-frame-wrap {
+      border-radius: 14px;
+      border-color: color-mix(in srgb, #3d6ed6 36%, var(--border) 64%);
+      box-shadow: 0 14px 34px rgba(2, 12, 29, 0.28);
+    }
+    .cfg-tab {
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .cfg-tab.active {
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+      border-color: rgba(79, 123, 222, 0.95);
+    }
+    .cfg-tabs-actions .back-link,
+    .cfg-tabs-actions .secondary,
+    .cfg-actions .secondary,
+    .cfg-actions button {
+      border-radius: 999px;
+    }
   </style>
 </head>
 <body>
@@ -4913,6 +5097,14 @@ def build_config_html() -> str:
             <div>
               <p class="cfg-module-title">DDNS Module</p>
               <p class="cfg-module-desc">Shows DDNS status card on homepage and keeps DDNS settings entry in Config.</p>
+            </div>
+          </label>
+          <label class="cfg-module-item">
+            <input type="checkbox" id="modDocker" class="cfg-switch-input" checked />
+            <span class="cfg-switch" aria-hidden="true"></span>
+            <div>
+              <p class="cfg-module-title">Docker Module</p>
+              <p class="cfg-module-desc">Shows real container inventory, logs, and safe start/stop/restart actions.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -5157,6 +5349,7 @@ def build_config_html() -> str:
           <label class="cfg-item">
             <div class="title">Change Domain Prefix</div>
             <input id="memberPrefixInput" placeholder="e.g. myhome" />
+            <p id="memberPrefixCheck" class="cfg-help"></p>
             <p id="memberPrefixLimit" class="cfg-help">You can change prefix at most 2 times per year.</p>
           </label>
         </div>
@@ -5300,7 +5493,7 @@ def build_config_html() -> str:
     var TAB_KEY = "fc-config-tab";
     var cfg = {
       web_port: 1288,
-      modules: { qbt: true, ddns: true, shareclip: true, http: true },
+      modules: { qbt: true, ddns: true, docker: true, shareclip: true, http: true },
       qbt: { monitor_enabled: true, client: "qbittorrent" },
       http_service: {
         root_dir: "/srv/Storage",
@@ -6256,6 +6449,7 @@ def build_config_html() -> str:
       if (byId("webPortInput")) byId("webPortInput").value = String(cfg.web_port);
       byId("modQbt").checked = cfg.modules.qbt !== false;
       byId("modDdns").checked = cfg.modules.ddns !== false;
+      if (byId("modDocker")) byId("modDocker").checked = cfg.modules.docker !== false;
       byId("modShareclip").checked = cfg.modules.shareclip !== false;
       byId("modHttp").checked = cfg.modules.http !== false;
       btConfigClient = String(cfg.qbt.client || "qbittorrent").toLowerCase();
@@ -6442,15 +6636,59 @@ def build_config_html() -> str:
     });
 
     if (byId("saveMemberDdnsBtn")) {
+      var __memberPrefixCheckOK = true;
+      var __memberPrefixCheckPending = false;
+      var __memberPrefixTimer = 0;
+      async function checkMemberPrefixNow(showMsg){
+        var el = byId("memberPrefixInput");
+        var out = byId("memberPrefixCheck");
+        var raw = String((el && el.value) || "").trim();
+        if (!raw) {
+          __memberPrefixCheckOK = true;
+          if (out) out.textContent = "";
+          return true;
+        }
+        __memberPrefixCheckPending = true;
+        try {
+          var d = await memberApi("/api/member/ddns/prefix-check?prefix=" + encodeURIComponent(raw), "GET");
+          var ok = !!(d && d.available);
+          __memberPrefixCheckOK = ok;
+          if (el && d && d.normalized_prefix) el.value = String(d.normalized_prefix);
+          if (out && showMsg) out.textContent = ok ? "Prefix available" : String((d && d.reason) || "Prefix unavailable");
+          return ok;
+        } catch (err) {
+          __memberPrefixCheckOK = false;
+          if (out && showMsg) out.textContent = "Check failed: " + err.message;
+          return false;
+        } finally {
+          __memberPrefixCheckPending = false;
+        }
+      }
+      if (byId("memberPrefixInput")) {
+        byId("memberPrefixInput").addEventListener("input", function(){
+          if (__memberPrefixTimer) clearTimeout(__memberPrefixTimer);
+          __memberPrefixTimer = setTimeout(function(){ checkMemberPrefixNow(true); }, 320);
+        });
+        byId("memberPrefixInput").addEventListener("blur", function(){ checkMemberPrefixNow(true); });
+      }
       byId("saveMemberDdnsBtn").addEventListener("click", async function(){
         try {
+          var wanted = String((byId("memberPrefixInput") && byId("memberPrefixInput").value) || "").trim();
+          if (wanted) {
+            var ok = await checkMemberPrefixNow(true);
+            if (!ok || __memberPrefixCheckPending || !__memberPrefixCheckOK) {
+              setStatus("exclusiveStatus", "Prefix unavailable, please choose another one.", true);
+              return;
+            }
+          }
           var payload = {
             ddns_enabled: !!(byId("memberDdnsEnabled") && byId("memberDdnsEnabled").checked),
-            ddns_prefix: String((byId("memberPrefixInput") && byId("memberPrefixInput").value) || "").trim()
+            ddns_prefix: wanted
           };
           var d = await memberApi("/api/member/ddns/config", "POST", payload);
           byId("memberDdnsAddress").textContent = String((d.member && d.member.ddns_fqdn) || "-");
           byId("memberPrefixInput").value = String((d.member && d.member.ddns_prefix) || "");
+          if (byId("memberPrefixCheck")) byId("memberPrefixCheck").textContent = "";
           byId("memberPrefixLimit").textContent = "Prefix changes this year: "
             + String((d.member && d.member.prefix_change_used_this_year) || 0)
             + " / 2";
@@ -6504,6 +6742,7 @@ def build_config_html() -> str:
           modules: {
             qbt: byId("modQbt").checked,
             ddns: byId("modDdns").checked,
+            docker: !!(byId("modDocker") && byId("modDocker").checked),
             shareclip: byId("modShareclip").checked,
             http: byId("modHttp").checked
           }
@@ -7090,6 +7329,7 @@ def build_config_html() -> str:
       var modules = ((cfg || {}).modules) || {};
       if (byId("modQbt")) byId("modQbt").checked = modules.qbt !== false;
       if (byId("modDdns")) byId("modDdns").checked = modules.ddns !== false;
+      if (byId("modDocker")) byId("modDocker").checked = modules.docker !== false;
       if (byId("modShareclip")) byId("modShareclip").checked = modules.shareclip !== false;
       if (byId("modHttp")) byId("modHttp").checked = modules.http !== false;
       var wp = parseWebPort((cfg || {}).web_port, 1288);
@@ -7107,6 +7347,7 @@ def build_config_html() -> str:
         modules: {
           qbt: !!(byId("modQbt") && byId("modQbt").checked),
           ddns: !!(byId("modDdns") && byId("modDdns").checked),
+          docker: !!(byId("modDocker") && byId("modDocker").checked),
           shareclip: !!(byId("modShareclip") && byId("modShareclip").checked),
           http: !!(byId("modHttp") && byId("modHttp").checked),
         }
@@ -7570,12 +7811,60 @@ def _save_member_accounts(accounts: list[dict]) -> None:
 
 
 MEMBER_DDNS_BASE_DOMAIN = os.environ.get("MEMBER_DDNS_BASE_DOMAIN", "afterclaw.xyz").strip() or "afterclaw.xyz"
+MEMBER_AUTH_BASE_URL = str(os.environ.get("MEMBER_AUTH_BASE_URL", "https://www.afterclaw.xyz") or "").strip() or "https://www.afterclaw.xyz"
 MEMBER_PREFIX_CHANGE_LIMIT_PER_YEAR = 2
 MEMBER_PREFIX_MIN_LEN = 3
 MEMBER_PREFIX_MAX_LEN = 24
 MEMBER_SESSION_TTL_SEC = 30 * 24 * 3600
+MEMBER_SESSION_COOKIE = "afterclaw_member_session"
 _member_lock = threading.Lock()
-_member_sessions: dict[str, dict] = {}
+
+
+def _member_secret_path() -> Path:
+    return _APP_ROOT_DIR / ".member_session_secret"
+
+
+def _member_session_secret() -> bytes:
+    env_secret = str(os.environ.get("MEMBER_SESSION_SECRET", "") or "").strip()
+    if env_secret:
+        return env_secret.encode("utf-8")
+    p = _member_secret_path()
+    try:
+        raw = str(p.read_text(encoding="utf-8") or "").strip()
+        if raw:
+            return raw.encode("utf-8")
+    except Exception:
+        pass
+    with _member_lock:
+        try:
+            raw2 = str(p.read_text(encoding="utf-8") or "").strip()
+            if raw2:
+                return raw2.encode("utf-8")
+        except Exception:
+            pass
+        sec = secrets.token_urlsafe(48)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(sec, encoding="utf-8")
+            try:
+                os.chmod(p, 0o600)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        return sec.encode("utf-8")
+
+
+def _b64u_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64u_decode(raw: str) -> bytes:
+    s = str(raw or "").strip()
+    if not s:
+        return b""
+    pad = "=" * ((4 - (len(s) % 4)) % 4)
+    return base64.urlsafe_b64decode((s + pad).encode("ascii"))
 
 
 def _member_prefix_sanitize(raw: str) -> str:
@@ -7595,29 +7884,96 @@ def _member_now_ts() -> int:
     return int(time.time())
 
 
-def _member_issue_session(member_id: str, email: str) -> str:
-    token = secrets.token_urlsafe(24)
-    with _member_lock:
-        _member_sessions[token] = {
-            "member_id": member_id,
-            "email": email,
-            "exp": _member_now_ts() + MEMBER_SESSION_TTL_SEC,
-        }
-    return token
+def _member_remote_json(
+    path: str,
+    method: str = "GET",
+    payload: dict | None = None,
+    headers: dict | None = None,
+    timeout_sec: float = 12.0,
+) -> tuple[int, dict]:
+    base = MEMBER_AUTH_BASE_URL.rstrip("/")
+    p = "/" + str(path or "").lstrip("/")
+    url = base + p
+    body = None
+    req_headers = {"Accept": "application/json", "User-Agent": "afterclaw-member-auth/1"}
+    if isinstance(headers, dict):
+        for k, v in headers.items():
+            if k and v is not None:
+                req_headers[str(k)] = str(v)
+    if payload is not None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req_headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=body, method=str(method or "GET").upper(), headers=req_headers)
+    try:
+        with urllib.request.urlopen(req, timeout=max(float(timeout_sec), 3.0)) as resp:
+            status = int(resp.getcode() or 200)
+            raw = (resp.read() or b"").decode("utf-8", errors="replace")
+        data = json.loads(raw or "{}")
+        if not isinstance(data, dict):
+            data = {}
+        return status, data
+    except urllib.error.HTTPError as e:
+        status = int(e.code or 502)
+        raw = (e.read() or b"").decode("utf-8", errors="replace")
+        try:
+            data = json.loads(raw or "{}")
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
+            data = {"error": raw.strip() or f"HTTP {status}"}
+        return status, data
+    except Exception as e:
+        return 502, {"error": f"member auth upstream unavailable: {e}"}
+
+
+def _member_issue_session(member_id: str, email: str, member: dict | None = None, upstream_token: str = "") -> str:
+    member_safe = member if isinstance(member, dict) else {}
+    payload = {
+        "member_id": str(member_id or "").strip(),
+        "email": str(email or "").strip(),
+        "member": member_safe,
+        "upstream_token": str(upstream_token or "").strip(),
+        "iat": _member_now_ts(),
+        "exp": _member_now_ts() + MEMBER_SESSION_TTL_SEC,
+    }
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    body_b64 = _b64u_encode(body)
+    sig = hmac.new(_member_session_secret(), body_b64.encode("ascii"), hashlib.sha256).digest()
+    return f"{body_b64}.{_b64u_encode(sig)}"
 
 
 def _member_get_session(token: str) -> dict | None:
     t = str(token or "").strip()
-    if not t:
+    if not t or "." not in t:
         return None
-    with _member_lock:
-        sess = _member_sessions.get(t)
-        if not sess:
+    try:
+        body_b64, sig_b64 = t.split(".", 1)
+        expect_sig = hmac.new(
+            _member_session_secret(),
+            body_b64.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+        got_sig = _b64u_decode(sig_b64)
+        if not got_sig or not hmac.compare_digest(got_sig, expect_sig):
             return None
-        if int(sess.get("exp", 0)) <= _member_now_ts():
-            _member_sessions.pop(t, None)
+        payload = json.loads(_b64u_decode(body_b64).decode("utf-8"))
+        if not isinstance(payload, dict):
             return None
-        return dict(sess)
+        exp = int(payload.get("exp", 0) or 0)
+        if exp <= _member_now_ts():
+            return None
+        member_id = str(payload.get("member_id", "") or "").strip()
+        if not member_id:
+            return None
+        return {
+            "member_id": member_id,
+            "email": str(payload.get("email", "") or "").strip(),
+            "member": payload.get("member") if isinstance(payload.get("member"), dict) else {},
+            "upstream_token": str(payload.get("upstream_token", "") or "").strip(),
+            "exp": exp,
+        }
+    except Exception:
+        return None
 
 
 def _member_find_account(accounts: list[dict], member_id: str, email: str) -> tuple[int, dict] | tuple[None, None]:
@@ -7625,6 +7981,66 @@ def _member_find_account(accounts: list[dict], member_id: str, email: str) -> tu
         if str(item.get("member_id", "")).strip() == member_id and str(item.get("email", "")).strip().lower() == email.lower():
             return i, item
     return None, None
+
+
+def _member_find_account_by_member_id(accounts: list[dict], member_id: str) -> tuple[int, dict] | tuple[None, None]:
+    mid = str(member_id or "").strip()
+    for i, item in enumerate(accounts):
+        if str(item.get("member_id", "")).strip() == mid:
+            return i, item
+    return None, None
+
+
+def _member_public_payload(item: dict) -> dict:
+    now = _member_now_ts()
+    year_start = now - 365 * 24 * 3600
+    changes = [
+        int(x)
+        for x in (item.get("prefix_change_ts") or [])
+        if isinstance(x, (int, float)) and int(x) >= year_start
+    ]
+    return {
+        "member_id": str(item.get("member_id", "")),
+        "email": str(item.get("email", "")),
+        "display_name": str(item.get("display_name", "")),
+        "avatar_color": int(item.get("avatar_color", 0) or 0),
+        "status": str(item.get("status", "active")),
+        "note": str(item.get("note", "")),
+        "ddns_enabled": bool(item.get("ddns_enabled", False)),
+        "ddns_prefix": str(item.get("ddns_prefix", "")),
+        "ddns_fqdn": str(item.get("ddns_fqdn", "")),
+        "prefix_change_used_this_year": len(changes),
+    }
+
+
+def _member_generate_member_id(accounts: list[dict]) -> str:
+    max_seq = 0
+    for item in accounts:
+        mid = str(item.get("member_id", "") or "").strip().upper()
+        if not mid.startswith("AC"):
+            continue
+        num = mid[2:]
+        if num.isdigit():
+            try:
+                max_seq = max(max_seq, int(num))
+            except Exception:
+                pass
+    return f"AC{max_seq + 1:06d}"
+
+
+def _member_prefix_in_use(accounts: list[dict], prefix: str, exclude_member_id: str = "") -> bool:
+    p = str(prefix or "").strip().lower()
+    ex = str(exclude_member_id or "").strip()
+    if not p:
+        return False
+    for item in accounts:
+        mid = str(item.get("member_id", "") or "").strip()
+        if ex and mid == ex:
+            continue
+        cur = str(item.get("ddns_prefix", "") or "").strip().lower()
+        if cur and cur == p:
+            return True
+    return False
 
 
 def build_member_html() -> str:
@@ -7779,23 +8195,40 @@ class AppHandler(BaseHTTPRequestHandler):
         "False",
     )
     speed_lock = threading.Lock()
+    metrics_lock = threading.Lock()
     control_lock = threading.Lock()
     upgrade_lock = threading.Lock()
     transfers_lock = threading.Lock()
     http_cut_lock = threading.Lock()
+    http_download_slots_lock = threading.Lock()
     restart_queued = False
     upgrade_running = False
     http_cut_epoch = 0
     speed_state = {
         "iface": None,
+        "disk_dev": None,
         "last_ts": 0.0,
         "last_rx": 0,
         "last_tx": 0,
+        "last_disk_read_bytes": 0,
+        "last_disk_write_bytes": 0,
         "rx_mibps": 0.0,
         "rx_mbps": 0.0,
         "tx_mibps": 0.0,
         "tx_mbps": 0.0,
+        "disk_read_mibps": 0.0,
+        "disk_write_mibps": 0.0,
     }
+    metrics_history = {
+        "ts": deque(maxlen=720),
+        "cpu": deque(maxlen=720),
+        "mem": deque(maxlen=720),
+        "netDown": deque(maxlen=720),
+        "netUp": deque(maxlen=720),
+        "diskUsage": deque(maxlen=720),
+        "diskIO": deque(maxlen=720),
+    }
+    metrics_sampler_started = False
     transfer_source_rules = (
         # Keep Guangya/Aliyun ahead of Baidu and avoid generic netdisk keyword.
         ("Guangya Netdisk", ("光鸭", "guangya", "clouddrive", "cloud drive")),
@@ -7818,6 +8251,10 @@ class AppHandler(BaseHTTPRequestHandler):
     process_speed_sampler = ProcessSourceSpeedSampler(process_source_rules)
     process_detail_sampler = ProcessSourceSpeedSampler(process_source_rules)
     active_transfers = {}
+    active_http_download_slots = 0
+    active_http_download_slots_by_ip = {}
+    max_active_http_downloads = DEFAULT_HTTP_MAX_ACTIVE_DOWNLOADS
+    max_http_downloads_per_ip = DEFAULT_HTTP_MAX_PER_IP_DOWNLOADS
     transfer_recent_ttl_sec = DEFAULT_TRANSFER_RECENT_TTL_SEC
     qbt_candidates = [
         DEFAULT_QBT_SERVICE,
@@ -7839,6 +8276,8 @@ class AppHandler(BaseHTTPRequestHandler):
     terminal_sessions = {}
     terminal_session_ttl_sec = 30 * 60
     terminal_max_sessions = 20
+    terminal_history = []
+    terminal_history_max = DEFAULT_TERMINAL_HISTORY_MAX
 
     @staticmethod
     def _is_hidden_system_name(name: str) -> bool:
@@ -8169,6 +8608,45 @@ class AppHandler(BaseHTTPRequestHandler):
         return False
 
     @classmethod
+    def _try_acquire_http_download_slot(cls, client_ip: str) -> tuple[bool, str]:
+        ip_key = str(client_ip or "unknown").strip() or "unknown"
+        with cls.http_download_slots_lock:
+            current_total = int(cls.active_http_download_slots)
+            current_ip = int(cls.active_http_download_slots_by_ip.get(ip_key, 0))
+            if (
+                cls.max_active_http_downloads > 0
+                and current_total >= cls.max_active_http_downloads
+            ):
+                return (
+                    False,
+                    f"Too many active HTTP downloads; try again later. "
+                    f"Limit: {cls.max_active_http_downloads}",
+                )
+            if (
+                cls.max_http_downloads_per_ip > 0
+                and current_ip >= cls.max_http_downloads_per_ip
+            ):
+                return (
+                    False,
+                    f"Too many active HTTP downloads from this IP; try again later. "
+                    f"Limit: {cls.max_http_downloads_per_ip}",
+                )
+            cls.active_http_download_slots = current_total + 1
+            cls.active_http_download_slots_by_ip[ip_key] = current_ip + 1
+            return True, ""
+
+    @classmethod
+    def _release_http_download_slot(cls, client_ip: str) -> None:
+        ip_key = str(client_ip or "unknown").strip() or "unknown"
+        with cls.http_download_slots_lock:
+            cls.active_http_download_slots = max(0, int(cls.active_http_download_slots) - 1)
+            current_ip = int(cls.active_http_download_slots_by_ip.get(ip_key, 0))
+            if current_ip <= 1:
+                cls.active_http_download_slots_by_ip.pop(ip_key, None)
+            else:
+                cls.active_http_download_slots_by_ip[ip_key] = current_ip - 1
+
+    @classmethod
     def _http_access_status(cls, app_cfg: dict | None = None) -> dict:
         policy = cls._http_access_policy(app_cfg)
         return {
@@ -8182,13 +8660,42 @@ class AppHandler(BaseHTTPRequestHandler):
             "allowlist_count": len(policy["allowlist"]),
         }
 
-    def _send_json(self, data: dict, status: int = HTTPStatus.OK, cors: bool = False):
+    def _parse_cookie_map(self) -> dict[str, str]:
+        raw = str(self.headers.get("Cookie", "") or "")
+        out: dict[str, str] = {}
+        if not raw:
+            return out
+        for part in raw.split(";"):
+            seg = str(part or "").strip()
+            if not seg or "=" not in seg:
+                continue
+            k, v = seg.split("=", 1)
+            out[str(k).strip()] = unquote(str(v).strip())
+        return out
+
+    def _member_token_from_request(self) -> str:
+        token = str(self.headers.get("X-Member-Session", "") or "").strip()
+        if token:
+            return token
+        ck = self._parse_cookie_map()
+        return str(ck.get(MEMBER_SESSION_COOKIE, "") or "").strip()
+
+    def _build_member_cookie(self, token: str, max_age: int | None = None) -> str:
+        age = MEMBER_SESSION_TTL_SEC if max_age is None else int(max_age)
+        v = quote(str(token or "").strip(), safe="")
+        return f"{MEMBER_SESSION_COOKIE}={v}; Max-Age={age}; Path=/; SameSite=Lax"
+
+    def _send_json(self, data: dict, status: int = HTTPStatus.OK, cors: bool = False, extra_headers: dict | None = None):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         if cors:
             self.send_header("Access-Control-Allow-Origin", "*")
+        if isinstance(extra_headers, dict):
+            for k, v in extra_headers.items():
+                if k and v is not None:
+                    self.send_header(str(k), str(v))
         self.end_headers()
         self.wfile.write(payload)
 
@@ -8388,15 +8895,15 @@ class AppHandler(BaseHTTPRequestHandler):
             },
             "deluge": {
                 "svc_keywords": cls._bt_service_keywords("deluge"),
-                "docker_keywords": ("deluge",),
+                "docker_keywords": ("deluge", "deluged", "deluge-web"),
             },
             "transmission": {
                 "svc_keywords": cls._bt_service_keywords("transmission"),
-                "docker_keywords": ("transmission",),
+                "docker_keywords": ("transmission", "transmission-openvpn"),
             },
             "rtorrent": {
                 "svc_keywords": cls._bt_service_keywords("rtorrent"),
-                "docker_keywords": ("rtorrent",),
+                "docker_keywords": ("rtorrent", "rutorrent", "rtorrent-rutorrent", "flood"),
             },
         }.get(client, {"svc_keywords": cls._bt_service_keywords("qbittorrent"), "docker_keywords": ("qbit", "qbittorrent")})
         svc_keywords = tuple(str(x).lower() for x in profile["svc_keywords"])
@@ -8623,9 +9130,9 @@ class AppHandler(BaseHTTPRequestHandler):
         client = str(settings.get("client", "qbittorrent") or "qbittorrent")
         defaults_map = {
             "qbittorrent": list(DEFAULT_QBT_DOCKER_CONTAINERS),
-            "deluge": ["deluge", "deluged"],
-            "transmission": ["transmission", "transmission-daemon"],
-            "rtorrent": ["rtorrent"],
+            "deluge": ["deluge", "deluged", "deluge-web"],
+            "transmission": ["transmission", "transmission-daemon", "transmission-openvpn"],
+            "rtorrent": ["rtorrent", "rutorrent", "rtorrent-rutorrent", "flood"],
         }
 
         def add(raw: str):
@@ -8647,7 +9154,7 @@ class AppHandler(BaseHTTPRequestHandler):
             allowed = {
                 "deluge": ("deluge",),
                 "transmission": ("transmission",),
-                "rtorrent": ("rtorrent",),
+                "rtorrent": ("rtorrent", "rutorrent", "flood"),
             }.get(client, ())
             if any(k in low_saved for k in allowed):
                 add(saved_container)
@@ -8734,6 +9241,344 @@ class AppHandler(BaseHTTPRequestHandler):
             return True, ""
         msg = (out.stderr or out.stdout or "").strip()[:200]
         return False, msg or "docker 执行失败"
+
+    @classmethod
+    def _docker_safe_name(cls, name: str) -> str:
+        text = str(name or "").strip()
+        if not text or len(text) > 128:
+            return ""
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", text):
+            return ""
+        return text
+
+    @classmethod
+    def _docker_safe_image(cls, image: str) -> str:
+        text = str(image or "").strip()
+        if not text or len(text) > 255:
+            return ""
+        # docker image refs may include repo, tag and digest.
+        if not re.fullmatch(r"[A-Za-z0-9._/@:-]+", text):
+            return ""
+        return text
+
+    @classmethod
+    def _docker_safe_kv(cls, text: str) -> str:
+        raw = str(text or "").strip()
+        if not raw or len(raw) > 512:
+            return ""
+        if "\x00" in raw or "\n" in raw or "\r" in raw:
+            return ""
+        return raw
+
+    @classmethod
+    def _docker_collect_list(cls, value) -> list[str]:
+        if isinstance(value, list):
+            source = value
+        elif isinstance(value, str):
+            source = [x.strip() for x in value.split(",")]
+        else:
+            source = []
+        out = []
+        for item in source:
+            text = str(item or "").strip()
+            if text:
+                out.append(text)
+        return out
+
+    @classmethod
+    def _docker_run(cls, argv: list[str], timeout: float = 60.0) -> tuple[bool, str]:
+        try:
+            out = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except FileNotFoundError:
+            return False, "docker command not found"
+        except subprocess.TimeoutExpired:
+            return False, "docker command timed out"
+        except Exception as exc:
+            return False, str(exc)
+        if out.returncode == 0:
+            return True, (out.stdout or "").strip()
+        msg = (out.stderr or out.stdout or "").strip()[:1000]
+        return False, msg or "docker command failed"
+
+    @classmethod
+    def _docker_images_payload(cls) -> dict:
+        rows, err = cls._docker_json_lines(
+            ["docker", "images", "--format", "{{json .}}"],
+            timeout=10.0,
+        )
+        if err:
+            return {"ok": False, "available": False, "error": err, "images": []}
+        images = []
+        for row in rows:
+            repo = str(row.get("Repository", "") or "").strip()
+            tag = str(row.get("Tag", "") or "").strip()
+            image_id = str(row.get("ID", "") or "").strip()
+            size = str(row.get("Size", "") or "").strip()
+            created = str(row.get("CreatedSince", "") or "").strip()
+            ref = f"{repo}:{tag}" if repo and tag and tag != "<none>" else repo or image_id
+            images.append(
+                {
+                    "id": image_id,
+                    "repository": repo,
+                    "tag": tag,
+                    "ref": ref,
+                    "size": size or "-",
+                    "created": created or "-",
+                }
+            )
+        images.sort(key=lambda x: str(x.get("ref", "")).lower())
+        return {"ok": True, "available": True, "error": "", "images": images}
+
+    @classmethod
+    def _docker_pull_image(cls, image: str) -> tuple[bool, str]:
+        ref = cls._docker_safe_image(image)
+        if not ref:
+            return False, "invalid image reference"
+        return cls._docker_run(["docker", "pull", ref], timeout=180.0)
+
+    @classmethod
+    def _docker_remove_image(cls, image: str, force: bool = False) -> tuple[bool, str]:
+        ref = cls._docker_safe_image(image)
+        if not ref:
+            return False, "invalid image reference"
+        argv = ["docker", "rmi"]
+        if force:
+            argv.append("-f")
+        argv.append(ref)
+        return cls._docker_run(argv, timeout=90.0)
+
+    @classmethod
+    def _docker_remove_container(cls, name: str, force: bool = False) -> tuple[bool, str]:
+        cname = cls._docker_safe_name(name)
+        if not cname:
+            return False, "invalid container name"
+        argv = ["docker", "rm"]
+        if force:
+            argv.append("-f")
+        argv.append(cname)
+        return cls._docker_run(argv, timeout=60.0)
+
+    @classmethod
+    def _docker_create_container(cls, body: dict) -> tuple[bool, str]:
+        name = cls._docker_safe_name((body or {}).get("name", ""))
+        image = cls._docker_safe_image((body or {}).get("image", ""))
+        if not name:
+            return False, "invalid container name"
+        if not image:
+            return False, "invalid image reference"
+        argv = ["docker", "run", "-d", "--name", name]
+        restart_policy = str((body or {}).get("restart", "") or "").strip().lower()
+        if restart_policy in {"no", "always", "unless-stopped", "on-failure"}:
+            argv.extend(["--restart", restart_policy])
+        network = cls._docker_safe_name((body or {}).get("network", "bridge"))
+        if network:
+            argv.extend(["--network", network])
+        for port in cls._docker_collect_list((body or {}).get("ports")):
+            safe = cls._docker_safe_kv(port)
+            if safe and re.fullmatch(r"[0-9.:/-]+", safe):
+                argv.extend(["-p", safe])
+        for vol in cls._docker_collect_list((body or {}).get("volumes")):
+            safe = cls._docker_safe_kv(vol)
+            if safe and ":" in safe:
+                argv.extend(["-v", safe])
+        for env in cls._docker_collect_list((body or {}).get("env")):
+            safe = cls._docker_safe_kv(env)
+            if safe and "=" in safe:
+                argv.extend(["-e", safe])
+        command = str((body or {}).get("command", "") or "").strip()
+        argv.append(image)
+        if command:
+            argv.extend(shlex.split(command))
+        return cls._docker_run(argv, timeout=90.0)
+
+    @staticmethod
+    def _docker_parse_percent(value) -> float:
+        text = str(value or "").strip().replace("%", "")
+        try:
+            return round(max(0.0, float(text)), 2)
+        except Exception:
+            return 0.0
+
+    @classmethod
+    def _docker_json_lines(cls, argv: list[str], timeout: float = 8.0) -> tuple[list[dict], str]:
+        try:
+            out = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=timeout,
+            )
+        except FileNotFoundError:
+            return [], "docker command not found"
+        except subprocess.TimeoutExpired:
+            return [], "docker command timed out"
+        except Exception as exc:
+            return [], str(exc)
+        if out.returncode != 0:
+            return [], (out.stderr or out.stdout or "docker command failed").strip()[:500]
+        rows = []
+        for line in (out.stdout or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    rows.append(item)
+            except Exception:
+                continue
+        return rows, ""
+
+    @classmethod
+    def _docker_linked_roles(cls, name: str, image: str, app_cfg: dict | None = None) -> list[str]:
+        text = f"{name} {image}".lower()
+        roles = []
+        qbt_cfg = ((app_cfg or {}).get("qbt") or {}) if isinstance(app_cfg, dict) else {}
+        qbt_container = str(qbt_cfg.get("docker_container", "") or "").strip().lower()
+        if qbt_container and name.lower() == qbt_container:
+            roles.append("BitTorrent")
+        elif any(k in text for k in ("qbittorrent", "qbit", "deluge", "transmission", "rtorrent")):
+            roles.append("BitTorrent")
+        if any(k in text for k in ("ddns", "duckdns", "cloudflare-ddns", "ddns-go")):
+            roles.append("DDNS")
+        if any(k in text for k in ("afterclaw", "storage-http-link-web", "file-control-center")):
+            roles.append("AfterClaw")
+        return roles
+
+    @classmethod
+    def _docker_status_payload(cls, app_cfg: dict | None = None, include_stats: bool = True) -> dict:
+        cfg = app_cfg if isinstance(app_cfg, dict) else load_app_config(_APP_ROOT_DIR)
+        if not cls._docker_module_enabled(cfg):
+            return {
+                "ok": True,
+                "available": False,
+                "disabled": True,
+                "error": "Docker module is disabled",
+                "summary": {"running": 0, "stopped": 0, "total": 0, "images": 0},
+                "containers": [],
+            }
+
+        ps_rows, err = cls._docker_json_lines(
+            ["docker", "ps", "-a", "--format", "{{json .}}"],
+            timeout=8.0,
+        )
+        if err:
+            return {
+                "ok": False,
+                "available": False,
+                "disabled": False,
+                "error": err,
+                "summary": {"running": 0, "stopped": 0, "total": 0, "images": 0},
+                "containers": [],
+            }
+
+        stats_rows = []
+        if include_stats:
+            stats_rows, _ = cls._docker_json_lines(
+                ["docker", "stats", "--no-stream", "--format", "{{json .}}"],
+                timeout=10.0,
+            )
+        stats_by_name = {}
+        for item in stats_rows:
+            nm = str(item.get("Name", "") or item.get("Container", "") or "").strip()
+            if nm:
+                stats_by_name[nm] = item
+
+        image_count = 0
+        try:
+            out = subprocess.run(
+                ["docker", "images", "-q"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=8.0,
+            )
+            if out.returncode == 0:
+                image_count = len({x.strip() for x in out.stdout.splitlines() if x.strip()})
+        except Exception:
+            image_count = 0
+
+        containers = []
+        running = 0
+        for row in ps_rows:
+            name = str(row.get("Names", "") or row.get("Name", "") or "").strip()
+            image = str(row.get("Image", "") or "").strip()
+            state = str(row.get("State", "") or "").strip().lower()
+            status = str(row.get("Status", "") or "").strip()
+            is_running = state == "running" or status.lower().startswith("up")
+            if is_running:
+                running += 1
+            stat = stats_by_name.get(name, {})
+            containers.append(
+                {
+                    "id": str(row.get("ID", "") or "").strip(),
+                    "name": name,
+                    "image": image,
+                    "command": str(row.get("Command", "") or "").strip(),
+                    "status": status,
+                    "state": state or ("running" if is_running else "stopped"),
+                    "running": bool(is_running),
+                    "ports": str(row.get("Ports", "") or "").strip() or "-",
+                    "uptime": str(row.get("RunningFor", "") or "").strip() or "-",
+                    "cpu_pct": cls._docker_parse_percent(stat.get("CPUPerc", "")),
+                    "mem_usage": str(stat.get("MemUsage", "") or "").strip(),
+                    "mem_pct": cls._docker_parse_percent(stat.get("MemPerc", "")),
+                    "net_io": str(stat.get("NetIO", "") or "").strip(),
+                    "block_io": str(stat.get("BlockIO", "") or "").strip(),
+                    "pids": str(stat.get("PIDs", "") or "").strip(),
+                    "roles": cls._docker_linked_roles(name, image, cfg),
+                }
+            )
+        containers.sort(key=lambda x: (not bool(x.get("running")), str(x.get("name", "")).lower()))
+        total = len(containers)
+        return {
+            "ok": True,
+            "available": True,
+            "disabled": False,
+            "error": "",
+            "summary": {
+                "running": running,
+                "stopped": max(0, total - running),
+                "total": total,
+                "images": image_count,
+            },
+            "containers": containers,
+        }
+
+    @classmethod
+    def _docker_container_logs(cls, name: str, tail: int = 160) -> tuple[bool, str]:
+        cname = cls._docker_safe_name(name)
+        if not cname:
+            return False, "invalid container name"
+        try:
+            tail_n = max(20, min(500, int(tail)))
+        except Exception:
+            tail_n = 160
+        try:
+            out = subprocess.run(
+                ["docker", "logs", "--tail", str(tail_n), cname],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10.0,
+            )
+        except FileNotFoundError:
+            return False, "docker command not found"
+        except subprocess.TimeoutExpired:
+            return False, "docker logs timed out"
+        except Exception as exc:
+            return False, str(exc)
+        text = ((out.stdout or "") + (out.stderr or "")).strip()
+        if out.returncode != 0:
+            return False, text[:1000] or "docker logs failed"
+        return True, text[-24000:]
 
     @classmethod
     def _service_action(cls, unit: str, action: str):
@@ -9430,8 +10275,38 @@ class AppHandler(BaseHTTPRequestHandler):
         hours = int((uptime_sec % 86400) // 3600)
         minutes = int((uptime_sec % 3600) // 60)
         uptime_human = f"{days}d {hours}h {minutes}m"
+        disks = cls._system_disks_status()
+        hostname = ""
+        try:
+            hostname = socket.gethostname()
+        except Exception:
+            hostname = ""
+        os_pretty = platform.platform()
+        os_id = ""
+        os_like = ""
+        try:
+            with open("/etc/os-release", "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    vv = v.strip().strip('"').strip("'")
+                    if k == "PRETTY_NAME" and vv:
+                        os_pretty = vv
+                    elif k == "ID" and vv:
+                        os_id = vv.lower()
+                    elif k == "ID_LIKE" and vv:
+                        os_like = vv.lower()
+        except Exception:
+            pass
         return {
             "timestamp": now,
+            "hostname": hostname,
+            "platform": platform.system(),
+            "os_pretty": os_pretty,
+            "os_id": os_id,
+            "os_like": os_like,
             "load1": load1,
             "load5": load5,
             "load15": load15,
@@ -9443,9 +10318,148 @@ class AppHandler(BaseHTTPRequestHandler):
             "disk_used": disk_used,
             "disk_total_human": cls._human_size(disk_total),
             "disk_used_human": cls._human_size(disk_used),
+            "disks": disks,
             "uptime_seconds": uptime_sec,
             "uptime_human": uptime_human,
         }
+
+    @classmethod
+    def _system_disks_status(cls):
+        out = []
+        try:
+            p = subprocess.run(
+                ["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MOUNTPOINT,MODEL,FSTYPE,PKNAME"],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2.5,
+            )
+            if p.returncode != 0:
+                return out
+            obj = json.loads(p.stdout or "{}")
+            devices = obj.get("blockdevices") or []
+            for dev in devices:
+                if str(dev.get("type", "")) != "disk":
+                    continue
+                children = dev.get("children") or []
+                picked_mount = ""
+                picked_name = str(dev.get("path", "") or dev.get("name", "") or "").strip()
+                picked_fstype = ""
+                picked_part = ""
+                for ch in children:
+                    mp = str(ch.get("mountpoint", "") or "").strip()
+                    if mp and mp != "[SWAP]":
+                        picked_mount = mp
+                        picked_name = str(ch.get("path", "") or ch.get("name", "") or picked_name).strip()
+                        picked_fstype = str(ch.get("fstype", "") or "").strip()
+                        picked_part = str(ch.get("name", "") or "").strip()
+                        break
+                if not picked_mount:
+                    continue
+                st = os.statvfs(picked_mount)
+                total = int(st.f_frsize * st.f_blocks)
+                free = int(st.f_frsize * st.f_bavail)
+                used = max(total - free, 0)
+                pct = (used * 100.0 / total) if total > 0 else 0.0
+                health = "warn" if pct >= 90.0 else "ok"
+                smart = cls._disk_smart_summary(str(dev.get("path", "") or "").strip(), str(dev.get("name", "") or "").strip())
+                out.append(
+                    {
+                        "name": str(dev.get("name", "") or picked_name),
+                        "partition_name": picked_part,
+                        "path": picked_name,
+                        "model": str(dev.get("model", "") or "").strip(),
+                        "mountpoint": picked_mount,
+                        "fstype": picked_fstype,
+                        "total_bytes": total,
+                        "used_bytes": used,
+                        "used_pct": pct,
+                        "total_human": cls._human_size(total),
+                        "used_human": cls._human_size(used),
+                        "health": health,
+                        "smart": smart,
+                    }
+                )
+        except Exception:
+            return out
+        return out
+
+    @classmethod
+    def _disk_smart_summary(cls, disk_path: str, disk_name: str) -> dict:
+        # Optional capability: only probe when smartctl exists.
+        try:
+            if not shutil.which("smartctl"):
+                return {"available": False, "status": "unavailable", "reason": "smartctl not installed"}
+        except Exception:
+            return {"available": False, "status": "unavailable", "reason": "smartctl not installed"}
+
+        target = str(disk_path or "").strip() or f"/dev/{str(disk_name or '').strip()}"
+        if not target.startswith("/dev/"):
+            target = f"/dev/{target.lstrip('/')}"
+        try:
+            proc = subprocess.run(
+                ["smartctl", "-j", "-a", target],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=2.8,
+            )
+            if proc.returncode not in (0, 2, 4):
+                msg = (proc.stderr or proc.stdout or "").strip()[:120] or f"exit {proc.returncode}"
+                return {"available": False, "status": "error", "reason": msg}
+            data = json.loads(proc.stdout or "{}")
+            overall = "unknown"
+            try:
+                passed = bool((((data.get("smart_status") or {}).get("passed"))))
+                overall = "passed" if passed else "failed"
+            except Exception:
+                overall = "unknown"
+            temp_c = None
+            pwr_h = None
+            realloc = None
+            pending = None
+            # Common shortcuts
+            try:
+                temp_c = ((data.get("temperature") or {}).get("current"))
+            except Exception:
+                temp_c = None
+            try:
+                pwr_h = ((data.get("power_on_time") or {}).get("hours"))
+            except Exception:
+                pwr_h = None
+            # ATA attributes
+            try:
+                attrs = (((data.get("ata_smart_attributes") or {}).get("table")) or [])
+                for row in attrs:
+                    k = str(row.get("name", "") or "").lower()
+                    raw = (row.get("raw") or {}).get("value")
+                    if raw is None:
+                        continue
+                    if "reallocated_sector_ct" in k and realloc is None:
+                        realloc = int(raw)
+                    if "current_pending_sector" in k and pending is None:
+                        pending = int(raw)
+            except Exception:
+                pass
+            # NVMe fallback
+            try:
+                nv = data.get("nvme_smart_health_information_log") or {}
+                if temp_c is None and isinstance(nv.get("temperature"), (int, float)):
+                    # smartctl nvme temperature may be Kelvin
+                    t = float(nv.get("temperature"))
+                    temp_c = int(round(t - 273.15)) if t > 200 else int(round(t))
+            except Exception:
+                pass
+            return {
+                "available": True,
+                "status": overall,
+                "temperature_c": temp_c,
+                "power_on_hours": pwr_h,
+                "reallocated_sectors": realloc,
+                "pending_sectors": pending,
+            }
+        except Exception as exc:
+            return {"available": False, "status": "error", "reason": str(exc)[:120]}
 
     @classmethod
     def _qbt_api_join(cls, base_url: str, path: str) -> str:
@@ -9928,11 +10942,22 @@ class AppHandler(BaseHTTPRequestHandler):
         }
         if not http_module_on:
             self_svc["detail"] = "HTTP module is disabled（仅本程序 /http-files 上传节点被禁用）"
+        docker_payload = cls._docker_status_payload(app_cfg, include_stats=False)
+        docker_summary = dict(docker_payload.get("summary", {}) or {})
+        docker_summary.update(
+            {
+                "ok": bool(docker_payload.get("ok", False)),
+                "available": bool(docker_payload.get("available", False)),
+                "disabled": bool(docker_payload.get("disabled", False)),
+                "error": str(docker_payload.get("error", "") or ""),
+            }
+        )
         return {
             "system": cls._system_status(),
             "qbt": qbt,
             "ddns": ddns_svc,
             "self": self_svc,
+            "docker": docker_summary,
             "http_access": cls._http_access_status(app_cfg),
             "app_config": app_cfg,
         }
@@ -10169,7 +11194,47 @@ class AppHandler(BaseHTTPRequestHandler):
                 cls._terminal_close_session_locked(sid)
 
     @classmethod
-    def _terminal_start_session(cls, cols, rows):
+    def _terminal_record_history_locked(cls, sess: dict, command: str):
+        cmd = str(command or "").strip()
+        if not cmd:
+            return
+        cls.terminal_history.append(
+            {
+                "ts": int(time.time()),
+                "session_id": str(sess.get("id", "")),
+                "client_ip": str(sess.get("client_ip", "")),
+                "target": str(sess.get("target", "")),
+                "command": cmd,
+            }
+        )
+        keep = max(50, int(cls.terminal_history_max))
+        if len(cls.terminal_history) > keep:
+            cls.terminal_history = cls.terminal_history[-keep:]
+
+    @classmethod
+    def _terminal_capture_input_locked(cls, sess: dict, data: str):
+        text = str(data or "")
+        if not text:
+            return
+        buf = str(sess.get("input_buffer", ""))
+        for ch in text:
+            if ch in ("\r", "\n"):
+                cls._terminal_record_history_locked(sess, buf)
+                buf = ""
+                continue
+            if ch in ("\b", "\x7f"):
+                buf = buf[:-1]
+                continue
+            code = ord(ch)
+            if code < 32:
+                continue
+            buf += ch
+        if len(buf) > 512:
+            buf = buf[-512:]
+        sess["input_buffer"] = buf
+
+    @classmethod
+    def _terminal_start_session(cls, cols, rows, client_ip: str = ""):
         cfg = load_app_config(_APP_ROOT_DIR)
         argv, meta = _build_terminal_ssh_argv(cfg)
         c, r = cls._terminal_normalize_size(cols, rows)
@@ -10211,6 +11276,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "fd": master_fd,
                     "proc": proc,
                     "meta": meta,
+                    "client_ip": str(client_ip or ""),
+                    "target": str(meta.get("display", "") or ""),
+                    "input_buffer": "",
                     "created_at": now,
                     "last_active": now,
                 }
@@ -10285,6 +11353,7 @@ class AppHandler(BaseHTTPRequestHandler):
             proc = sess.get("proc")
             if proc is not None and proc.poll() is not None:
                 raise ValueError("终端会话已结束")
+            cls._terminal_capture_input_locked(sess, text)
             sess["last_active"] = time.time()
 
         payload = text.encode("utf-8", errors="ignore")
@@ -10295,6 +11364,64 @@ class AppHandler(BaseHTTPRequestHandler):
                 break
             written += int(n)
         return {"ok": True, "written": written}
+
+    @classmethod
+    def _terminal_list_sessions(cls):
+        now = time.time()
+        out = []
+        with cls.terminal_lock:
+            cls._terminal_cleanup_locked()
+            for sid, sess in cls.terminal_sessions.items():
+                proc = sess.get("proc")
+                exit_code = proc.poll() if proc is not None else 0
+                alive = exit_code is None
+                out.append(
+                    {
+                        "session_id": sid,
+                        "client_ip": str(sess.get("client_ip", "")),
+                        "target": str(sess.get("target", "")),
+                        "created_at": float(sess.get("created_at", now) or now),
+                        "last_active": float(sess.get("last_active", now) or now),
+                        "alive": bool(alive),
+                        "exit_code": exit_code,
+                    }
+                )
+        out.sort(key=lambda x: float(x.get("last_active", 0.0)), reverse=True)
+        return {"items": out, "count": len(out)}
+
+    @classmethod
+    def _terminal_get_history(cls, limit=200, keyword: str = "", client_ip: str = "", session_id: str = ""):
+        try:
+            n = int(limit)
+        except Exception:
+            n = 200
+        n = max(1, min(n, 1000))
+        kw = str(keyword or "").strip().lower()
+        cip = str(client_ip or "").strip()
+        sid = str(session_id or "").strip()
+        with cls.terminal_lock:
+            items = list(cls.terminal_history)
+        if sid:
+            items = [it for it in items if str(it.get("session_id", "")) == sid]
+        if cip:
+            items = [it for it in items if str(it.get("client_ip", "")) == cip]
+        if kw:
+            items = [
+                it for it in items
+                if kw in str(it.get("command", "")).lower()
+                or kw in str(it.get("target", "")).lower()
+                or kw in str(it.get("client_ip", "")).lower()
+            ]
+        if len(items) > n:
+            items = items[-n:]
+        return {"items": list(reversed(items)), "count": len(items)}
+
+    @classmethod
+    def _terminal_clear_history(cls):
+        with cls.terminal_lock:
+            removed = len(cls.terminal_history)
+            cls.terminal_history = []
+        return {"ok": True, "removed": int(removed)}
 
     @classmethod
     def _terminal_resize_session(cls, sid: str, cols, rows):
@@ -10811,15 +11938,24 @@ class AppHandler(BaseHTTPRequestHandler):
             if not iface:
                 iface = cls._detect_default_iface()
                 cls.speed_state["iface"] = iface
+            disk_dev = cls.speed_state.get("disk_dev")
+            if not disk_dev:
+                disk_dev = cls._detect_primary_disk_device()
+                cls.speed_state["disk_dev"] = disk_dev
             rx_now, tx_now = cls._read_iface_bytes(iface)
+            disk_read_now, disk_write_now = cls._read_disk_bytes_total(str(disk_dev or ""))
 
             last_ts = float(cls.speed_state.get("last_ts", 0.0) or 0.0)
             last_rx = int(cls.speed_state.get("last_rx", 0) or 0)
             last_tx = int(cls.speed_state.get("last_tx", 0) or 0)
+            last_disk_read = int(cls.speed_state.get("last_disk_read_bytes", 0) or 0)
+            last_disk_write = int(cls.speed_state.get("last_disk_write_bytes", 0) or 0)
             rx_mibps = float(cls.speed_state.get("rx_mibps", 0.0) or 0.0)
             rx_mbps = float(cls.speed_state.get("rx_mbps", 0.0) or 0.0)
             tx_mibps = float(cls.speed_state.get("tx_mibps", 0.0) or 0.0)
             tx_mbps = float(cls.speed_state.get("tx_mbps", 0.0) or 0.0)
+            disk_read_mibps = float(cls.speed_state.get("disk_read_mibps", 0.0) or 0.0)
+            disk_write_mibps = float(cls.speed_state.get("disk_write_mibps", 0.0) or 0.0)
 
             if last_ts > 0 and now > last_ts:
                 delta_sec = now - last_ts
@@ -10831,23 +11967,142 @@ class AppHandler(BaseHTTPRequestHandler):
                     delta_tx = tx_now - last_tx
                     tx_mibps = delta_tx / 1024.0 / 1024.0 / delta_sec
                     tx_mbps = delta_tx * 8.0 / 1024.0 / 1024.0 / delta_sec
+                if disk_read_now >= last_disk_read:
+                    delta_disk_read = disk_read_now - last_disk_read
+                    disk_read_mibps = delta_disk_read / 1024.0 / 1024.0 / delta_sec
+                if disk_write_now >= last_disk_write:
+                    delta_disk_write = disk_write_now - last_disk_write
+                    disk_write_mibps = delta_disk_write / 1024.0 / 1024.0 / delta_sec
 
             cls.speed_state["last_ts"] = now
             cls.speed_state["last_rx"] = rx_now
             cls.speed_state["last_tx"] = tx_now
+            cls.speed_state["last_disk_read_bytes"] = disk_read_now
+            cls.speed_state["last_disk_write_bytes"] = disk_write_now
             cls.speed_state["rx_mibps"] = rx_mibps
             cls.speed_state["rx_mbps"] = rx_mbps
             cls.speed_state["tx_mibps"] = tx_mibps
             cls.speed_state["tx_mbps"] = tx_mbps
+            cls.speed_state["disk_read_mibps"] = disk_read_mibps
+            cls.speed_state["disk_write_mibps"] = disk_write_mibps
 
             return {
                 "iface": iface or "",
+                "disk_dev": disk_dev or "",
                 "rx_mibps": rx_mibps,
                 "rx_mbps": rx_mbps,
                 "tx_mibps": tx_mibps,
                 "tx_mbps": tx_mbps,
+                "disk_read_mibps": disk_read_mibps,
+                "disk_write_mibps": disk_write_mibps,
                 "active_conn_1288": cls._count_established_conn_1288(),
             }
+
+    @classmethod
+    def _detect_primary_disk_device(cls) -> str:
+        try:
+            mounts = ["/srv/Storage", "/"]
+            for mnt in mounts:
+                dev = ""
+                with open("/proc/mounts", "r", encoding="utf-8") as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) < 2:
+                            continue
+                        if parts[1] == mnt and parts[0].startswith("/dev/"):
+                            dev = parts[0].strip()
+                            break
+                if not dev:
+                    continue
+                name = os.path.basename(dev)
+                if name.startswith("nvme") and "p" in name:
+                    name = name.rsplit("p", 1)[0]
+                else:
+                    name = re.sub(r"\d+$", "", name)
+                if name:
+                    return name
+        except Exception:
+            return ""
+        return ""
+
+    @classmethod
+    def _read_disk_bytes_total(cls, dev_name: str) -> tuple[int, int]:
+        name = str(dev_name or "").strip()
+        if not name:
+            return 0, 0
+        try:
+            with open("/proc/diskstats", "r", encoding="utf-8") as f:
+                for line in f:
+                    cols = line.split()
+                    if len(cols) < 14:
+                        continue
+                    if cols[2] != name:
+                        continue
+                    sectors_read = int(cols[5] or 0)
+                    sectors_written = int(cols[9] or 0)
+                    # Linux block sector is 512 bytes.
+                    return sectors_read * 512, sectors_written * 512
+        except Exception:
+            return 0, 0
+        return 0, 0
+
+    @classmethod
+    def _append_metrics_sample(cls):
+        try:
+            sys_now = cls._system_status()
+            spd_now = cls._speed_snapshot()
+            mem_total = float(sys_now.get("mem_total", 0.0) or 0.0)
+            mem_used = float(sys_now.get("mem_used", 0.0) or 0.0)
+            disk_total = float(sys_now.get("disk_total", 0.0) or 0.0)
+            disk_used = float(sys_now.get("disk_used", 0.0) or 0.0)
+            cpu = max(0.0, min(100.0, float(sys_now.get("load1", 0.0) or 0.0) * 10.0))
+            mem = max(0.0, min(100.0, (mem_used * 100.0 / mem_total) if mem_total > 0 else 0.0))
+            disk_usage = max(0.0, min(100.0, (disk_used * 100.0 / disk_total) if disk_total > 0 else 0.0))
+            net_down = max(0.0, float(spd_now.get("rx_mibps", 0.0) or 0.0))
+            net_up = max(0.0, float(spd_now.get("tx_mibps", 0.0) or 0.0))
+            disk_io = max(
+                0.0,
+                float(spd_now.get("disk_read_mibps", 0.0) or 0.0)
+                + float(spd_now.get("disk_write_mibps", 0.0) or 0.0),
+            )
+            with cls.metrics_lock:
+                cls.metrics_history["ts"].append(float(time.time()))
+                cls.metrics_history["cpu"].append(cpu)
+                cls.metrics_history["mem"].append(mem)
+                cls.metrics_history["netDown"].append(net_down)
+                cls.metrics_history["netUp"].append(net_up)
+                cls.metrics_history["diskUsage"].append(disk_usage)
+                cls.metrics_history["diskIO"].append(disk_io)
+        except Exception:
+            return
+
+    @classmethod
+    def _metrics_history_payload(cls):
+        with cls.metrics_lock:
+            return {
+                "ts": list(cls.metrics_history["ts"]),
+                "cpu": list(cls.metrics_history["cpu"]),
+                "mem": list(cls.metrics_history["mem"]),
+                "netDown": list(cls.metrics_history["netDown"]),
+                "netUp": list(cls.metrics_history["netUp"]),
+                "diskUsage": list(cls.metrics_history["diskUsage"]),
+                "diskIO": list(cls.metrics_history["diskIO"]),
+            }
+
+    @classmethod
+    def _start_metrics_sampler(cls):
+        with cls.metrics_lock:
+            if cls.metrics_sampler_started:
+                return
+            cls.metrics_sampler_started = True
+
+        def _worker():
+            while True:
+                cls._append_metrics_sample()
+                time.sleep(2.0)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
 
     @classmethod
     def _module_enabled(
@@ -10880,6 +12135,10 @@ class AppHandler(BaseHTTPRequestHandler):
     @classmethod
     def _ddns_module_enabled(cls, app_cfg: dict | None = None) -> bool:
         return cls._module_enabled("ddns", True, app_cfg)
+
+    @classmethod
+    def _docker_module_enabled(cls, app_cfg: dict | None = None) -> bool:
+        return cls._module_enabled("docker", True, app_cfg)
 
     @classmethod
     def _shareclip_module_enabled(cls, app_cfg: dict | None = None) -> bool:
@@ -11052,6 +12311,16 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/healthz":
+            self._send_json(
+                {
+                    "ok": True,
+                    "service": "storage-http-link-web",
+                    "time": int(time.time()),
+                    "version": APP_VERSION_TEXT,
+                }
+            )
+            return
         if parsed.path == "/pub/embed.css":
             if not self._require_lan():
                 return
@@ -11189,7 +12458,15 @@ class AppHandler(BaseHTTPRequestHandler):
                 rel_file = unquote(parsed.path[len("/http-files/") :]).lstrip("/")
                 rel_file = safe_relative_path(rel_file)
                 target_file = ensure_under_root(http_root, http_root / rel_file)
-                self._send_file(target_file, send_body=True, http_root=http_root)
+                client_ip = self._client_ip()
+                acquired, reason = self._try_acquire_http_download_slot(client_ip)
+                if not acquired:
+                    self._error(reason, status=HTTPStatus.TOO_MANY_REQUESTS)
+                    return
+                try:
+                    self._send_file(target_file, send_body=True, http_root=http_root)
+                finally:
+                    self._release_http_download_slot(client_ip)
                 return
             except ValueError as exc:
                 self._error(str(exc), status=HTTPStatus.FORBIDDEN)
@@ -11226,6 +12503,12 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(self._speed_snapshot())
             return
 
+        if parsed.path == "/api/metrics/history":
+            if not self._require_lan():
+                return
+            self._send_json(self._metrics_history_payload())
+            return
+
         if parsed.path == "/api/process-net":
             if not self._require_lan():
                 return
@@ -11255,6 +12538,59 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(self._control_status_payload(client))
             return
 
+        if parsed.path == "/api/docker/containers":
+            if not self._require_lan():
+                return
+            self._send_json(self._docker_status_payload())
+            return
+
+        if parsed.path == "/api/docker/logs":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            query = parse_qs(parsed.query)
+            name = str(query.get("name", [""])[0] or "").strip()
+            tail_raw = str(query.get("tail", ["160"])[0] or "160").strip()
+            try:
+                tail = int(tail_raw)
+            except Exception:
+                tail = 160
+            ok, text = self._docker_container_logs(name, tail=tail)
+            if not ok:
+                self._error(text, status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, "name": name, "logs": text})
+            return
+
+        if parsed.path == "/api/docker/recommendations":
+            if not self._require_lan():
+                return
+            self._send_json(
+                {
+                    "ok": True,
+                    "items": DOCKER_RECOMMENDATIONS,
+                    "categories": sorted(
+                        {str(x.get("category", "") or "other") for x in DOCKER_RECOMMENDATIONS}
+                    ),
+                }
+            )
+            return
+
+        if parsed.path == "/api/docker/images":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            payload = self._docker_images_payload()
+            if not payload.get("ok"):
+                self._error(str(payload.get("error") or "Docker image query failed"), status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(payload)
+            return
+
         if parsed.path == "/api/app-config":
             if not self._require_lan():
                 return
@@ -11264,34 +12600,57 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/member/profile":
             if not self._require_lan():
                 return
-            token = str(self.headers.get("X-Member-Session", "") or "").strip()
+            token = self._member_token_from_request()
             sess = _member_get_session(token)
             if not sess:
                 self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
                 return
-            member_id = str(sess.get("member_id", ""))
-            email = str(sess.get("email", ""))
-            accounts = _load_member_accounts()
-            _, item = _member_find_account(accounts, member_id, email)
-            if not item:
-                self._error("Member not found", status=HTTPStatus.NOT_FOUND)
-                return
-            now = _member_now_ts()
-            year_start = now - 365 * 24 * 3600
-            changes = [int(x) for x in (item.get("prefix_change_ts") or []) if isinstance(x, (int, float)) and int(x) >= year_start]
+            member = sess.get("member") if isinstance(sess.get("member"), dict) else {}
+            if not member:
+                member = {
+                    "member_id": str(sess.get("member_id", "") or ""),
+                    "email": str(sess.get("email", "") or ""),
+                }
             self._send_json(
                 {
                     "ok": True,
-                    "member": {
-                        "member_id": str(item.get("member_id", "")),
-                        "email": str(item.get("email", "")),
-                        "status": str(item.get("status", "active")),
-                        "note": str(item.get("note", "")),
-                        "ddns_enabled": bool(item.get("ddns_enabled", False)),
-                        "ddns_prefix": str(item.get("ddns_prefix", "")),
-                        "ddns_fqdn": str(item.get("ddns_fqdn", "")),
-                        "prefix_change_used_this_year": len(changes),
-                    },
+                    "member": member,
+                }
+            )
+            return
+
+        if parsed.path == "/api/member/ddns/prefix-check":
+            if not self._require_lan():
+                return
+            token = self._member_token_from_request()
+            sess = _member_get_session(token)
+            if not sess:
+                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
+                return
+            query = parse_qs(parsed.query)
+            prefix_raw = str(query.get("prefix", [""])[0] or "").strip()
+            if not prefix_raw:
+                self._send_json({"ok": True, "available": True, "normalized_prefix": ""})
+                return
+            try:
+                normalized = _member_prefix_sanitize(prefix_raw)
+            except ValueError as exc:
+                self._send_json(
+                    {"ok": True, "available": False, "normalized_prefix": "", "reason": str(exc)}
+                )
+                return
+            accounts = _load_member_accounts()
+            in_use = _member_prefix_in_use(
+                accounts,
+                normalized,
+                exclude_member_id=str(sess.get("member_id", "")),
+            )
+            self._send_json(
+                {
+                    "ok": True,
+                    "available": (not in_use),
+                    "normalized_prefix": normalized,
+                    "reason": ("Prefix already taken" if in_use else ""),
                 }
             )
             return
@@ -11588,6 +12947,19 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
+        if parsed.path == "/healthz/restart":
+            if not self._require_lan():
+                return
+            queued = self._schedule_restart()
+            self._send_json(
+                {
+                    "ok": True,
+                    "queued": bool(queued),
+                    "message": "restart scheduled" if queued else "restart already queued",
+                }
+            )
+            return
+
         if self._dispatch_ddnsgo_proxy(parsed, "POST", True):
             return
         if self._dispatch_shareclip_flask(parsed, "POST", True):
@@ -11606,45 +12978,189 @@ class AppHandler(BaseHTTPRequestHandler):
             if not member_id or not password:
                 self._error("member_id and password are required", status=HTTPStatus.BAD_REQUEST)
                 return
-            matched = None
-            for item in _load_member_accounts():
-                mid = str(item.get("member_id", "") or "").strip()
-                pwd = str(item.get("password", "") or "").strip()
-                if mid == member_id and pwd == password:
-                    matched = item
-                    break
-            if not matched:
-                self._error("Invalid member credentials", status=HTTPStatus.FORBIDDEN)
+            status, remote = _member_remote_json(
+                "/api/member/login",
+                method="POST",
+                payload={"member_id": member_id, "password": password},
+            )
+            if status < 200 or status >= 300:
+                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Invalid member credentials")
+                self._error(msg, status=status if status in {400, 401, 403, 404, 429} else HTTPStatus.FORBIDDEN)
+                return
+            remote_member = (remote or {}).get("member") if isinstance((remote or {}).get("member"), dict) else {}
+            remote_member_id = str((remote_member or {}).get("member_id", "") or "").strip()
+            remote_email = str((remote_member or {}).get("email", "") or "").strip()
+            upstream_token = str((remote or {}).get("session_token", "") or "").strip()
+            if not remote_member_id:
+                self._error("Remote auth payload invalid", status=HTTPStatus.BAD_GATEWAY)
                 return
             session_token = _member_issue_session(
-                str(matched.get("member_id", "")),
-                str(matched.get("email", "")),
+                remote_member_id,
+                remote_email,
+                member=remote_member,
+                upstream_token=upstream_token,
             )
-            now = _member_now_ts()
-            year_start = now - 365 * 24 * 3600
-            changes = [int(x) for x in (matched.get("prefix_change_ts") or []) if isinstance(x, (int, float)) and int(x) >= year_start]
             self._send_json(
                 {
                     "ok": True,
                     "session_token": session_token,
-                    "member": {
-                        "member_id": str(matched.get("member_id", "")),
-                        "email": str(matched.get("email", "")),
-                        "status": str(matched.get("status", "active")),
-                        "note": str(matched.get("note", "")),
-                        "ddns_enabled": bool(matched.get("ddns_enabled", False)),
-                        "ddns_prefix": str(matched.get("ddns_prefix", "")),
-                        "ddns_fqdn": str(matched.get("ddns_fqdn", "")),
-                        "prefix_change_used_this_year": len(changes),
-                    },
-                }
+                    "member": remote_member,
+                },
+                extra_headers={"Set-Cookie": self._build_member_cookie(session_token)},
             )
+            return
+
+        if parsed.path == "/api/member/register":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            password = str((body or {}).get("password", "") or "").strip()
+            display_name = str((body or {}).get("display_name", "") or "").strip()
+            email = str((body or {}).get("email", "") or "").strip()
+            avatar_color = int((body or {}).get("avatar_color", 0) or 0)
+            if not password or not display_name:
+                self._error("password and display_name are required", status=HTTPStatus.BAD_REQUEST)
+                return
+            if len(password) < 6:
+                self._error("password length must be >= 6", status=HTTPStatus.BAD_REQUEST)
+                return
+            if len(display_name) > 64:
+                self._error("display_name too long", status=HTTPStatus.BAD_REQUEST)
+                return
+            if len(email) > 128:
+                self._error("email too long", status=HTTPStatus.BAD_REQUEST)
+                return
+            if avatar_color < 0 or avatar_color > 7:
+                avatar_color = 0
+            status, remote = _member_remote_json(
+                "/api/member/register",
+                method="POST",
+                payload={
+                    "password": password,
+                    "display_name": display_name,
+                    "email": email,
+                    "avatar_color": avatar_color,
+                },
+            )
+            if status < 200 or status >= 300:
+                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Registration failed")
+                self._error(msg, status=status if status in {400, 401, 403, 404, 409, 429} else HTTPStatus.BAD_GATEWAY)
+                return
+            self._send_json(remote)
+            return
+
+        if parsed.path == "/api/member/profile/update":
+            if not self._require_lan():
+                return
+            token = self._member_token_from_request()
+            sess = _member_get_session(token)
+            if not sess:
+                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
+                return
+            body = self._parse_body()
+            display_name = str((body or {}).get("display_name", "") or "").strip()
+            email = str((body or {}).get("email", "") or "").strip()
+            avatar_color = int((body or {}).get("avatar_color", 0) or 0)
+            if not display_name:
+                self._error("display_name is required", status=HTTPStatus.BAD_REQUEST)
+                return
+            if len(display_name) > 64:
+                self._error("display_name too long", status=HTTPStatus.BAD_REQUEST)
+                return
+            if len(email) > 128:
+                self._error("email too long", status=HTTPStatus.BAD_REQUEST)
+                return
+            if avatar_color < 0 or avatar_color > 7:
+                avatar_color = 0
+            upstream_token = str(sess.get("upstream_token", "") or "").strip()
+            if not upstream_token:
+                self._error("Upstream session missing, please login again", status=HTTPStatus.UNAUTHORIZED)
+                return
+            status, remote = _member_remote_json(
+                "/api/member/profile/update",
+                method="POST",
+                payload={"display_name": display_name, "email": email, "avatar_color": avatar_color},
+                headers={"X-Member-Session": upstream_token},
+            )
+            if status < 200 or status >= 300:
+                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Profile update failed")
+                self._error(msg, status=status if status in {400, 401, 403, 404, 429} else HTTPStatus.BAD_GATEWAY)
+                return
+            remote_member = (remote or {}).get("member") if isinstance((remote or {}).get("member"), dict) else {}
+            remote_member_id = str((remote_member or {}).get("member_id", "") or str(sess.get("member_id", ""))).strip()
+            remote_email = str((remote_member or {}).get("email", "") or email or str(sess.get("email", ""))).strip()
+            new_upstream_token = str((remote or {}).get("session_token", "") or upstream_token).strip()
+            session_token = _member_issue_session(
+                remote_member_id,
+                remote_email,
+                member=remote_member,
+                upstream_token=new_upstream_token,
+            )
+            self._send_json(
+                {"ok": True, "session_token": session_token, "member": remote_member},
+                extra_headers={"Set-Cookie": self._build_member_cookie(session_token)},
+            )
+            return
+
+        if parsed.path == "/api/member/logout":
+            if not self._require_lan():
+                return
+            self._send_json(
+                {"ok": True},
+                extra_headers={"Set-Cookie": self._build_member_cookie("", max_age=0)},
+            )
+            return
+
+        if parsed.path == "/api/member/email-change/request":
+            if not self._require_lan():
+                return
+            sess = _member_get_session(self._member_token_from_request())
+            upstream_token = str((sess or {}).get("upstream_token", "") or "").strip()
+            if not upstream_token:
+                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
+                return
+            body = self._parse_body()
+            new_email = str((body or {}).get("new_email", "") or "").strip()
+            if not new_email:
+                self._error("new_email is required", status=HTTPStatus.BAD_REQUEST)
+                return
+            status, remote = _member_remote_json(
+                "/api/member/email-change/request",
+                method="POST",
+                payload={"new_email": new_email},
+                headers={"X-Member-Session": upstream_token},
+            )
+            if status < 200 or status >= 300:
+                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Email change request failed")
+                self._error(msg, status=status if status in {400, 401, 403, 404, 409, 429} else HTTPStatus.BAD_GATEWAY)
+                return
+            self._send_json(remote)
+            return
+
+        if parsed.path == "/api/member/password-reset/request":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            email = str((body or {}).get("email", "") or "").strip()
+            if not email:
+                self._error("email is required", status=HTTPStatus.BAD_REQUEST)
+                return
+            status, remote = _member_remote_json(
+                "/api/member/password-reset/request",
+                method="POST",
+                payload={"email": email},
+            )
+            if status < 200 or status >= 300:
+                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Password reset request failed")
+                self._error(msg, status=status if status in {400, 401, 403, 404, 429} else HTTPStatus.BAD_GATEWAY)
+                return
+            self._send_json(remote)
             return
 
         if parsed.path == "/api/member/ddns/config":
             if not self._require_lan():
                 return
-            token = str(self.headers.get("X-Member-Session", "") or "").strip()
+            token = self._member_token_from_request()
             sess = _member_get_session(token)
             if not sess:
                 self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
@@ -11659,6 +13175,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 str(sess.get("email", "")),
             )
             if item is None or idx is None:
+                idx, item = _member_find_account_by_member_id(accounts, str(sess.get("member_id", "")))
+            if item is None or idx is None:
                 self._error("Member not found", status=HTTPStatus.NOT_FOUND)
                 return
             now = _member_now_ts()
@@ -11671,6 +13189,13 @@ class AppHandler(BaseHTTPRequestHandler):
                     new_prefix = _member_prefix_sanitize(prefix_raw)
                 except ValueError as exc:
                     self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
+                    return
+                if _member_prefix_in_use(
+                    accounts,
+                    new_prefix,
+                    exclude_member_id=str(item.get("member_id", "")),
+                ):
+                    self._error("Prefix already taken", status=HTTPStatus.CONFLICT)
                     return
                 if new_prefix != old_prefix:
                     if len(history) >= MEMBER_PREFIX_CHANGE_LIMIT_PER_YEAR:
@@ -11688,16 +13213,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(
                 {
                     "ok": True,
-                    "member": {
-                        "member_id": str(item.get("member_id", "")),
-                        "email": str(item.get("email", "")),
-                        "status": str(item.get("status", "active")),
-                        "note": str(item.get("note", "")),
-                        "ddns_enabled": bool(item.get("ddns_enabled", False)),
-                        "ddns_prefix": str(item.get("ddns_prefix", "")),
-                        "ddns_fqdn": str(item.get("ddns_fqdn", "")),
-                        "prefix_change_used_this_year": len(history),
-                    },
+                    "member": _member_public_payload(item),
                 }
             )
             return
@@ -11708,12 +13224,51 @@ class AppHandler(BaseHTTPRequestHandler):
             body = self._parse_body()
             try:
                 sid, meta = self._terminal_start_session(
-                    body.get("cols", 120), body.get("rows", 30)
+                    body.get("cols", 120), body.get("rows", 30), self._client_ip()
                 )
             except Exception as exc:
                 self._error(f"Terminal connection failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json({"ok": True, "session_id": sid, "meta": meta})
+            return
+
+        if parsed.path == "/api/terminal/sessions":
+            if not self._require_lan():
+                return
+            try:
+                data = self._terminal_list_sessions()
+            except Exception as exc:
+                self._error(f"List sessions failed: {exc}", status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, **data})
+            return
+
+        if parsed.path == "/api/terminal/history":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            try:
+                data = self._terminal_get_history(
+                    body.get("limit", 200),
+                    body.get("keyword", ""),
+                    body.get("client_ip", ""),
+                    body.get("session_id", ""),
+                )
+            except Exception as exc:
+                self._error(f"History fetch failed: {exc}", status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, **data})
+            return
+
+        if parsed.path == "/api/terminal/history/clear":
+            if not self._require_lan():
+                return
+            try:
+                data = self._terminal_clear_history()
+            except Exception as exc:
+                self._error(f"History clear failed: {exc}", status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json(data)
             return
 
         if parsed.path == "/api/terminal/read":
@@ -11768,6 +13323,22 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(f"Close failed: {exc}", status=HTTPStatus.BAD_REQUEST)
                 return
             self._send_json(data)
+            return
+
+        if parsed.path == "/api/terminal/revoke":
+            if not self._require_lan():
+                return
+            body = self._parse_body()
+            sid = str(body.get("session_id", "") or "").strip()
+            if not sid:
+                self._error("Missing session_id", status=HTTPStatus.BAD_REQUEST)
+                return
+            try:
+                data = self._terminal_close_session(sid)
+            except Exception as exc:
+                self._error(f"Revoke failed: {exc}", status=HTTPStatus.BAD_REQUEST)
+                return
+            self._send_json({"ok": True, "revoked": bool(data.get("closed", False)), "session_id": sid})
             return
 
         if parsed.path == "/api/terminal/key-file":
@@ -11938,7 +13509,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if isinstance(body.get("modules"), dict):
                 mods = current.setdefault("modules", {})
                 incoming = body["modules"]
-                for k in ("qbt", "ddns", "shareclip", "http"):
+                for k in ("qbt", "ddns", "docker", "shareclip", "http"):
                     if k in body["modules"]:
                         mods[k] = bool(body["modules"].get(k))
                 # 兼容旧键名
@@ -12059,6 +13630,14 @@ class AppHandler(BaseHTTPRequestHandler):
                     ui_cfg["hero_preset"] = _normalize_ui_hero_preset(
                         incoming_ui.get("hero_preset")
                     )
+                if "system_name" in incoming_ui:
+                    ui_cfg["system_name"] = str(
+                        incoming_ui.get("system_name", "") or ""
+                    ).strip()[:64]
+                if "brand_logo_url" in incoming_ui:
+                    ui_cfg["brand_logo_url"] = str(
+                        incoming_ui.get("brand_logo_url", "") or ""
+                    ).strip()[:1024]
                 ui_cfg["hero_custom_bg_file"] = ""
             if isinstance(body.get("netdisk_sources"), dict):
                 nd_cfg = current.setdefault("netdisk_sources", {})
@@ -12527,6 +14106,96 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(self._control_status_payload(client_override))
             return
 
+        if parsed.path == "/api/docker/action":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            body = self._parse_body()
+            name = self._docker_safe_name(str((body or {}).get("name", "") or ""))
+            action = str((body or {}).get("action", "") or "").strip().lower()
+            if not name:
+                self._error("Invalid container name", status=HTTPStatus.BAD_REQUEST)
+                return
+            if action not in {"start", "stop", "restart"}:
+                self._error("Invalid Docker action", status=HTTPStatus.BAD_REQUEST)
+                return
+            ok, msg = self._docker_container_action(name, action)
+            if not ok:
+                self._error(f"docker {action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(self._docker_status_payload())
+            return
+
+        if parsed.path == "/api/docker/image/pull":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            body = self._parse_body()
+            image = str((body or {}).get("image", "") or "").strip()
+            ok, msg = self._docker_pull_image(image)
+            if not ok:
+                self._error(f"docker pull failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(
+                {
+                    "ok": True,
+                    "message": f"pulled {image}",
+                    "status": self._docker_status_payload(include_stats=False).get("summary", {}),
+                    "images": self._docker_images_payload(),
+                }
+            )
+            return
+
+        if parsed.path == "/api/docker/container/create":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            body = self._parse_body() or {}
+            ok, msg = self._docker_create_container(body)
+            if not ok:
+                self._error(f"docker create failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(self._docker_status_payload())
+            return
+
+        if parsed.path == "/api/docker/container/remove":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            body = self._parse_body()
+            name = str((body or {}).get("name", "") or "").strip()
+            force = bool((body or {}).get("force", False))
+            ok, msg = self._docker_remove_container(name, force=force)
+            if not ok:
+                self._error(f"docker rm failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(self._docker_status_payload())
+            return
+
+        if parsed.path == "/api/docker/image/remove":
+            if not self._require_lan():
+                return
+            if not self._docker_module_enabled():
+                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
+                return
+            body = self._parse_body()
+            image = str((body or {}).get("image", "") or "").strip()
+            force = bool((body or {}).get("force", False))
+            ok, msg = self._docker_remove_image(image, force=force)
+            if not ok:
+                self._error(f"docker rmi failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                return
+            self._send_json(self._docker_images_payload())
+            return
+
         if parsed.path == "/api/qbt/fix-monitor":
             if not self._require_lan():
                 return
@@ -12605,6 +14274,7 @@ def main():
         startup_http_cfg.get("transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC),
         DEFAULT_TRANSFER_RECENT_TTL_SEC,
     )
+    AppHandler._start_metrics_sampler()
     AppHandler.storage_root = DEFAULT_STORAGE_ROOT
     AppHandler.storage_root.mkdir(parents=True, exist_ok=True)
     ddns.start_worker(_APP_ROOT_DIR)

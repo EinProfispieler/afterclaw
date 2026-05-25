@@ -146,6 +146,7 @@ def profile_paths(profile_id: str) -> dict[str, Path]:
     return {
         "dir": base,
         "images": base / "images",
+        "files": base / "files",
         "state": base / "state.json",
         "legacy_latest": legacy_base / "latest.json",
         "legacy_history": legacy_base / "history.json",
@@ -158,7 +159,7 @@ def empty_record() -> dict[str, object]:
 
 
 def normalize_record(record: dict[str, object], profile_id: str) -> dict[str, object]:
-    if record.get("type") not in {"text", "image"}:
+    if record.get("type") not in {"text", "image", "file"}:
         return empty_record()
     out = dict(record)
     out["id"] = out.get("id") or make_record_id()
@@ -166,17 +167,24 @@ def normalize_record(record: dict[str, object], profile_id: str) -> dict[str, ob
     out["updated_at"] = out.get("updated_at") or now_iso()
     if out.get("type") == "text":
         out["text"] = str(out.get("text", ""))
-    else:
+    elif out.get("type") == "image":
         name = str(out.get("image_filename", "")).strip()
         if not name and out.get("image_path"):
             name = Path(str(out["image_path"])).name
         out["image_filename"] = name
+    else:
+        name = str(out.get("file_filename", "")).strip()
+        if not name and out.get("file_path"):
+            name = Path(str(out["file_path"])).name
+        out["file_filename"] = name
+        out["file_name"] = str(out.get("file_name", name) or name)
     return out
 
 
 def load_profile_state(profile_id: str) -> tuple[dict[str, object], list[dict[str, object]], Path]:
     paths = profile_paths(profile_id)
     paths["images"].mkdir(parents=True, exist_ok=True)
+    paths["files"].mkdir(parents=True, exist_ok=True)
     state_raw = load_json(paths["state"], {})
 
     latest_raw: object = empty_record()
@@ -200,9 +208,9 @@ def load_profile_state(profile_id: str) -> tuple[dict[str, object], list[dict[st
         for item in history_raw:
             if isinstance(item, dict):
                 n = normalize_record(item, profile_id)
-                if n.get("type") in {"text", "image"}:
+                if n.get("type") in {"text", "image", "file"}:
                     history.append(n)
-    if not history and latest.get("type") in {"text", "image"}:
+    if not history and latest.get("type") in {"text", "image", "file"}:
         history = [latest]
     if latest.get("type") == "empty" and history:
         latest = history[0]
@@ -216,13 +224,16 @@ def save_profile_state(profile_id: str, latest: dict[str, object], history: list
     save_json(paths["state"], {"latest": latest, "history": history})
 
 
-def delete_image(profile_id: str, record: dict[str, object]) -> None:
-    if record.get("type") != "image":
+def delete_asset(profile_id: str, record: dict[str, object]) -> None:
+    rec_type = record.get("type")
+    if rec_type not in {"image", "file"}:
         return
-    name = str(record.get("image_filename", "")).strip()
+    key = "image_filename" if rec_type == "image" else "file_filename"
+    folder = "images" if rec_type == "image" else "files"
+    name = str(record.get(key, "")).strip()
     if not name:
         return
-    f = profile_paths(profile_id)["images"] / name
+    f = profile_paths(profile_id)[folder] / name
     try:
         if f.exists():
             f.unlink()
@@ -237,6 +248,10 @@ def public_record(record: dict[str, object]) -> dict[str, object]:
         pid = str(record.get("profile_id", ""))
         name = record.get("image_filename")
         return {"id": record.get("id"), "profile_id": pid, "type": "image", "image_filename": name, "image_url": f"/clips/{pid}/{name}" if name else None, "updated_at": record.get("updated_at")}
+    if record.get("type") == "file":
+        pid = str(record.get("profile_id", ""))
+        name = record.get("file_filename")
+        return {"id": record.get("id"), "profile_id": pid, "type": "file", "file_name": record.get("file_name", name), "file_filename": name, "file_url": f"/clip-files/{pid}/{name}" if name else None, "updated_at": record.get("updated_at")}
     return {"type": "empty", "updated_at": record.get("updated_at")}
 
 
@@ -342,8 +357,10 @@ def set_clip():
 
     text = (request.form.get("text") or "").strip()
     image = request.files.get("image")
+    upload_file = request.files.get("file")
     paths = profile_paths(pid)
     paths["images"].mkdir(parents=True, exist_ok=True)
+    paths["files"].mkdir(parents=True, exist_ok=True)
 
     if image and image.filename:
         mime = (image.mimetype or "").split(";")[0]
@@ -357,6 +374,14 @@ def set_clip():
         target = paths["images"] / fname
         image.save(target)
         rec = normalize_record({"id": rid, "type": "image", "profile_id": pid, "image_filename": fname, "image_path": str(target), "updated_at": now_iso()}, pid)
+    elif upload_file and upload_file.filename:
+        rid = make_record_id()
+        original_name = Path(upload_file.filename).name or "attachment"
+        suffix = Path(original_name).suffix[:20]
+        fname = f"{rid}{suffix.lower()}"
+        target = paths["files"] / fname
+        upload_file.save(target)
+        rec = normalize_record({"id": rid, "type": "file", "profile_id": pid, "file_name": original_name, "file_filename": fname, "file_path": str(target), "updated_at": now_iso()}, pid)
     elif text:
         rec = normalize_record({"id": make_record_id(), "type": "text", "profile_id": pid, "text": text, "updated_at": now_iso()}, pid)
     else:
@@ -369,7 +394,7 @@ def set_clip():
             removed = history[MAX_HISTORY:]
             history = history[:MAX_HISTORY]
             for old in removed:
-                delete_image(pid, old)
+                delete_asset(pid, old)
         save_profile_state(pid, rec, history)
     return jsonify({"ok": True, "profile_id": pid, "clip": public_record(rec)})
 
@@ -386,10 +411,34 @@ def delete_history(record_id: str):
         if idx is None:
             return jsonify({"error": f"Record id not found: {record_id}"}), 404
         removed = history.pop(idx)
-        delete_image(pid, removed)
+        delete_asset(pid, removed)
         latest = history[0] if history else empty_record()
         save_profile_state(pid, latest, history)
     return jsonify({"ok": True, "deleted_id": record_id, "profile_id": pid, "latest": public_record(latest), "total": len(history)})
+
+
+@app.post("/api/history/bulk-delete")
+def bulk_delete_history():
+    try:
+        pid = request_profile_id()
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    data = request.get_json(silent=True) or {}
+    raw_ids = data.get("record_ids", [])
+    if not isinstance(raw_ids, list):
+        return jsonify({"error": "record_ids must be an array."}), 400
+    ids = {str(value).strip() for value in raw_ids if str(value).strip()}
+    if not ids:
+        return jsonify({"error": "No record ids selected."}), 400
+    with LOCK:
+        _, history, _ = load_profile_state(pid)
+        removed = [record for record in history if str(record.get("id", "")) in ids]
+        kept = [record for record in history if str(record.get("id", "")) not in ids]
+        for record in removed:
+            delete_asset(pid, record)
+        latest = kept[0] if kept else empty_record()
+        save_profile_state(pid, latest, kept)
+    return jsonify({"ok": True, "deleted_ids": [record.get("id") for record in removed], "profile_id": pid, "latest": public_record(latest), "total": len(kept)})
 
 
 @app.get("/api/clip/raw")
@@ -417,6 +466,15 @@ def image_file(profile_id: str, filename: str):
     except ValueError:
         return jsonify({"error": "Invalid profile id."}), 400
     return send_from_directory(profile_paths(clean)["images"], filename)
+
+
+@app.get("/clip-files/<profile_id>/<path:filename>")
+def attachment_file(profile_id: str, filename: str):
+    try:
+        clean = normalize_id(profile_id, fallback=False)
+    except ValueError:
+        return jsonify({"error": "Invalid profile id."}), 400
+    return send_from_directory(profile_paths(clean)["files"], filename, as_attachment=True)
 
 
 load_config()

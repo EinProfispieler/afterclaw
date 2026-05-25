@@ -77,6 +77,7 @@ def default_app_config() -> dict:
         "modules": {
             "qbt": True,
             "ddns": True,
+            "docker": True,
             "shareclip": True,
             "http": True,
         },
@@ -103,7 +104,7 @@ def normalize_app_config(raw) -> dict:
     if isinstance(raw, dict):
         mods = raw.get("modules")
         if isinstance(mods, dict):
-            for k in ("qbt", "ddns", "shareclip", "http"):
+            for k in ("qbt", "ddns", "docker", "shareclip", "http"):
                 if k in mods:
                     base["modules"][k] = bool(mods.get(k))
             if "http" not in mods and "http_monitor" in mods:

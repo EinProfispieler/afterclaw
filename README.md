@@ -69,6 +69,12 @@ Recommended:
 curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash
 ```
 
+Installer behavior by platform:
+
+- Linux: installs Python runtime + `requirements.txt` + `smartmontools`
+- macOS: installs Python if needed, installs `requirements.txt`, attempts `smartmontools` via Homebrew
+- Windows (`install.ps1`): creates venv, installs `requirements.txt`, attempts `smartmontools` via winget
+
 Uninstall:
 
 ```bash
@@ -87,6 +93,13 @@ Platform scripts:
 - `scripts/install_mint.sh`
 - `scripts/install_macos.sh`
 - `scripts/install_windows.ps1`
+- `scripts/setup_torrent_docker.sh` (provisions Docker torrent clients with isolated runtime data root)
+
+Docker safety note:
+
+- Do not place client runtime/config/session data under monitored content roots (for example `/srv/Storage/...`).
+- Recommended runtime data root: `/var/lib/afterclaw/torrents`
+- Recommended downloads root (content): `/srv/Storage/BT`
 
 Windows (PowerShell as Administrator):
 
