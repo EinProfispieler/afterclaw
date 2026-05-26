@@ -1510,7 +1510,7 @@ def _build_terminal_ssh_argv(cfg: dict) -> tuple[list[str], dict]:
     port = _normalize_ssh_port(meta.get("port", 22), 22)
     if not host:
         raise ValueError("Not configured Terminal Host")
-    argv = ["ssh", "-p", str(port)]
+    argv = ["ssh", "-tt", "-p", str(port)]
     auth_mode = str(meta.get("auth_mode", "key") or "key").strip().lower()
     key_file = _normalize_terminal_key_file_name(meta.get("key_file", ""))
     key_path = str(meta.get("key_path", "") or "").strip()
@@ -7544,6 +7544,7 @@ def build_terminal_html() -> str:
     var terminalMeta = null;
     var term = null;
     var fitAddon = null;
+    var utf8Decoder = (window.TextDecoder ? new TextDecoder("utf-8", { fatal: false }) : null);
 
     function getTheme(){ return localStorage.getItem(THEME_KEY) || "light"; }
     function applyTheme(t){
@@ -7680,8 +7681,19 @@ def build_terminal_html() -> str:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ session_id: sessionId })
         });
-        if (d.output && term) {
-          term.write(String(d.output));
+        if (term) {
+          if (d.output_b64 && utf8Decoder) {
+            try {
+              var raw = atob(String(d.output_b64));
+              var bytes = new Uint8Array(raw.length);
+              for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+              term.write(utf8Decoder.decode(bytes));
+            } catch (e) {
+              if (d.output) term.write(String(d.output));
+            }
+          } else if (d.output) {
+            term.write(String(d.output));
+          }
         }
         if (!d.alive) {
           var code = (d.exit_code === null || d.exit_code === undefined) ? "-" : String(d.exit_code);
@@ -8334,7 +8346,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         body = None
                         if method in {"POST", "PUT", "PATCH"}:
                             body = self._parse_body()
-                        route.handler(self, parsed.path, params, body)
+                        # Module handlers expect parsed URL object (path + query).
+                        route.handler(self, parsed, params, body)
                         return True
                     except Exception as e:
                         self._error(f"Module route error: {e}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -11293,11 +11306,17 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             master_fd, slave_fd = pty.openpty()
             cls._terminal_set_winsize(slave_fd, c, r)
+            child_env = os.environ.copy()
+            term_value = str(os.environ.get("TERMINAL_TERM") or child_env.get("TERM") or "").strip()
+            if term_value.lower() in {"", "unknown", "dumb"}:
+                term_value = "xterm-256color"
+            child_env["TERM"] = term_value
             proc = subprocess.Popen(
                 argv,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
+                env=child_env,
                 close_fds=True,
                 start_new_session=True,
             )
@@ -11367,10 +11386,12 @@ class AppHandler(BaseHTTPRequestHandler):
             chunks.append(data)
             total += len(data)
 
-        out = b"".join(chunks).decode("utf-8", errors="replace")
+        out_bytes = b"".join(chunks)
+        out = out_bytes.decode("utf-8", errors="replace")
+        out_b64 = base64.b64encode(out_bytes).decode("ascii")
         exit_code = proc.poll() if proc is not None else 0
         alive = exit_code is None
-        return {"output": out, "alive": bool(alive), "exit_code": exit_code}
+        return {"output": out, "output_b64": out_b64, "alive": bool(alive), "exit_code": exit_code}
 
     @classmethod
     def _terminal_write_session(cls, sid: str, data: str):

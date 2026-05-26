@@ -177,3 +177,8 @@ def test_modular_dispatch_entrypoints_exist_smoke():
     assert "def _dispatch_modular_post_apis(self, parsed) -> bool:" in src
     assert "if self._dispatch_modular_get_apis(parsed):" in src
     assert "if self._dispatch_modular_post_apis(parsed):" in src
+
+
+def test_module_route_dispatch_passes_parsed_object_smoke():
+    src = _app_source()
+    assert "route.handler(self, parsed, params, body)" in src
