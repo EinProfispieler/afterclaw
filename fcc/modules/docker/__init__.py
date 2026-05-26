@@ -1,8 +1,4 @@
-"""Docker module metadata.
-
-The operational endpoints live in the main HTTP handler for now because they
-reuse the existing LAN guard, JSON helpers, and service-control conventions.
-"""
+"""Docker module metadata plus API and service split entrypoints."""
 
 from fcc.modules import Module, register
 

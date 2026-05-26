@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.2.alpha] - 2026-05-26
+
+### Changed
+
+- Refactored major API routing blocks from `app.py` into modular dispatch packages under `fcc/modules/*/api.py` (`status`, `control`, `http`, `appconfig`, `qbt`, `files`, etc.).
+- Added domain/service split coverage for module boundaries and strengthened compatibility smoke contracts.
+- Updated architecture and upgrade-hook operations docs, including `script_source` runbook and backup-surface deprecation cleanup.
+
 ## [1.0.0] - 2026-05-22
 
 ### Changed

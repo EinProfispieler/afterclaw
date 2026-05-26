@@ -1,4 +1,4 @@
-"""Terminal module placeholder."""
+"""Terminal module metadata and API/service entrypoints."""
 
 from fcc.modules import Module, register
 

@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 
+from fcc import config_schema
+
 APP_CONFIG_FILE_NAME = "app_config.json"
 
 _APP_ROOT = Path(
@@ -71,16 +73,66 @@ def _normalize_terminal_key_file_name(value) -> str:
     return raw
 
 
+def _config_version_from_raw(value) -> int:
+    try:
+        v = int(value)
+    except Exception:
+        return 0
+    if v < 0:
+        return 0
+    return v
+
+
+def _migrate_config_v0_to_v1(payload: dict) -> dict:
+    out = dict(payload or {})
+    modules = out.get("modules")
+    if not isinstance(modules, dict):
+        modules = {}
+    else:
+        modules = dict(modules)
+    if "http" not in modules and "http_monitor" in out:
+        modules["http"] = bool(out.get("http_monitor"))
+    if modules:
+        out["modules"] = modules
+    if "http_default_dir" in out:
+        http_service = out.get("http_service")
+        if not isinstance(http_service, dict):
+            http_service = {}
+        else:
+            http_service = dict(http_service)
+        if "default_dir" not in http_service:
+            http_service["default_dir"] = out.get("http_default_dir")
+        out["http_service"] = http_service
+    out["version"] = 1
+    return out
+
+
+def _migrate_app_config_payload(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    payload = dict(raw)
+    current = _config_version_from_raw(payload.get("version"))
+    target = int(config_schema.CONFIG_VERSION)
+    migrations = {0: _migrate_config_v0_to_v1}
+    while current < target:
+        migrator = migrations.get(current)
+        if migrator is None:
+            break
+        payload = migrator(payload)
+        current = _config_version_from_raw(payload.get("version"))
+        if current <= 0:
+            break
+    return payload
+
+
 def default_app_config() -> dict:
+    return normalize_app_config({})
+
+
+def _app_config_defaults_base() -> dict:
     return {
-        "version": 1,
-        "modules": {
-            "qbt": True,
-            "ddns": True,
-            "docker": True,
-            "shareclip": True,
-            "http": True,
-        },
+        "version": config_schema.CONFIG_VERSION,
+        "modules": config_schema.default_modules(),
         "qbt": {"monitor_enabled": True},
         "http_service": {"default_dir": "."},
         "terminal": {
@@ -100,11 +152,11 @@ def default_app_config() -> dict:
 
 
 def normalize_app_config(raw) -> dict:
-    base = default_app_config()
+    base = _app_config_defaults_base()
     if isinstance(raw, dict):
         mods = raw.get("modules")
         if isinstance(mods, dict):
-            for k in ("qbt", "ddns", "docker", "shareclip", "http"):
+            for k in config_schema.MODULE_KEYS:
                 if k in mods:
                     base["modules"][k] = bool(mods.get(k))
             if "http" not in mods and "http_monitor" in mods:
@@ -160,7 +212,7 @@ def normalize_app_config(raw) -> dict:
     base["http_service"]["default_dir"] = _normalize_rel_dir_setting(
         base["http_service"]["default_dir"]
     )
-    base["version"] = 1
+    base["version"] = config_schema.CONFIG_VERSION
     return base
 
 
@@ -172,11 +224,11 @@ def load_app_config(root: Path | None = None) -> dict:
         raw = json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return default_app_config()
-    return normalize_app_config(raw)
+    return normalize_app_config(_migrate_app_config_payload(raw))
 
 
 def save_app_config(cfg: dict, root: Path | None = None) -> dict:
-    normalized = normalize_app_config(cfg)
+    normalized = normalize_app_config(_migrate_app_config_payload(cfg))
     p = app_config_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

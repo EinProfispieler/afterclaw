@@ -59,13 +59,45 @@ This is the core loop AfterClaw is designed for.
 - Docker: container inventory, image pull, install form, and safe start/stop/remove controls
 - Web Terminal: remote maintenance + key file management
 - ShareClip: lightweight clipboard-style sharing
+- Upgrade: release update + optional post-upgrade hook script (`script_source`)
+
+Disabled in current release:
+
+- Backup: module code exists, but backup routes/pages are intentionally not exposed.
 
 ## Architecture
 
-- Frontend: embedded web dashboard
-- Runtime: Python app (`python3 -m fcc` / `python3 app.py`)
-- Worker modules: transfer, DDNS, process-network metrics, terminal
+- Frontend: embedded web dashboard (`/`, `/config`, `/terminal`, `/member`)
+- Runtime shell: `app.py` keeps startup, shared state, and minimal wiring
+- Route modules: feature routes are dispatched from `fcc/modules/*/api.py`
+- Domain services: module-specific business logic in `fcc/modules/*/service.py`
+- Runtime adapters: OS/process integration in `fcc/runtime/adapters/*`
 - Optional automation: Ko-fi webhook + member email flow
+
+Current server-side module layout (simplified):
+
+```text
+fcc/
+  runtime/adapters/
+    docker_adapter.py
+    process_adapter.py
+    service_adapter.py
+  modules/
+    appconfig/   # /api/app-config
+    control/     # /api/control/* + /healthz/restart
+    ddns/
+    docker/
+    files/       # /api/http/path-scan /api/directories /api/files
+    http/        # /api/http/source-ip-pools/sync
+    member/
+    naming/
+    qbt/
+    services/
+    status/      # /api/base /api/speed /api/metrics/history ...
+    terminal/
+    upgrade/
+    backup/      # implemented but route surface disabled
+```
 
 ## Quick Start
 
@@ -107,6 +139,12 @@ Update (pull latest from GitHub and re-run installer):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash -s -- --update
+```
+
+Doctor (non-interactive integrity checks):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/EinProfispieler/afterclaw/main/install.sh | sudo bash -s -- --doctor
 ```
 
 Platform scripts:
@@ -157,6 +195,30 @@ Minimum runtime variables:
 - `PUBLIC_SCHEME`
 
 Most operational settings are managed in the in-app `Config` page.
+
+## Upgrade Hook (`script_source`)
+
+AfterClaw supports an optional post-upgrade script source for compatibility patches,
+local integrations, or third-party dependency fixes after base install completes.
+
+Accepted formats:
+
+- `github:owner/repo/path`
+- `http://...` or `https://...`
+
+How it runs:
+
+1. `POST /api/upgrade/run` starts upgrade for `main` or `nightly`.
+2. After `install.sh` succeeds, AfterClaw tries to fetch hook script candidates.
+3. Hook script runs with:
+   - `AFTERCLAW_UPGRADE_BRANCH`
+   - `AFTERCLAW_UPGRADE_TARGET_TAG`
+   - `AFTERCLAW_UPGRADE_SCRIPT_URL`
+4. Result is written to `upgrade_status.json` (`hook_state`, `hook_message`, `hook_error`).
+
+Operations and troubleshooting guide:
+
+- [docs/upgrade-script-source.md](docs/upgrade-script-source.md)
 
 ## Ko-fi / Member Automation (Optional)
 

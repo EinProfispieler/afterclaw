@@ -230,7 +230,7 @@ class ProcessSourceSpeedSampler:
 
         source_agg = {}
         items = []
-        for row in current.values():
+        for socket_key, row in current.items():
             source = self._resolve_row_source(row, source_resolver)
             if not source:
                 continue
@@ -245,7 +245,6 @@ class ProcessSourceSpeedSampler:
             delta_send = 0
             delta_recv = 0
             if delta_sec > 0:
-                socket_key = f"{source}|{pid}|{local_ep}|{peer_ep}"
                 prev = last.get(socket_key) if isinstance(last, dict) else None
                 if isinstance(prev, dict):
                     acked_prev = int(prev.get("acked", 0) or 0)

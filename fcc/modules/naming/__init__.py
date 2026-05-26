@@ -1,4 +1,4 @@
-"""Naming cleanup module placeholder."""
+"""Naming cleanup/subtitles module metadata and API/service entrypoints."""
 
 from fcc.modules import Module, register
 

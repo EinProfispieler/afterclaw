@@ -37,13 +37,27 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import ddns
 from fcc import __version__ as FCC_APP_VERSION, __branch__ as FCC_APP_BRANCH
+from fcc import config_schema
 from fcc.modules.monitor.process_net import ProcessSourceSpeedSampler
 from fcc.modules import REGISTRY as MODULE_REGISTRY
+from fcc.modules.docker import api as docker_api
+from fcc.modules.docker import service as docker_service
+from fcc.modules.ddns import api as ddns_api
+from fcc.modules.control import api as control_api
+from fcc.modules.services import api as services_api
+from fcc.modules.terminal import api as terminal_api
+from fcc.modules.member import api as member_api
+from fcc.modules.member import service as member_service
+from fcc.modules.naming import api as naming_api
+from fcc.modules.qbt import api as qbt_api
+from fcc.modules.appconfig import api as appconfig_api
+from fcc.modules.http import api as http_api
+from fcc.modules.files import api as files_api
+from fcc.modules.status import api as status_api
+from fcc.modules.upgrade import api as upgrade_api
 import fcc.http_access as http_access
-import fcc.subtitle_uploads as subtitle_uploads
-import fcc.subtitle_align as subtitle_align
+from fcc.runtime.adapters import docker_adapter, process_adapter, service_adapter
 from ddns.web import load_ddns_settings_page
-from naming.clean_names import apply_rename_plan, build_rename_plan
 
 # Backup feature temporarily disabled (v0.9.11): module intentionally not
 # imported so its routes are never registered. Re-import to re-enable.
@@ -296,11 +310,24 @@ DEFAULT_UPGRADE_GITHUB_REPO = (
 DEFAULT_UPGRADE_BRANCH = (
     os.environ.get("UPGRADE_BRANCH", "").strip().lower() or "main"
 )
+SELF_SYSTEMD_SERVICE_UNIT = (
+    os.environ.get("SELF_SYSTEMD_SERVICE_UNIT", "").strip() or "storage-http-link-web"
+)
+SELF_LAUNCHD_SERVICE_LABEL = (
+    os.environ.get("SELF_LAUNCHD_SERVICE_LABEL", "").strip() or "com.fcc.afterclaw"
+)
 DEFAULT_NIGHTLY_LOCAL_ROOT = (
     os.environ.get("UPGRADE_NIGHTLY_LOCAL_ROOT", "").strip() or "/opt/afterclaw-nightly"
 )
 UPGRADE_HTTP_TIMEOUT = float(
     os.environ.get("UPGRADE_HTTP_TIMEOUT", "20").strip() or "20"
+)
+DEFAULT_UPGRADE_SCRIPT_SOURCE = (
+    os.environ.get("UPGRADE_SCRIPT_SOURCE", "").strip()
+)
+UPGRADE_SCRIPT_HTTP_TIMEOUT = float(
+    os.environ.get("UPGRADE_SCRIPT_HTTP_TIMEOUT", str(UPGRADE_HTTP_TIMEOUT)).strip()
+    or str(UPGRADE_HTTP_TIMEOUT)
 )
 UPGRADE_STATUS_FILE_NAME = "upgrade_status.json"
 UPGRADE_STATUS_LOCK = threading.Lock()
@@ -451,6 +478,29 @@ def _normalize_upgrade_branch(value, default: str = DEFAULT_UPGRADE_BRANCH) -> s
     return "main"
 
 
+def _normalize_upgrade_script_source(value, default: str = DEFAULT_UPGRADE_SCRIPT_SOURCE) -> str:
+    raw = str(value if value is not None else default).strip()
+    if not raw:
+        return ""
+    if len(raw) > 500:
+        raise ValueError("升级脚本源过长")
+    if raw.startswith("github:"):
+        spec = raw.split(":", 1)[1].strip().strip("/")
+        parts = [p for p in spec.split("/") if p]
+        if len(parts) < 3:
+            raise ValueError("GitHub 升级脚本源格式应为 github:owner/repo/path")
+        owner = parts[0]
+        repo = parts[1]
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", owner) or not re.fullmatch(
+            r"[A-Za-z0-9_.-]+", repo
+        ):
+            raise ValueError("GitHub 升级脚本源 owner/repo 无效")
+        return f"github:{spec}"
+    if raw.startswith(("http://", "https://")):
+        return raw
+    raise ValueError("升级脚本源仅支持 github:owner/repo/path 或 http(s) URL")
+
+
 def _to_version_text(value) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -468,9 +518,14 @@ def _default_upgrade_status() -> dict:
         "current_version": APP_VERSION_TEXT,
         "repo": DEFAULT_UPGRADE_GITHUB_REPO,
         "branch": _normalize_upgrade_branch(DEFAULT_UPGRADE_BRANCH, "main"),
+        "script_source": _normalize_upgrade_script_source(DEFAULT_UPGRADE_SCRIPT_SOURCE, ""),
         "requested_tag": "",
         "target_tag": "",
         "release_url": "",
+        "hook_state": "idle",
+        "hook_url": "",
+        "hook_message": "",
+        "hook_error": "",
         "message": "",
         "error": "",
         "started_at": "",
@@ -497,6 +552,14 @@ def _read_upgrade_status(app_root: Path = _APP_ROOT_DIR) -> dict:
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
     base["branch"] = _normalize_upgrade_branch(base.get("branch"), DEFAULT_UPGRADE_BRANCH)
+    try:
+        base["script_source"] = _normalize_upgrade_script_source(
+            base.get("script_source"), DEFAULT_UPGRADE_SCRIPT_SOURCE
+        )
+    except Exception:
+        base["script_source"] = _normalize_upgrade_script_source(
+            DEFAULT_UPGRADE_SCRIPT_SOURCE, ""
+        )
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
     base["running"] = bool(base.get("running"))
@@ -513,6 +576,14 @@ def _write_upgrade_status(status: dict, app_root: Path = _APP_ROOT_DIR) -> dict:
     except Exception:
         base["repo"] = DEFAULT_UPGRADE_GITHUB_REPO
     base["branch"] = _normalize_upgrade_branch(base.get("branch"), DEFAULT_UPGRADE_BRANCH)
+    try:
+        base["script_source"] = _normalize_upgrade_script_source(
+            base.get("script_source"), DEFAULT_UPGRADE_SCRIPT_SOURCE
+        )
+    except Exception:
+        base["script_source"] = _normalize_upgrade_script_source(
+            DEFAULT_UPGRADE_SCRIPT_SOURCE, ""
+        )
     base["requested_tag"] = str(base.get("requested_tag", "") or "").strip()
     base["target_tag"] = str(base.get("target_tag", "") or "").strip()
     base["running"] = bool(base.get("running"))
@@ -997,6 +1068,105 @@ def _github_branch_payload(repo: str, branch: str = "main") -> dict:
     }
 
 
+def _render_upgrade_template(text: str, branch: str, target_tag: str) -> str:
+    out = str(text or "")
+    out = out.replace("{branch}", str(branch or "main"))
+    out = out.replace("{tag}", str(target_tag or ""))
+    return out
+
+
+def _upgrade_script_candidate_urls(
+    source: str, branch: str, target_tag: str, repo: str = DEFAULT_UPGRADE_GITHUB_REPO
+) -> list[str]:
+    src = _normalize_upgrade_script_source(source, "")
+    if not src:
+        return []
+    safe_branch = _normalize_upgrade_branch(branch, DEFAULT_UPGRADE_BRANCH)
+    tag = _normalize_upgrade_tag(target_tag) if str(target_tag or "").strip() else ""
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str) -> None:
+        u = str(url or "").strip()
+        if not u or u in seen:
+            return
+        seen.add(u)
+        urls.append(u)
+
+    if src.startswith("github:"):
+        info = _parse_github_source_spec(src)
+        owner = str(info.get("owner") or "").strip()
+        name = str(info.get("repo") or "").strip()
+        ref = str(info.get("ref") or "").strip() or safe_branch
+        base_path = str(info.get("path") or "").strip().strip("/")
+        if not owner or not name or not base_path:
+            return []
+        candidate_paths: list[str] = []
+        rendered = _render_upgrade_template(base_path, safe_branch, tag).strip().strip("/")
+        if rendered.endswith(".sh"):
+            candidate_paths.append(rendered)
+        else:
+            if tag:
+                candidate_paths.append(f"{rendered}/{tag}.sh")
+            candidate_paths.extend(
+                [
+                    f"{rendered}/{safe_branch}.sh",
+                    f"{rendered}/latest.sh",
+                    f"{rendered}/upgrade.sh",
+                ]
+            )
+        for rel in candidate_paths:
+            rel = str(rel or "").strip().strip("/")
+            if not rel:
+                continue
+            raw_url = (
+                f"https://raw.githubusercontent.com/{quote(owner)}/{quote(name)}"
+                f"/{quote(ref)}/{quote(rel, safe='/')}"
+            )
+            add(raw_url)
+        return urls
+
+    rendered_src = _render_upgrade_template(src, safe_branch, tag).strip()
+    if rendered_src.endswith(".sh") or ("{branch}" in src or "{tag}" in src):
+        add(rendered_src)
+        return urls
+
+    base = rendered_src.rstrip("/")
+    if tag:
+        add(f"{base}/{quote(tag)}.sh")
+    add(f"{base}/{quote(safe_branch)}.sh")
+    add(f"{base}/latest.sh")
+    add(f"{base}/upgrade.sh")
+    return urls
+
+
+def _fetch_upgrade_script_payload(
+    source: str, branch: str, target_tag: str
+) -> dict | None:
+    urls = _upgrade_script_candidate_urls(source, branch, target_tag)
+    if not urls:
+        return None
+    last_err = ""
+    for url in urls:
+        try:
+            text = _http_fetch_text(
+                url,
+                timeout=max(float(UPGRADE_SCRIPT_HTTP_TIMEOUT), 5.0),
+                headers={"User-Agent": "afterclaw-updater/1.0"},
+            )
+            body = str(text or "").lstrip()
+            if body.startswith("#!") or "\n" in body:
+                return {"url": url, "script": str(text)}
+            last_err = "fetched content is not a shell script"
+        except Exception as exc:
+            last_err = str(exc)
+            continue
+    raise RuntimeError(
+        "未找到可用升级脚本: "
+        + (last_err or "all candidates returned empty or invalid content")
+    )
+
+
 def _github_branch_version_payload(repo: str, branch: str = "nightly") -> dict:
     safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
     safe_branch = _normalize_upgrade_branch(branch, "nightly")
@@ -1362,35 +1532,75 @@ def _build_terminal_ssh_argv(cfg: dict) -> tuple[list[str], dict]:
     return argv, meta
 
 
+def _config_version_from_raw(value) -> int:
+    try:
+        v = int(value)
+    except Exception:
+        return 0
+    if v < 0:
+        return 0
+    return v
+
+
+def _migrate_config_v0_to_v1(payload: dict) -> dict:
+    out = dict(payload or {})
+    modules = out.get("modules")
+    if not isinstance(modules, dict):
+        modules = {}
+    else:
+        modules = dict(modules)
+    if "http" not in modules and "http_monitor" in out:
+        modules["http"] = bool(out.get("http_monitor"))
+    if modules:
+        out["modules"] = modules
+    if "http_default_dir" in out:
+        http_service = out.get("http_service")
+        if not isinstance(http_service, dict):
+            http_service = {}
+        else:
+            http_service = dict(http_service)
+        if "default_dir" not in http_service:
+            http_service["default_dir"] = out.get("http_default_dir")
+        out["http_service"] = http_service
+    out["version"] = 1
+    return out
+
+
+def _migrate_app_config_payload(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    payload = dict(raw)
+    current = _config_version_from_raw(payload.get("version"))
+    target = int(config_schema.CONFIG_VERSION)
+    migrations = {0: _migrate_config_v0_to_v1}
+    while current < target:
+        migrator = migrations.get(current)
+        if migrator is None:
+            break
+        payload = migrator(payload)
+        current = _config_version_from_raw(payload.get("version"))
+        if current <= 0:
+            break
+    return payload
+
+
 def default_app_config() -> dict:
+    return normalize_app_config({})
+
+
+def _app_config_defaults_base() -> dict:
     return {
-        "version": 1,
+        "version": config_schema.CONFIG_VERSION,
         "web_port": DEFAULT_WEB_PORT,
-        "modules": {
-            "qbt": True,
-            "ddns": True,
-            "docker": True,
-            "shareclip": True,
-            "http": True,
-        },
+        "modules": config_schema.default_modules(),
         "qbt": {
             "monitor_enabled": True,
             "client": "qbittorrent",
             "service_unit": "",
             "docker_container": "",
             "api_url": "",
-            "homepage_clients_enabled": {
-                "qbittorrent": True,
-                "deluge": False,
-                "transmission": False,
-                "rtorrent": False,
-            },
-            "homepage_clients_order": [
-                "qbittorrent",
-                "deluge",
-                "transmission",
-                "rtorrent",
-            ],
+            "homepage_clients_enabled": config_schema.default_qbt_homepage_clients_enabled(),
+            "homepage_clients_order": config_schema.default_qbt_homepage_clients_order(),
         },
         "http_service": {
             "root_dir": str(DEFAULT_STORAGE_ROOT),
@@ -1422,26 +1632,13 @@ def default_app_config() -> dict:
                 os.environ.get("TERMINAL_KEY_FILE", "").strip()
             ),
         },
-        "ui": {
-            "hero_preset": "default",
-            "hero_custom_bg_file": "",
-            "system_name": "",
-            "brand_logo_url": "",
-        },
-        "netdisk_sources": {
-            "baidu": True,
-            "ali": True,
-            "guangya": True,
-            "dropbox": False,
-            "mega": False,
-            "onedrive": False,
-            "gdrive": False,
-        },
+        "ui": config_schema.default_ui_config(),
+        "netdisk_sources": config_schema.default_netdisk_sources(),
     }
 
 
 def normalize_app_config(raw) -> dict:
-    base = default_app_config()
+    base = _app_config_defaults_base()
     if isinstance(raw, dict):
         if "web_port" in raw:
             base["web_port"] = _normalize_web_port(
@@ -1449,7 +1646,7 @@ def normalize_app_config(raw) -> dict:
             )
         mods = raw.get("modules")
         if isinstance(mods, dict):
-            for k in ("qbt", "ddns", "docker", "shareclip", "http"):
+            for k in config_schema.MODULE_KEYS:
                 if k in mods:
                     base["modules"][k] = bool(mods.get(k))
             if "http" not in mods and "http_monitor" in mods:
@@ -1460,7 +1657,7 @@ def normalize_app_config(raw) -> dict:
                 base["qbt"]["monitor_enabled"] = bool(qbt.get("monitor_enabled"))
             if "client" in qbt:
                 c = str(qbt.get("client", "") or "").strip().lower()
-                if c in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+                if c in set(config_schema.QBT_CLIENT_KEYS):
                     base["qbt"]["client"] = c
             if "service_unit" in qbt:
                 base["qbt"]["service_unit"] = str(qbt.get("service_unit", "") or "").strip()
@@ -1470,7 +1667,7 @@ def normalize_app_config(raw) -> dict:
                 base["qbt"]["api_url"] = str(qbt.get("api_url", "") or "").strip()
             en = qbt.get("homepage_clients_enabled")
             if isinstance(en, dict):
-                for k in ("qbittorrent", "deluge", "transmission", "rtorrent"):
+                for k in config_schema.QBT_CLIENT_KEYS:
                     if k in en:
                         base["qbt"]["homepage_clients_enabled"][k] = bool(en.get(k))
             od = qbt.get("homepage_clients_order")
@@ -1479,10 +1676,10 @@ def normalize_app_config(raw) -> dict:
                 seen = set()
                 for item in od:
                     x = str(item or "").strip().lower()
-                    if x in {"qbittorrent", "deluge", "transmission", "rtorrent"} and x not in seen:
+                    if x in set(config_schema.QBT_CLIENT_KEYS) and x not in seen:
                         seen.add(x)
                         out.append(x)
-                for x in ("qbittorrent", "deluge", "transmission", "rtorrent"):
+                for x in config_schema.QBT_CLIENT_KEYS:
                     if x not in seen:
                         out.append(x)
                 base["qbt"]["homepage_clients_order"] = out
@@ -1585,7 +1782,7 @@ def normalize_app_config(raw) -> dict:
         nd = raw.get("netdisk_sources")
         if isinstance(nd, dict):
             nd_cfg = base.setdefault("netdisk_sources", {})
-            for k in ("baidu", "ali", "guangya", "dropbox", "mega", "onedrive", "gdrive"):
+            for k in config_schema.NETDISK_SOURCE_KEYS:
                 if k in nd:
                     nd_cfg[k] = bool(nd.get(k))
     if base["terminal"]["auth_mode"] not in ("key", "password"):
@@ -1631,7 +1828,7 @@ def normalize_app_config(raw) -> dict:
     base["ui"]["hero_custom_bg_file"] = ""
     base["ui"]["system_name"] = str((base.get("ui") or {}).get("system_name", "") or "").strip()[:64]
     base["ui"]["brand_logo_url"] = str((base.get("ui") or {}).get("brand_logo_url", "") or "").strip()[:1024]
-    base["version"] = 1
+    base["version"] = config_schema.CONFIG_VERSION
     return base
 
 
@@ -1644,11 +1841,11 @@ def load_app_config(app_root: Path = _APP_ROOT_DIR) -> dict:
             raw = json.load(f)
     except Exception:
         return default_app_config()
-    return normalize_app_config(raw)
+    return normalize_app_config(_migrate_app_config_payload(raw))
 
 
 def save_app_config(cfg: dict, app_root: Path = _APP_ROOT_DIR) -> dict:
-    normalized = normalize_app_config(cfg)
+    normalized = normalize_app_config(_migrate_app_config_payload(cfg))
     p = app_config_path(app_root)
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "w", encoding="utf-8") as f:
@@ -1970,6 +2167,49 @@ def _rewrite_ddnsgo_location(location: str, base_url: str) -> str:
     return loc
 
 
+_UI_REF_RE = re.compile(r"""(?:src|href)\s*=\s*["']([^"']+)["']""", re.IGNORECASE)
+
+
+def _ui_shell_missing_assets(app_root: Path = _APP_ROOT_DIR) -> list[str]:
+    web_root = (Path(app_root) / "web").resolve()
+    ui_index = web_root / "ui" / "index.html"
+    if not ui_index.is_file():
+        return ["ui/index.html"]
+    try:
+        html = ui_index.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return ["ui/index.html"]
+
+    missing: list[str] = []
+    seen: set[str] = set()
+    for raw_ref in _UI_REF_RE.findall(html):
+        ref = str(raw_ref or "").strip()
+        if not ref:
+            continue
+        if ref.startswith(("http://", "https://", "//", "data:")):
+            continue
+        if not ref.startswith("/"):
+            continue
+        rel = ref.split("?", 1)[0].split("#", 1)[0].lstrip("/")
+        if not rel:
+            continue
+        try:
+            target = ensure_under_root(web_root, web_root / rel)
+        except ValueError:
+            if rel not in seen:
+                seen.add(rel)
+                missing.append(rel)
+            continue
+        if not target.is_file() and rel not in seen:
+            seen.add(rel)
+            missing.append(rel)
+    return missing
+
+
+def _ui_shell_ready(app_root: Path = _APP_ROOT_DIR) -> bool:
+    return not _ui_shell_missing_assets(app_root)
+
+
 def build_frontend_html() -> str:
     html = """<!doctype html>
 <html lang="en">
@@ -2017,7 +2257,6 @@ def build_frontend_html() -> str:
       <button id="tabMonitorBtn" class="tab-btn active" type="button">Control</button>
       <button id="tabDirBtn" class="tab-btn" type="button">Directory Service</button>
       <button id="tabFaqBtn" class="tab-btn" type="button">FAQ</button>
-      <button id="tabBackupBtn" class="tab-btn" type="button" style="display:none">Backup</button>
       <button id="tabPubBtn" class="tab-btn" type="button">ShareClip</button>
     </div>
     <div class="tabs-actions">
@@ -2127,34 +2366,6 @@ def build_frontend_html() -> str:
   <div class="card">
     <span class="card-title">Bulk Text (one HTTP link per line)</span>
     <textarea id="bulkText" readonly></textarea>
-  </div>
-  </div>
-
-  <div id="tabBackupPanel" class="tab-panel">
-  <div class="card">
-    <span class="card-title">Backup Management</span>
-    <div class="kv-line"><strong>Config Path</strong><span id="backupConfigPath">-</span></div>
-    <div class="kv-line"><strong>Database</strong><span id="backupDbStatus">-</span></div>
-    <div class="kv-line"><strong>Snapshots</strong><span id="backupSnapshotCount">-</span></div>
-    <div class="kv-line"><strong>Total Size</strong><span id="backupTotalSize">-</span></div>
-    <div class="kv-line"><strong>Last Backup</strong><span id="backupLastTime">-</span></div>
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <button id="backupRunBtn">Run Backup Now</button>
-        <button id="backupRefreshBtn" class="secondary">Refresh Status</button>
-        <button id="backupConfigBtn" class="secondary">Edit Config</button>
-      </div>
-    </div>
-    <div id="backupResult" class="status-bar muted" style="margin-top:10px;"></div>
-    <details class="card-fold" style="margin-top:20px;">
-      <summary class="card-collapse-btn">
-        <span class="card-title" style="margin-bottom:0;">Snapshot History</span>
-        <span class="card-collapse-arrow" aria-hidden="true">▶</span>
-      </summary>
-      <div class="card-fold-body">
-        <div id="backupSnapshotList" style="max-height:400px;overflow-y:auto;"></div>
-      </div>
-    </details>
   </div>
   </div>
 
@@ -2338,12 +2549,10 @@ sudo systemctl restart storage-http-link-web
     const tabDirBtn = document.getElementById("tabDirBtn");
     const tabMonitorBtn = document.getElementById("tabMonitorBtn");
     const tabFaqBtn = document.getElementById("tabFaqBtn");
-    const tabBackupBtn = document.getElementById("tabBackupBtn");
     const tabPubBtn = document.getElementById("tabPubBtn");
     const tabDirPanel = document.getElementById("tabDirPanel");
     const tabMonitorPanel = document.getElementById("tabMonitorPanel");
     const tabFaqPanel = document.getElementById("tabFaqPanel");
-    const tabBackupPanel = document.getElementById("tabBackupPanel");
     const tabPubPanel = document.getElementById("tabPubPanel");
     const storageText = document.getElementById("storageText");
     const publicBaseText = document.getElementById("publicBaseText");
@@ -2406,17 +2615,6 @@ sudo systemctl restart storage-http-link-web
     const memberQuickVerifyBtn = document.getElementById("memberQuickVerifyBtn");
     const langSelect = document.getElementById("langSelect");
     
-    // Backup elements
-    const backupConfigPath = document.getElementById("backupConfigPath");
-    const backupDbStatus = document.getElementById("backupDbStatus");
-    const backupSnapshotCount = document.getElementById("backupSnapshotCount");
-    const backupTotalSize = document.getElementById("backupTotalSize");
-    const backupLastTime = document.getElementById("backupLastTime");
-    const backupResult = document.getElementById("backupResult");
-    const backupSnapshotList = document.getElementById("backupSnapshotList");
-    const backupRunBtn = document.getElementById("backupRunBtn");
-    const backupRefreshBtn = document.getElementById("backupRefreshBtn");
-    const backupConfigBtn = document.getElementById("backupConfigBtn");
     const cleanModeRenameBtn = document.getElementById("cleanModeRenameBtn");
     const cleanModeSubtitleBtn = document.getElementById("cleanModeSubtitleBtn");
     const cleanRenamePanel = document.getElementById("cleanRenamePanel");
@@ -2813,18 +3011,14 @@ sudo systemctl restart storage-http-link-web
     }
 
     function switchTab(which) {
-      [tabDirBtn, tabMonitorBtn, tabFaqBtn, tabBackupBtn, tabPubBtn].forEach((b) => b.classList.remove("active"));
-      [tabDirPanel, tabMonitorPanel, tabFaqPanel, tabBackupPanel, tabPubPanel].forEach((p) => p.classList.remove("active"));
+      [tabDirBtn, tabMonitorBtn, tabFaqBtn, tabPubBtn].forEach((b) => b.classList.remove("active"));
+      [tabDirPanel, tabMonitorPanel, tabFaqPanel, tabPubPanel].forEach((p) => p.classList.remove("active"));
       if (which === "dir") {
         tabDirBtn.classList.add("active");
         tabDirPanel.classList.add("active");
       } else if (which === "faq") {
         tabFaqBtn.classList.add("active");
         tabFaqPanel.classList.add("active");
-      } else if (which === "backup") {
-        tabBackupBtn.classList.add("active");
-        tabBackupPanel.classList.add("active");
-        loadBackupStatus();
       } else if (which === "pub") {
         tabPubBtn.classList.add("active");
         tabPubPanel.classList.add("active");
@@ -4326,7 +4520,6 @@ sudo systemctl restart storage-http-link-web
     tabDirBtn.addEventListener("click", () => switchTab("dir"));
     tabMonitorBtn.addEventListener("click", () => switchTab("monitor"));
     tabFaqBtn.addEventListener("click", () => switchTab("faq"));
-    tabBackupBtn.addEventListener("click", () => switchTab("backup"));
     tabPubBtn.addEventListener("click", () => switchTab("pub"));
     xferSortButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -4594,110 +4787,6 @@ sudo systemctl restart storage-http-link-web
         });
       }
       tick();
-    }
-
-    // Backup functions
-    function formatBytes(bytes) {
-      if (bytes === 0) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    async function loadBackupStatus() {
-      try {
-        const data = await getJson('/api/backup/status');
-        if (data.success) {
-          if (backupConfigPath) backupConfigPath.textContent = data.config_path || '-';
-          if (backupDbStatus) backupDbStatus.textContent = data.db_exists ? '✓ Exists' : '✗ Not initialized';
-          if (data.storage_stats) {
-            if (backupSnapshotCount) backupSnapshotCount.textContent = data.storage_stats.snapshot_count || '0';
-            if (backupTotalSize) backupTotalSize.textContent = formatBytes(data.storage_stats.total_size || 0);
-            if (backupLastTime) {
-              if (data.storage_stats.newest_snapshot) {
-                backupLastTime.textContent = new Date(data.storage_stats.newest_snapshot).toLocaleString();
-              } else {
-                backupLastTime.textContent = 'Never';
-              }
-            }
-          }
-          await loadBackupSnapshots();
-        }
-      } catch (err) {
-        console.error('Failed to load backup status:', err);
-      }
-    }
-
-    async function loadBackupSnapshots() {
-      try {
-        const data = await getJson('/api/backup/list');
-        if (data.success && backupSnapshotList) {
-          if (data.snapshots.length === 0) {
-            backupSnapshotList.innerHTML = '<p style="color:var(--text-muted);padding:10px;">No snapshots found</p>';
-            return;
-          }
-          let html = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:1px solid var(--border);">';
-          html += '<th style="text-align:left;padding:8px;">Snapshot ID</th>';
-          html += '<th style="text-align:left;padding:8px;">Time</th>';
-          html += '<th style="text-align:right;padding:8px;">Files</th>';
-          html += '<th style="text-align:right;padding:8px;">Size</th>';
-          html += '</tr></thead><tbody>';
-          data.snapshots.forEach(s => {
-            html += '<tr style="border-bottom:1px solid var(--border);">';
-            html += '<td style="padding:8px;"><code>' + s.id + '</code></td>';
-            html += '<td style="padding:8px;">' + new Date(s.timestamp).toLocaleString() + '</td>';
-            html += '<td style="padding:8px;text-align:right;">' + s.file_count + '</td>';
-            html += '<td style="padding:8px;text-align:right;">' + formatBytes(s.total_size) + '</td>';
-            html += '</tr>';
-          });
-          html += '</tbody></table>';
-          backupSnapshotList.innerHTML = html;
-        }
-      } catch (err) {
-        console.error('Failed to load snapshots:', err);
-      }
-    }
-
-    if (backupRunBtn) {
-      backupRunBtn.addEventListener('click', async () => {
-        backupRunBtn.disabled = true;
-        backupRunBtn.textContent = 'Running...';
-        if (backupResult) backupResult.textContent = 'Backup in progress...';
-        try {
-          const data = await getJson('/api/backup/run', { method: 'POST' });
-          if (data.success) {
-            if (backupResult) {
-              backupResult.textContent = `✓ Backup completed: ${data.files_processed} files, ${formatBytes(data.bytes_transferred)}`;
-              backupResult.style.color = 'var(--success)';
-            }
-            await loadBackupStatus();
-          } else {
-            if (backupResult) {
-              backupResult.textContent = `✗ Backup failed: ${data.error || 'Unknown error'}`;
-              backupResult.style.color = 'var(--error)';
-            }
-          }
-        } catch (err) {
-          if (backupResult) {
-            backupResult.textContent = `✗ Error: ${err.message || err}`;
-            backupResult.style.color = 'var(--error)';
-          }
-        } finally {
-          backupRunBtn.disabled = false;
-          backupRunBtn.textContent = 'Run Backup Now';
-        }
-      });
-    }
-
-    if (backupRefreshBtn) {
-      backupRefreshBtn.addEventListener('click', () => loadBackupStatus());
-    }
-
-    if (backupConfigBtn) {
-      backupConfigBtn.addEventListener('click', () => {
-        window.location.href = '/config#backup';
-      });
     }
 
     Promise.resolve(i18nReady).finally(() => {
@@ -5052,7 +5141,6 @@ def build_config_html() -> str:
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
         <button id="cfgTabExclusive" class="cfg-tab" type="button" data-tab="exclusive" data-i18n-fallback="Exclusive" style="display:none">Exclusive</button>
-        <button class="cfg-tab" type="button" data-tab="backup" data-i18n="config.tab.backup" data-i18n-fallback="Backup" style="display:none">Backup</button>
         <button class="cfg-tab" type="button" data-tab="netdisk" data-i18n="config.tab.netdisk" data-i18n-fallback="Netdisk">Netdisk</button>
       </div>
       <div class="cfg-tabs-actions">
@@ -5357,78 +5445,6 @@ def build_config_html() -> str:
           <button type="button" id="saveMemberDdnsBtn">Save Exclusive DDNS</button>
         </div>
         <p id="exclusiveStatus" class="cfg-status"></p>
-      </div>
-    </section>
-
-    <section id="panel-backup" class="cfg-panel">
-      <div class="card">
-        <span class="card-title">Backup Configuration</span>
-        <p class="cfg-help">Configure backup sources, targets, and retention policies. Config file: <code id="backupCfgPath">-</code></p>
-        
-        <div class="cfg-grid" style="margin-top:16px;">
-          <label class="cfg-item">
-            <div class="title">Backup Target Path</div>
-            <input id="backupTargetPath" placeholder="e.g. ~/.afterclaw/backup or /mnt/backup" />
-            <div class="cfg-help">Local directory to store backup snapshots</div>
-          </label>
-        </div>
-        
-        <div class="cfg-grid">
-          <label class="cfg-item">
-            <div class="title">Source Directories (one per line)</div>
-            <textarea id="backupSourceDirs" rows="4" placeholder="~/Projects&#10;~/Documents&#10;/opt/data"></textarea>
-            <div class="cfg-help">Directories to backup, one per line. Use ~ for home directory.</div>
-          </label>
-        </div>
-        
-        <div class="cfg-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-          <label class="cfg-item">
-            <div class="title">Daily Retention</div>
-            <input type="number" id="backupRetentionDaily" min="0" max="365" value="7" />
-            <div class="cfg-help">Keep daily snapshots (days)</div>
-          </label>
-          <label class="cfg-item">
-            <div class="title">Weekly Retention</div>
-            <input type="number" id="backupRetentionWeekly" min="0" max="52" value="4" />
-            <div class="cfg-help">Keep weekly snapshots (weeks)</div>
-          </label>
-          <label class="cfg-item">
-            <div class="title">Monthly Retention</div>
-            <input type="number" id="backupRetentionMonthly" min="0" max="120" value="12" />
-            <div class="cfg-help">Keep monthly snapshots (months)</div>
-          </label>
-        </div>
-        
-        <div class="cfg-actions">
-          <button type="button" id="saveBackupConfigBtn">Save Backup Config</button>
-          <button type="button" id="loadBackupConfigBtn" class="secondary">Load Current Config</button>
-          <button type="button" id="testBackupBtn" class="secondary">Test Backup Now</button>
-        </div>
-        <p id="backupCfgStatus" class="cfg-status"></p>
-        
-        <details class="card-fold" style="margin-top:20px;">
-          <summary class="card-collapse-btn">
-            <span class="card-title" style="margin-bottom:0;">Advanced Settings</span>
-            <span class="card-collapse-arrow" aria-hidden="true">▶</span>
-          </summary>
-          <div class="card-fold-body">
-            <div class="cfg-grid">
-              <label class="cfg-item">
-                <div class="title">Exclude Patterns (one per line)</div>
-                <textarea id="backupExcludePatterns" rows="4" placeholder="**/node_modules/**&#10;**/.venv/**&#10;**/__pycache__/**"></textarea>
-                <div class="cfg-help">Glob patterns to exclude from backup</div>
-              </label>
-            </div>
-            <label class="cfg-module-item" style="margin-top:12px;">
-              <input type="checkbox" id="backupCompressionEnabled" class="cfg-switch-input" checked />
-              <span class="cfg-switch" aria-hidden="true"></span>
-              <div>
-                <p class="cfg-module-title">Enable Compression</p>
-                <p class="cfg-module-desc">Compress backup files to save space</p>
-              </div>
-            </label>
-          </div>
-        </details>
       </div>
     </section>
 
@@ -8202,6 +8218,7 @@ class AppHandler(BaseHTTPRequestHandler):
     http_cut_lock = threading.Lock()
     http_download_slots_lock = threading.Lock()
     restart_queued = False
+    restart_last_error = ""
     upgrade_running = False
     http_cut_epoch = 0
     speed_state = {
@@ -8320,6 +8337,323 @@ class AppHandler(BaseHTTPRequestHandler):
                         return True
         
         return False
+
+    def _dispatch_docker_get_api(self, parsed) -> bool:
+        return bool(docker_api.dispatch_get(self, parsed, DOCKER_RECOMMENDATIONS))
+
+    def _dispatch_docker_post_api(self, parsed) -> bool:
+        return bool(docker_api.dispatch_post(self, parsed))
+
+    def _dispatch_ddns_get_api(self, parsed) -> bool:
+        return bool(ddns_api.dispatch_get(self, parsed, _APP_ROOT_DIR))
+
+    def _dispatch_ddns_post_api(self, parsed) -> bool:
+        return bool(ddns_api.dispatch_post(self, parsed, _APP_ROOT_DIR))
+
+    def _dispatch_services_post_api(self, parsed) -> bool:
+        return bool(services_api.dispatch_post(self, parsed, _APP_ROOT_DIR))
+
+    def _dispatch_control_post_api(self, parsed) -> bool:
+        return bool(
+            control_api.dispatch_post(
+                self,
+                parsed,
+                _APP_ROOT_DIR,
+                load_app_config,
+                save_app_config,
+                http_access,
+                time,
+            )
+        )
+
+    def _dispatch_http_post_api(self, parsed) -> bool:
+        return bool(
+            http_api.dispatch_post(
+                self,
+                parsed,
+                _APP_ROOT_DIR,
+                load_app_config,
+                save_app_config,
+                _normalize_source_ip_pool_source,
+                _fetch_source_ip_pools_from_source,
+                _normalize_source_ip_pools,
+                _merge_source_ip_pools,
+                SOURCE_POOL_KEYS,
+            )
+        )
+
+    def _dispatch_terminal_post_api(self, parsed) -> bool:
+        return bool(terminal_api.dispatch_post(self, parsed, _APP_ROOT_DIR))
+
+    def _dispatch_member_get_api(self, parsed) -> bool:
+        return bool(member_api.dispatch_get(self, parsed))
+
+    def _dispatch_upgrade_get_api(self, parsed) -> bool:
+        return bool(upgrade_api.dispatch_get(self, parsed))
+
+    def _dispatch_qbt_get_api(self, parsed) -> bool:
+        return bool(qbt_api.dispatch_get(self, parsed, load_app_config, _APP_ROOT_DIR))
+
+    def _dispatch_files_get_api(self, parsed) -> bool:
+        return bool(
+            files_api.dispatch_get(
+                self,
+                parsed,
+                safe_relative_path,
+                ensure_under_root,
+                human_size,
+            )
+        )
+
+    def _dispatch_status_get_api(self, parsed) -> bool:
+        return bool(
+            status_api.dispatch_get(
+                self,
+                parsed,
+                _APP_ROOT_DIR,
+                load_app_config,
+                _normalize_rel_dir_setting,
+                _build_terminal_launch_meta,
+                _ui_theme_payload,
+                ACTIVE_WEB_PORT,
+                DEFAULT_PUBLIC_SCHEME,
+                DEFAULT_PUBLIC_HOST,
+                APP_VERSION_TEXT,
+                APP_VERSION,
+                parse_qs,
+            )
+        )
+
+    def _dispatch_appconfig_get_api(self, parsed) -> bool:
+        return bool(
+            appconfig_api.dispatch_get(
+                self,
+                parsed,
+                _APP_ROOT_DIR,
+                load_app_config,
+            )
+        )
+
+    def _dispatch_member_post_api(self, parsed) -> bool:
+        return bool(member_api.dispatch_post(self, parsed))
+
+    def _dispatch_naming_post_api(self, parsed) -> bool:
+        return bool(
+            naming_api.dispatch_post(
+                self,
+                parsed,
+                _APP_ROOT_DIR,
+                load_app_config,
+                safe_relative_path,
+            )
+        )
+
+    def _dispatch_upgrade_post_api(self, parsed) -> bool:
+        return bool(upgrade_api.dispatch_post(self, parsed))
+
+    def _dispatch_qbt_post_api(self, parsed) -> bool:
+        return bool(qbt_api.dispatch_post(self, parsed))
+
+    def _dispatch_appconfig_post_api(self, parsed) -> bool:
+        return bool(
+            appconfig_api.dispatch_post(
+                self,
+                parsed,
+                _APP_ROOT_DIR,
+                load_app_config,
+                save_app_config,
+                _normalize_web_port,
+                _normalize_rel_dir_setting,
+                _normalize_source_ip_pools,
+                _normalize_source_ip_pool_source,
+                _normalize_transfer_recent_ttl,
+                _normalize_ssh_port,
+                _normalize_terminal_key_file_name,
+                _normalize_ui_hero_preset,
+                ensure_under_root,
+                _ui_theme_payload,
+                DEFAULT_WEB_PORT,
+                ACTIVE_WEB_PORT,
+                DEFAULT_TRANSFER_RECENT_TTL_SEC,
+                ddns,
+            )
+        )
+
+    def _dispatch_modular_get_apis(self, parsed) -> bool:
+        dispatchers = (
+            self._dispatch_status_get_api,
+            self._dispatch_appconfig_get_api,
+            self._dispatch_docker_get_api,
+            self._dispatch_ddns_get_api,
+            self._dispatch_member_get_api,
+            self._dispatch_upgrade_get_api,
+            self._dispatch_qbt_get_api,
+            self._dispatch_files_get_api,
+        )
+        for fn in dispatchers:
+            if fn(parsed):
+                return True
+        return False
+
+    def _dispatch_modular_post_apis(self, parsed) -> bool:
+        dispatchers = (
+            self._dispatch_control_post_api,
+            self._dispatch_appconfig_post_api,
+            self._dispatch_http_post_api,
+            self._dispatch_docker_post_api,
+            self._dispatch_services_post_api,
+            self._dispatch_ddns_post_api,
+            self._dispatch_terminal_post_api,
+            self._dispatch_member_post_api,
+            self._dispatch_naming_post_api,
+            self._dispatch_upgrade_post_api,
+            self._dispatch_qbt_post_api,
+        )
+        for fn in dispatchers:
+            if fn(parsed):
+                return True
+        return False
+
+    def _member_route_profile_get(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.profile_get(
+            self._member_token_from_request(),
+            _member_get_session,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        self._send_json(result.payload or {"ok": False})
+        return True
+
+    def _member_route_login_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.login_post(
+            self._parse_body(),
+            _member_remote_json,
+            _member_issue_session,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        extra = None
+        if result.cookie_token is not None:
+            extra = {"Set-Cookie": self._build_member_cookie(result.cookie_token)}
+        self._send_json(result.payload or {"ok": False}, extra_headers=extra)
+        return True
+
+    def _member_route_register_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.register_post(
+            self._parse_body(),
+            _member_remote_json,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        self._send_json(result.payload or {"ok": False})
+        return True
+
+    def _member_route_profile_update_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.profile_update_post(
+            self._member_token_from_request(),
+            self._parse_body(),
+            _member_get_session,
+            _member_remote_json,
+            _member_issue_session,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        extra = None
+        if result.cookie_token is not None:
+            extra = {"Set-Cookie": self._build_member_cookie(result.cookie_token)}
+        self._send_json(result.payload or {"ok": False}, extra_headers=extra)
+        return True
+
+    def _member_route_logout_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.logout_post()
+        extra = None
+        if result.clear_cookie:
+            extra = {"Set-Cookie": self._build_member_cookie("", max_age=0)}
+        self._send_json(result.payload or {"ok": False}, extra_headers=extra)
+        return True
+
+    def _member_route_prefix_check_get(self, parsed) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.prefix_check_get(
+            parsed.query,
+            self._member_token_from_request(),
+            _member_get_session,
+            _member_prefix_sanitize,
+            _load_member_accounts,
+            _member_prefix_in_use,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        self._send_json(result.payload or {"ok": False})
+        return True
+
+    def _member_route_email_change_request_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.email_change_request_post(
+            self._member_token_from_request(),
+            self._parse_body(),
+            _member_get_session,
+            _member_remote_json,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        self._send_json(result.payload or {"ok": False})
+        return True
+
+    def _member_route_password_reset_request_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.password_reset_request_post(
+            self._parse_body(),
+            _member_remote_json,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        self._send_json(result.payload or {"ok": False})
+        return True
+
+    def _member_route_ddns_config_post(self) -> bool:
+        if not self._require_lan():
+            return True
+        result = member_service.ddns_config_post(
+            self._member_token_from_request(),
+            self._parse_body(),
+            _member_get_session,
+            _load_member_accounts,
+            _member_find_account,
+            _member_find_account_by_member_id,
+            _member_now_ts,
+            _member_prefix_sanitize,
+            _member_prefix_in_use,
+            _save_member_accounts,
+            _member_build_fqdn,
+            _member_public_payload,
+            MEMBER_PREFIX_CHANGE_LIMIT_PER_YEAR,
+        )
+        if not result.ok:
+            self._error(result.error, status=result.status)
+            return True
+        self._send_json(result.payload or {"ok": False})
+        return True
 
     def _dispatch_shareclip_flask(self, parsed, command: str, send_body: bool) -> bool:
         path = parsed.path or "/"
@@ -8783,13 +9117,10 @@ class AppHandler(BaseHTTPRequestHandler):
         if not unit:
             return None
         try:
-            out = subprocess.run(
-                ["systemctl", "show", unit, "--no-page", "--property=LoadState,ActiveState,SubState"],
-                capture_output=True,
-                text=True,
-                check=False,
+            out = service_adapter.execute_systemctl(
+                ["show", unit, "--no-page", "--property=LoadState,ActiveState,SubState"]
             )
-            if out.returncode != 0:
+            if not out.ok:
                 return None
             data = {}
             for line in out.stdout.splitlines():
@@ -8836,13 +9167,10 @@ class AppHandler(BaseHTTPRequestHandler):
         if not keys:
             return None
         try:
-            out = subprocess.run(
-                ["systemctl", "list-units", "--type=service", "--all", "--no-legend", "--no-pager"],
-                capture_output=True,
-                text=True,
-                check=False,
+            out = service_adapter.execute_systemctl(
+                ["list-units", "--type=service", "--all", "--no-legend", "--no-pager"]
             )
-            if out.returncode != 0:
+            if not out.ok:
                 return None
             for line in out.stdout.splitlines():
                 parts = line.split()
@@ -8863,7 +9191,7 @@ class AppHandler(BaseHTTPRequestHandler):
         cfg = app_cfg if isinstance(app_cfg, dict) else load_app_config(_APP_ROOT_DIR)
         qbt_cfg = (cfg.get("qbt") or {}) if isinstance(cfg, dict) else {}
         client = str(qbt_cfg.get("client", "") or "").strip().lower()
-        if client not in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+        if client not in config_schema.QBT_CLIENT_KEYS:
             client = "qbittorrent"
         return {
             "client": client,
@@ -8911,13 +9239,10 @@ class AppHandler(BaseHTTPRequestHandler):
         service_units = []
         seen_units = set()
         try:
-            out = subprocess.run(
-                ["systemctl", "list-unit-files", "--type=service", "--no-legend", "--no-pager"],
-                capture_output=True,
-                text=True,
-                check=False,
+            out = service_adapter.execute_systemctl(
+                ["list-unit-files", "--type=service", "--no-legend", "--no-pager"]
             )
-            if out.returncode == 0:
+            if out.ok:
                 for line in out.stdout.splitlines():
                     parts = line.split()
                     if not parts:
@@ -8931,13 +9256,10 @@ class AppHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
         try:
-            out = subprocess.run(
-                ["systemctl", "list-units", "--type=service", "--all", "--no-legend", "--no-pager"],
-                capture_output=True,
-                text=True,
-                check=False,
+            out = service_adapter.execute_systemctl(
+                ["list-units", "--type=service", "--all", "--no-legend", "--no-pager"]
             )
-            if out.returncode == 0:
+            if out.ok:
                 for line in out.stdout.splitlines():
                     parts = line.split()
                     if not parts:
@@ -8954,13 +9276,10 @@ class AppHandler(BaseHTTPRequestHandler):
         docker_names = []
         seen_docker = set()
         try:
-            out = subprocess.run(
-                ["docker", "ps", "-a", "--format", "{{.Names}}"],
-                capture_output=True,
-                text=True,
-                check=False,
+            out = docker_adapter.execute_docker(
+                ["ps", "-a", "--format", "{{.Names}}"]
             )
-            if out.returncode == 0:
+            if out.ok:
                 for raw in out.stdout.splitlines():
                     name = str(raw or "").strip()
                     if not name:
@@ -9170,15 +9489,12 @@ class AppHandler(BaseHTTPRequestHandler):
 
         for name in names:
             try:
-                out = subprocess.run(
-                    ["docker", "inspect", "-f", "{{.State.Status}}", name],
-                    capture_output=True,
-                    text=True,
-                    check=False,
+                out = docker_adapter.execute_docker(
+                    ["inspect", "-f", "{{.State.Status}}", name]
                 )
             except Exception:
                 return None
-            if out.returncode != 0:
+            if not out.ok:
                 continue
             status = str((out.stdout or "").strip() or "unknown").lower()
             active_state = "active" if status == "running" else "inactive"
@@ -9191,15 +9507,12 @@ class AppHandler(BaseHTTPRequestHandler):
             }
 
         try:
-            out = subprocess.run(
-                ["docker", "ps", "-a", "--format", "{{.Names}}\t{{.Status}}"],
-                capture_output=True,
-                text=True,
-                check=False,
+            out = docker_adapter.execute_docker(
+                ["ps", "-a", "--format", "{{.Names}}\t{{.Status}}"]
             )
         except Exception:
             return None
-        if out.returncode != 0:
+        if not out.ok:
             return None
         lookup = {str(x).strip().lower() for x in names if str(x).strip()}
         for line in out.stdout.splitlines():
@@ -9223,362 +9536,72 @@ class AppHandler(BaseHTTPRequestHandler):
 
     @classmethod
     def _docker_container_action(cls, name: str, action: str):
-        cname = str(name or "").strip()
-        if not cname:
-            return False, "docker 容器名为空"
-        if action not in {"start", "stop", "restart"}:
-            return False, "不支持的动作"
-        try:
-            out = subprocess.run(
-                ["docker", action, cname],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except Exception as exc:
-            return False, str(exc)
-        if out.returncode == 0:
-            return True, ""
-        msg = (out.stderr or out.stdout or "").strip()[:200]
-        return False, msg or "docker 执行失败"
+        return docker_service.container_action(name, action)
 
     @classmethod
     def _docker_safe_name(cls, name: str) -> str:
-        text = str(name or "").strip()
-        if not text or len(text) > 128:
-            return ""
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", text):
-            return ""
-        return text
+        return docker_service.safe_name(name)
 
     @classmethod
     def _docker_safe_image(cls, image: str) -> str:
-        text = str(image or "").strip()
-        if not text or len(text) > 255:
-            return ""
-        # docker image refs may include repo, tag and digest.
-        if not re.fullmatch(r"[A-Za-z0-9._/@:-]+", text):
-            return ""
-        return text
+        return docker_service.safe_image(image)
 
     @classmethod
     def _docker_safe_kv(cls, text: str) -> str:
-        raw = str(text or "").strip()
-        if not raw or len(raw) > 512:
-            return ""
-        if "\x00" in raw or "\n" in raw or "\r" in raw:
-            return ""
-        return raw
+        return docker_service.safe_kv(text)
 
     @classmethod
     def _docker_collect_list(cls, value) -> list[str]:
-        if isinstance(value, list):
-            source = value
-        elif isinstance(value, str):
-            source = [x.strip() for x in value.split(",")]
-        else:
-            source = []
-        out = []
-        for item in source:
-            text = str(item or "").strip()
-            if text:
-                out.append(text)
-        return out
+        return docker_service.collect_list(value)
 
     @classmethod
     def _docker_run(cls, argv: list[str], timeout: float = 60.0) -> tuple[bool, str]:
-        try:
-            out = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=timeout,
-            )
-        except FileNotFoundError:
-            return False, "docker command not found"
-        except subprocess.TimeoutExpired:
-            return False, "docker command timed out"
-        except Exception as exc:
-            return False, str(exc)
-        if out.returncode == 0:
-            return True, (out.stdout or "").strip()
-        msg = (out.stderr or out.stdout or "").strip()[:1000]
-        return False, msg or "docker command failed"
+        return docker_service.run(argv, timeout=timeout)
 
     @classmethod
     def _docker_images_payload(cls) -> dict:
-        rows, err = cls._docker_json_lines(
-            ["docker", "images", "--format", "{{json .}}"],
-            timeout=10.0,
-        )
-        if err:
-            return {"ok": False, "available": False, "error": err, "images": []}
-        images = []
-        for row in rows:
-            repo = str(row.get("Repository", "") or "").strip()
-            tag = str(row.get("Tag", "") or "").strip()
-            image_id = str(row.get("ID", "") or "").strip()
-            size = str(row.get("Size", "") or "").strip()
-            created = str(row.get("CreatedSince", "") or "").strip()
-            ref = f"{repo}:{tag}" if repo and tag and tag != "<none>" else repo or image_id
-            images.append(
-                {
-                    "id": image_id,
-                    "repository": repo,
-                    "tag": tag,
-                    "ref": ref,
-                    "size": size or "-",
-                    "created": created or "-",
-                }
-            )
-        images.sort(key=lambda x: str(x.get("ref", "")).lower())
-        return {"ok": True, "available": True, "error": "", "images": images}
+        return docker_service.images_payload()
 
     @classmethod
     def _docker_pull_image(cls, image: str) -> tuple[bool, str]:
-        ref = cls._docker_safe_image(image)
-        if not ref:
-            return False, "invalid image reference"
-        return cls._docker_run(["docker", "pull", ref], timeout=180.0)
+        return docker_service.pull_image(image)
 
     @classmethod
     def _docker_remove_image(cls, image: str, force: bool = False) -> tuple[bool, str]:
-        ref = cls._docker_safe_image(image)
-        if not ref:
-            return False, "invalid image reference"
-        argv = ["docker", "rmi"]
-        if force:
-            argv.append("-f")
-        argv.append(ref)
-        return cls._docker_run(argv, timeout=90.0)
+        return docker_service.remove_image(image, force=force)
 
     @classmethod
     def _docker_remove_container(cls, name: str, force: bool = False) -> tuple[bool, str]:
-        cname = cls._docker_safe_name(name)
-        if not cname:
-            return False, "invalid container name"
-        argv = ["docker", "rm"]
-        if force:
-            argv.append("-f")
-        argv.append(cname)
-        return cls._docker_run(argv, timeout=60.0)
+        return docker_service.remove_container(name, force=force)
 
     @classmethod
     def _docker_create_container(cls, body: dict) -> tuple[bool, str]:
-        name = cls._docker_safe_name((body or {}).get("name", ""))
-        image = cls._docker_safe_image((body or {}).get("image", ""))
-        if not name:
-            return False, "invalid container name"
-        if not image:
-            return False, "invalid image reference"
-        argv = ["docker", "run", "-d", "--name", name]
-        restart_policy = str((body or {}).get("restart", "") or "").strip().lower()
-        if restart_policy in {"no", "always", "unless-stopped", "on-failure"}:
-            argv.extend(["--restart", restart_policy])
-        network = cls._docker_safe_name((body or {}).get("network", "bridge"))
-        if network:
-            argv.extend(["--network", network])
-        for port in cls._docker_collect_list((body or {}).get("ports")):
-            safe = cls._docker_safe_kv(port)
-            if safe and re.fullmatch(r"[0-9.:/-]+", safe):
-                argv.extend(["-p", safe])
-        for vol in cls._docker_collect_list((body or {}).get("volumes")):
-            safe = cls._docker_safe_kv(vol)
-            if safe and ":" in safe:
-                argv.extend(["-v", safe])
-        for env in cls._docker_collect_list((body or {}).get("env")):
-            safe = cls._docker_safe_kv(env)
-            if safe and "=" in safe:
-                argv.extend(["-e", safe])
-        command = str((body or {}).get("command", "") or "").strip()
-        argv.append(image)
-        if command:
-            argv.extend(shlex.split(command))
-        return cls._docker_run(argv, timeout=90.0)
+        return docker_service.create_container(body)
 
     @staticmethod
     def _docker_parse_percent(value) -> float:
-        text = str(value or "").strip().replace("%", "")
-        try:
-            return round(max(0.0, float(text)), 2)
-        except Exception:
-            return 0.0
+        return docker_service.parse_percent(value)
 
     @classmethod
     def _docker_json_lines(cls, argv: list[str], timeout: float = 8.0) -> tuple[list[dict], str]:
-        try:
-            out = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=timeout,
-            )
-        except FileNotFoundError:
-            return [], "docker command not found"
-        except subprocess.TimeoutExpired:
-            return [], "docker command timed out"
-        except Exception as exc:
-            return [], str(exc)
-        if out.returncode != 0:
-            return [], (out.stderr or out.stdout or "docker command failed").strip()[:500]
-        rows = []
-        for line in (out.stdout or "").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                item = json.loads(line)
-                if isinstance(item, dict):
-                    rows.append(item)
-            except Exception:
-                continue
-        return rows, ""
+        return docker_service.json_lines(argv, timeout=timeout)
 
     @classmethod
     def _docker_linked_roles(cls, name: str, image: str, app_cfg: dict | None = None) -> list[str]:
-        text = f"{name} {image}".lower()
-        roles = []
-        qbt_cfg = ((app_cfg or {}).get("qbt") or {}) if isinstance(app_cfg, dict) else {}
-        qbt_container = str(qbt_cfg.get("docker_container", "") or "").strip().lower()
-        if qbt_container and name.lower() == qbt_container:
-            roles.append("BitTorrent")
-        elif any(k in text for k in ("qbittorrent", "qbit", "deluge", "transmission", "rtorrent")):
-            roles.append("BitTorrent")
-        if any(k in text for k in ("ddns", "duckdns", "cloudflare-ddns", "ddns-go")):
-            roles.append("DDNS")
-        if any(k in text for k in ("afterclaw", "storage-http-link-web", "file-control-center")):
-            roles.append("AfterClaw")
-        return roles
+        return docker_service.linked_roles(name, image, app_cfg=app_cfg)
 
     @classmethod
     def _docker_status_payload(cls, app_cfg: dict | None = None, include_stats: bool = True) -> dict:
         cfg = app_cfg if isinstance(app_cfg, dict) else load_app_config(_APP_ROOT_DIR)
-        if not cls._docker_module_enabled(cfg):
-            return {
-                "ok": True,
-                "available": False,
-                "disabled": True,
-                "error": "Docker module is disabled",
-                "summary": {"running": 0, "stopped": 0, "total": 0, "images": 0},
-                "containers": [],
-            }
-
-        ps_rows, err = cls._docker_json_lines(
-            ["docker", "ps", "-a", "--format", "{{json .}}"],
-            timeout=8.0,
+        return docker_service.status_payload(
+            app_cfg=cfg,
+            include_stats=include_stats,
+            module_enabled=cls._docker_module_enabled(cfg),
         )
-        if err:
-            return {
-                "ok": False,
-                "available": False,
-                "disabled": False,
-                "error": err,
-                "summary": {"running": 0, "stopped": 0, "total": 0, "images": 0},
-                "containers": [],
-            }
-
-        stats_rows = []
-        if include_stats:
-            stats_rows, _ = cls._docker_json_lines(
-                ["docker", "stats", "--no-stream", "--format", "{{json .}}"],
-                timeout=10.0,
-            )
-        stats_by_name = {}
-        for item in stats_rows:
-            nm = str(item.get("Name", "") or item.get("Container", "") or "").strip()
-            if nm:
-                stats_by_name[nm] = item
-
-        image_count = 0
-        try:
-            out = subprocess.run(
-                ["docker", "images", "-q"],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=8.0,
-            )
-            if out.returncode == 0:
-                image_count = len({x.strip() for x in out.stdout.splitlines() if x.strip()})
-        except Exception:
-            image_count = 0
-
-        containers = []
-        running = 0
-        for row in ps_rows:
-            name = str(row.get("Names", "") or row.get("Name", "") or "").strip()
-            image = str(row.get("Image", "") or "").strip()
-            state = str(row.get("State", "") or "").strip().lower()
-            status = str(row.get("Status", "") or "").strip()
-            is_running = state == "running" or status.lower().startswith("up")
-            if is_running:
-                running += 1
-            stat = stats_by_name.get(name, {})
-            containers.append(
-                {
-                    "id": str(row.get("ID", "") or "").strip(),
-                    "name": name,
-                    "image": image,
-                    "command": str(row.get("Command", "") or "").strip(),
-                    "status": status,
-                    "state": state or ("running" if is_running else "stopped"),
-                    "running": bool(is_running),
-                    "ports": str(row.get("Ports", "") or "").strip() or "-",
-                    "uptime": str(row.get("RunningFor", "") or "").strip() or "-",
-                    "cpu_pct": cls._docker_parse_percent(stat.get("CPUPerc", "")),
-                    "mem_usage": str(stat.get("MemUsage", "") or "").strip(),
-                    "mem_pct": cls._docker_parse_percent(stat.get("MemPerc", "")),
-                    "net_io": str(stat.get("NetIO", "") or "").strip(),
-                    "block_io": str(stat.get("BlockIO", "") or "").strip(),
-                    "pids": str(stat.get("PIDs", "") or "").strip(),
-                    "roles": cls._docker_linked_roles(name, image, cfg),
-                }
-            )
-        containers.sort(key=lambda x: (not bool(x.get("running")), str(x.get("name", "")).lower()))
-        total = len(containers)
-        return {
-            "ok": True,
-            "available": True,
-            "disabled": False,
-            "error": "",
-            "summary": {
-                "running": running,
-                "stopped": max(0, total - running),
-                "total": total,
-                "images": image_count,
-            },
-            "containers": containers,
-        }
 
     @classmethod
     def _docker_container_logs(cls, name: str, tail: int = 160) -> tuple[bool, str]:
-        cname = cls._docker_safe_name(name)
-        if not cname:
-            return False, "invalid container name"
-        try:
-            tail_n = max(20, min(500, int(tail)))
-        except Exception:
-            tail_n = 160
-        try:
-            out = subprocess.run(
-                ["docker", "logs", "--tail", str(tail_n), cname],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10.0,
-            )
-        except FileNotFoundError:
-            return False, "docker command not found"
-        except subprocess.TimeoutExpired:
-            return False, "docker logs timed out"
-        except Exception as exc:
-            return False, str(exc)
-        text = ((out.stdout or "") + (out.stderr or "")).strip()
-        if out.returncode != 0:
-            return False, text[:1000] or "docker logs failed"
-        return True, text[-24000:]
+        return docker_service.container_logs(name, tail=tail)
 
     @classmethod
     def _service_action(cls, unit: str, action: str):
@@ -9589,19 +9612,11 @@ class AppHandler(BaseHTTPRequestHandler):
         if str(unit).startswith("docker:"):
             cname = str(unit).split(":", 1)[1]
             return cls._docker_container_action(cname, action)
-        try:
-            out = subprocess.run(
-                ["systemctl", action, unit],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if out.returncode == 0:
-                return True, ""
-            msg = (out.stderr or out.stdout or "").strip()[:200]
-            return False, msg or "systemctl 执行失败"
-        except Exception as exc:
-            return False, str(exc)
+        out = service_adapter.execute_service_action(action, unit)
+        if out.ok:
+            return True, ""
+        msg = str(out.message or "").strip()[:200]
+        return False, msg or "systemctl 执行失败"
 
     @classmethod
     def _systemd_show_properties(cls, unit: str, properties: list[str]) -> dict:
@@ -9610,30 +9625,23 @@ class AppHandler(BaseHTTPRequestHandler):
         props = [str(x or "").strip() for x in (properties or []) if str(x or "").strip()]
         if not props:
             return {}
-        try:
-            out = subprocess.run(
-                [
-                    "systemctl",
-                    "show",
-                    unit,
-                    "--no-page",
-                    f"--property={','.join(props)}",
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if out.returncode != 0:
-                return {}
-            data = {}
-            for line in out.stdout.splitlines():
-                if "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                data[k.strip()] = v.strip()
-            return data
-        except Exception:
+        out = service_adapter.execute_systemctl(
+            [
+                "show",
+                unit,
+                "--no-page",
+                f"--property={','.join(props)}",
+            ]
+        )
+        if not out.ok:
             return {}
+        data = {}
+        for line in out.stdout.splitlines():
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+        return data
 
     @classmethod
     def _qbt_service_meta(cls) -> dict:
@@ -9928,17 +9936,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 + f"touch {shlex.quote(test_file)}; "
                 + f"rm -f {shlex.quote(test_file)}"
             )
-            proc = subprocess.run(
-                ["docker", "exec", container, "sh", "-lc", cmd],
-                capture_output=True,
-                text=True,
+            proc = docker_adapter.execute_docker(
+                ["exec", container, "sh", "-lc", cmd],
                 timeout=10,
-                check=False,
             )
-            if proc.returncode == 0:
+            if proc.ok:
                 checks.append({"path": p, "ok": "true", "message": "ok"})
             else:
-                msg = (proc.stderr or proc.stdout or "").strip()[-280:] or f"exit {proc.returncode}"
+                msg = str(proc.message or (proc.stderr or proc.stdout or "")).strip()[-280:] or f"exit {proc.returncode}"
                 checks.append({"path": p, "ok": "false", "message": msg})
         return checks
 
@@ -9946,21 +9951,17 @@ class AppHandler(BaseHTTPRequestHandler):
     def _qbt_fix_docker_mount_check(cls, container: str) -> tuple[bool, str, dict]:
         mounts: list[dict[str, str]] = []
         try:
-            proc = subprocess.run(
+            proc = docker_adapter.execute_docker(
                 [
-                    "docker",
                     "inspect",
                     container,
                     "--format",
                     "{{range .Mounts}}{{println .Source \"=>\" .Destination}}{{end}}",
                 ],
-                capture_output=True,
-                text=True,
                 timeout=8,
-                check=False,
             )
-            if proc.returncode != 0:
-                msg = (proc.stderr or proc.stdout or "").strip() or f"docker inspect exit {proc.returncode}"
+            if not proc.ok:
+                msg = str(proc.message or (proc.stderr or proc.stdout or "")).strip() or f"docker inspect exit {proc.returncode}"
                 return False, f"Docker 检查失败：{msg}", {"mode": "docker", "container": container}
             for line in (proc.stdout or "").splitlines():
                 if "=>" not in line:
@@ -10034,7 +10035,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 qbt_cfg[key] = str(selected.get(key, "") or "").strip()
         if "client" in selected:
             client = str(selected.get("client", "") or "").strip().lower()
-            if client in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+            if client in config_schema.QBT_CLIENT_KEYS:
                 qbt_cfg["client"] = client
         merged_cfg["qbt"] = qbt_cfg
         client = str(qbt_cfg.get("client", "qbittorrent") or "qbittorrent")
@@ -10327,14 +10328,11 @@ class AppHandler(BaseHTTPRequestHandler):
     def _system_disks_status(cls):
         out = []
         try:
-            p = subprocess.run(
+            p = process_adapter.execute_command(
                 ["lsblk", "-J", "-b", "-o", "NAME,PATH,SIZE,TYPE,MOUNTPOINT,MODEL,FSTYPE,PKNAME"],
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=2.5,
             )
-            if p.returncode != 0:
+            if not p.ok:
                 return out
             obj = json.loads(p.stdout or "{}")
             devices = obj.get("blockdevices") or []
@@ -10397,11 +10395,8 @@ class AppHandler(BaseHTTPRequestHandler):
         if not target.startswith("/dev/"):
             target = f"/dev/{target.lstrip('/')}"
         try:
-            proc = subprocess.run(
+            proc = process_adapter.execute_command(
                 ["smartctl", "-j", "-a", target],
-                capture_output=True,
-                text=True,
-                check=False,
                 timeout=2.8,
             )
             if proc.returncode not in (0, 2, 4):
@@ -10876,7 +10871,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if not isinstance(qcfg, dict):
                 qcfg = {}
             co = str(client_override or "").strip().lower()
-            if co in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
+            if co in config_schema.QBT_CLIENT_KEYS:
                 qcfg = dict(qcfg)
                 qcfg["client"] = co
                 app_cfg["qbt"] = qcfg
@@ -11449,32 +11444,88 @@ class AppHandler(BaseHTTPRequestHandler):
         return {"ok": True, "closed": bool(existed)}
 
     @classmethod
-    def _schedule_restart(cls):
+    def _self_restart_command_candidates(cls) -> tuple[list[list[str]], str]:
+        sys_name = str(platform.system() or "").strip().lower()
+        if sys_name == "linux":
+            if not shutil.which("systemctl"):
+                return [], "当前环境未检测到 systemctl，无法执行重启"
+            unit = str(SELF_SYSTEMD_SERVICE_UNIT or "").strip()
+            if not unit:
+                return [], "未配置 Linux 服务单元名（SELF_SYSTEMD_SERVICE_UNIT）"
+            return [["systemctl", "restart", unit]], ""
+        if sys_name == "darwin":
+            if not shutil.which("launchctl"):
+                return [], "当前环境未检测到 launchctl，无法执行重启"
+            label = str(SELF_LAUNCHD_SERVICE_LABEL or "").strip()
+            if not label:
+                return [], "未配置 macOS 服务标签（SELF_LAUNCHD_SERVICE_LABEL）"
+            uid = os.getuid()
+            targets: list[str] = []
+            daemon_plist = Path("/Library/LaunchDaemons") / f"{label}.plist"
+            agent_plist = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
+            if daemon_plist.exists():
+                targets.append(f"system/{label}")
+            if agent_plist.exists():
+                targets.append(f"gui/{uid}/{label}")
+            if not targets:
+                targets = [f"system/{label}", f"gui/{uid}/{label}"]
+            commands: list[list[str]] = []
+            seen: set[str] = set()
+            for target in targets:
+                t = str(target or "").strip()
+                if (not t) or (t in seen):
+                    continue
+                seen.add(t)
+                commands.append(["launchctl", "kickstart", "-k", t])
+            if not commands:
+                return [], "未生成有效 launchctl 重启命令"
+            return commands, ""
+        return [], f"当前平台 {platform.system()} 暂不支持自动重启"
+
+    @classmethod
+    def _execute_self_restart(cls) -> tuple[bool, str]:
+        result = service_adapter.restart_service(
+            systemd_unit=SELF_SYSTEMD_SERVICE_UNIT,
+            launchd_label=SELF_LAUNCHD_SERVICE_LABEL,
+        )
+        if result.ok:
+            return True, ""
+        msg = str(result.message or "").strip()
+        return False, msg or "重启命令执行失败"
+
+    @classmethod
+    def _schedule_restart(cls) -> tuple[bool, str]:
+        _, reason = cls._self_restart_command_candidates()
+        if reason:
+            with cls.control_lock:
+                cls.restart_last_error = str(reason)
+            return False, str(reason)
         with cls.control_lock:
             if cls.restart_queued:
-                return False
+                return False, "restart already queued"
             cls.restart_queued = True
+            cls.restart_last_error = ""
 
         def _worker():
             try:
                 time.sleep(0.3)
-                subprocess.run(
-                    ["systemctl", "restart", "storage-http-link-web"],
-                    check=False,
-                )
+                ok, msg = cls._execute_self_restart()
+                with cls.control_lock:
+                    cls.restart_last_error = str(msg or "") if not ok else ""
             finally:
                 with cls.control_lock:
                     cls.restart_queued = False
 
         threading.Thread(target=_worker, daemon=True).start()
-        return True
+        return True, ""
 
     @classmethod
     def _upgrade_supported(cls) -> tuple[bool, str]:
         if os.name != "posix":
-            return False, "当前仅支持 Linux 自动更新"
-        if not shutil.which("systemctl"):
-            return False, "当前环境未检测到 systemctl，暂不支持自动更新"
+            return False, "当前仅支持 POSIX 环境自动更新"
+        _, restart_reason = cls._self_restart_command_candidates()
+        if restart_reason:
+            return False, f"当前环境不支持自动重启：{restart_reason}"
         try:
             if os.geteuid() != 0:
                 return False, "当前服务无 root 权限，无法执行 install.sh"
@@ -11554,8 +11605,11 @@ class AppHandler(BaseHTTPRequestHandler):
         return payload
 
     @classmethod
-    def _schedule_upgrade(cls, branch_raw):
+    def _schedule_upgrade(cls, branch_raw, script_source_raw=None):
         ok, reason = cls._upgrade_supported()
+        script_source = _normalize_upgrade_script_source(
+            script_source_raw, DEFAULT_UPGRADE_SCRIPT_SOURCE
+        )
         if not ok:
             status = _write_upgrade_status(
                 {
@@ -11565,6 +11619,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "message": "Auto-update unavailable",
                     "error": str(reason or "当前环境不支持"),
                     "branch": _normalize_upgrade_branch(branch_raw, DEFAULT_UPGRADE_BRANCH),
+                    "script_source": script_source,
                 },
                 _APP_ROOT_DIR,
             )
@@ -11586,9 +11641,14 @@ class AppHandler(BaseHTTPRequestHandler):
                     "state": "running",
                     "repo": repo,
                     "branch": branch,
+                    "script_source": script_source,
                     "requested_tag": tag,
                     "target_tag": "",
                     "release_url": "",
+                    "hook_state": "idle",
+                    "hook_url": "",
+                    "hook_message": "",
+                    "hook_error": "",
                     "message": f"升级任务已启动，正在拉取 {branch} 信息",
                     "error": "",
                     "started_at": _utc_now_iso(),
@@ -11619,6 +11679,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "state": "running",
                         "repo": repo,
                         "branch": branch,
+                        "script_source": script_source,
                         "requested_tag": tag,
                         "target_tag": target_tag,
                         "release_url": release_url,
@@ -11673,19 +11734,70 @@ class AppHandler(BaseHTTPRequestHandler):
                 run_env.setdefault("STORAGE_ROOT", str(DEFAULT_STORAGE_ROOT))
                 run_env.setdefault("PUBLIC_HOST", str(DEFAULT_PUBLIC_HOST))
                 run_env.setdefault("PUBLIC_SCHEME", str(DEFAULT_PUBLIC_SCHEME))
-                proc = subprocess.run(
+                proc = process_adapter.execute_command(
                     ["bash", "install.sh"],
                     cwd=str(pkg_dir),
                     env=run_env,
-                    capture_output=True,
-                    text=True,
-                    check=False,
                 )
                 if proc.returncode != 0:
                     err = (proc.stderr or proc.stdout or "").strip()
                     if err:
                         err = err[-1200:]
                     raise RuntimeError(err or f"install.sh 执行失败（exit {proc.returncode}）")
+
+                hook_url = ""
+                hook_message = ""
+                hook_error = ""
+                hook_state = "idle"
+                if script_source:
+                    hook_state = "running"
+                    status_now = _read_upgrade_status(_APP_ROOT_DIR)
+                    status_now.update(
+                        {
+                            "running": True,
+                            "state": "running",
+                            "hook_state": "running",
+                            "hook_message": "安装完成，正在拉取升级脚本",
+                            "hook_error": "",
+                        }
+                    )
+                    _write_upgrade_status(status_now, _APP_ROOT_DIR)
+                    hook = _fetch_upgrade_script_payload(script_source, branch, target_tag)
+                    if hook:
+                        hook_url = str(hook.get("url") or "").strip()
+                        hook_body = str(hook.get("script") or "")
+                        hook_file = ensure_under_root(
+                            temp_dir, temp_dir / "afterclaw-upgrade-hook.sh"
+                        )
+                        hook_file.write_text(hook_body, encoding="utf-8")
+                        try:
+                            os.chmod(str(hook_file), 0o700)
+                        except Exception:
+                            pass
+                        hook_env = run_env.copy()
+                        hook_env["AFTERCLAW_UPGRADE_BRANCH"] = str(branch)
+                        hook_env["AFTERCLAW_UPGRADE_TARGET_TAG"] = str(target_tag)
+                        hook_env["AFTERCLAW_UPGRADE_SCRIPT_URL"] = hook_url
+                        hook_proc = process_adapter.execute_command(
+                            ["bash", str(hook_file)],
+                            cwd=str(_APP_ROOT_DIR),
+                            env=hook_env,
+                        )
+                        if hook_proc.returncode != 0:
+                            err = (hook_proc.stderr or hook_proc.stdout or "").strip()
+                            if err:
+                                err = err[-1200:]
+                            hook_state = "error"
+                            hook_error = err or f"hook 脚本执行失败（exit {hook_proc.returncode}）"
+                        else:
+                            hook_state = "success"
+                            hook_message = (
+                                "升级脚本执行完成"
+                                + (f"（{hook_url}）" if hook_url else "")
+                            )
+                    else:
+                        hook_state = "skip"
+                        hook_message = "未配置可执行升级脚本"
 
                 _write_upgrade_status(
                     {
@@ -11694,9 +11806,14 @@ class AppHandler(BaseHTTPRequestHandler):
                         "state": "success",
                         "repo": repo,
                         "branch": branch,
+                        "script_source": script_source,
                         "requested_tag": tag,
                         "target_tag": target_tag,
                         "release_url": release_url,
+                        "hook_state": hook_state,
+                        "hook_url": hook_url,
+                        "hook_message": hook_message,
+                        "hook_error": hook_error,
                         "message": f"Update completed: {target_tag}",
                         "error": "",
                         "finished_at": _utc_now_iso(),
@@ -11711,6 +11828,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "state": "error",
                         "repo": repo,
                         "branch": branch,
+                        "script_source": script_source,
                         "requested_tag": tag,
                         "message": "自动更新失败",
                         "error": str(exc),
@@ -12421,12 +12539,15 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             if not self._require_lan():
                 return
-            if self._send_static_asset(
-                "ui/index.html",
-                send_body=True,
-                cache_control="no-store, max-age=0",
-            ):
-                return
+            # If ui/index.html references missing local assets (e.g. vendor bundle),
+            # fallback to the legacy inline dashboard to avoid a blank page.
+            if _ui_shell_ready(_APP_ROOT_DIR):
+                if self._send_static_asset(
+                    "ui/index.html",
+                    send_body=True,
+                    cache_control="no-store, max-age=0",
+                ):
+                    return
             self._send_html(build_frontend_html())
             return
         if self._dispatch_ddnsgo_proxy(parsed, "GET", True):
@@ -12475,329 +12596,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._error(f"Download failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
-        if parsed.path == "/api/base":
-            if not self._require_lan():
-                return
-            app_cfg = load_app_config(_APP_ROOT_DIR)
-            http_cfg = (app_cfg or {}).get("http_service") or {}
-            http_root = self._http_root_dir(app_cfg)
-            self._send_json(
-                {
-                    "storage_root": str(http_root),
-                    "http_root_dir": str(http_root),
-                    "web_port": ACTIVE_WEB_PORT,
-                    "public_base_url": f"{DEFAULT_PUBLIC_SCHEME}://{DEFAULT_PUBLIC_HOST}",
-                    "downloads_enabled": self._downloads_effective_enabled(),
-                    "default_http_dir": _normalize_rel_dir_setting(
-                        http_cfg.get("default_dir", ".")
-                    ),
-                    "terminal": _build_terminal_launch_meta(app_cfg),
-                    "ui_theme": _ui_theme_payload(app_cfg, _APP_ROOT_DIR),
-                }
-            )
+        if self._dispatch_modular_get_apis(parsed):
             return
-
-        if parsed.path == "/api/speed":
-            if not self._require_lan():
-                return
-            self._send_json(self._speed_snapshot())
-            return
-
-        if parsed.path == "/api/metrics/history":
-            if not self._require_lan():
-                return
-            self._send_json(self._metrics_history_payload())
-            return
-
-        if parsed.path == "/api/process-net":
-            if not self._require_lan():
-                return
-            source_ip_pools = self._http_source_ip_pools()
-            data = self.process_detail_sampler.detailed_snapshot(
-                lambda row: self._infer_process_source_by_row(row, source_ip_pools)
-            ) or {}
-            payload = {
-                **(data if isinstance(data, dict) else {}),
-                "current_version": APP_VERSION_TEXT,
-                "app_version": APP_VERSION,
-            }
-            self._send_json(payload, cors=True)
-            return
-
-        if parsed.path == "/api/transfers":
-            if not self._require_lan():
-                return
-            self._send_json(self._transfer_snapshot())
-            return
-
-        if parsed.path == "/api/control/status":
-            if not self._require_lan():
-                return
-            query = parse_qs(parsed.query)
-            client = str(query.get("client", [""])[0] or "").strip().lower()
-            self._send_json(self._control_status_payload(client))
-            return
-
-        if parsed.path == "/api/docker/containers":
-            if not self._require_lan():
-                return
-            self._send_json(self._docker_status_payload())
-            return
-
-        if parsed.path == "/api/docker/logs":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            query = parse_qs(parsed.query)
-            name = str(query.get("name", [""])[0] or "").strip()
-            tail_raw = str(query.get("tail", ["160"])[0] or "160").strip()
-            try:
-                tail = int(tail_raw)
-            except Exception:
-                tail = 160
-            ok, text = self._docker_container_logs(name, tail=tail)
-            if not ok:
-                self._error(text, status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json({"ok": True, "name": name, "logs": text})
-            return
-
-        if parsed.path == "/api/docker/recommendations":
-            if not self._require_lan():
-                return
-            self._send_json(
-                {
-                    "ok": True,
-                    "items": DOCKER_RECOMMENDATIONS,
-                    "categories": sorted(
-                        {str(x.get("category", "") or "other") for x in DOCKER_RECOMMENDATIONS}
-                    ),
-                }
-            )
-            return
-
-        if parsed.path == "/api/docker/images":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            payload = self._docker_images_payload()
-            if not payload.get("ok"):
-                self._error(str(payload.get("error") or "Docker image query failed"), status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(payload)
-            return
-
-        if parsed.path == "/api/app-config":
-            if not self._require_lan():
-                return
-            self._send_json({"config": load_app_config(_APP_ROOT_DIR)})
-            return
-
-        if parsed.path == "/api/member/profile":
-            if not self._require_lan():
-                return
-            token = self._member_token_from_request()
-            sess = _member_get_session(token)
-            if not sess:
-                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
-                return
-            member = sess.get("member") if isinstance(sess.get("member"), dict) else {}
-            if not member:
-                member = {
-                    "member_id": str(sess.get("member_id", "") or ""),
-                    "email": str(sess.get("email", "") or ""),
-                }
-            self._send_json(
-                {
-                    "ok": True,
-                    "member": member,
-                }
-            )
-            return
-
-        if parsed.path == "/api/member/ddns/prefix-check":
-            if not self._require_lan():
-                return
-            token = self._member_token_from_request()
-            sess = _member_get_session(token)
-            if not sess:
-                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
-                return
-            query = parse_qs(parsed.query)
-            prefix_raw = str(query.get("prefix", [""])[0] or "").strip()
-            if not prefix_raw:
-                self._send_json({"ok": True, "available": True, "normalized_prefix": ""})
-                return
-            try:
-                normalized = _member_prefix_sanitize(prefix_raw)
-            except ValueError as exc:
-                self._send_json(
-                    {"ok": True, "available": False, "normalized_prefix": "", "reason": str(exc)}
-                )
-                return
-            accounts = _load_member_accounts()
-            in_use = _member_prefix_in_use(
-                accounts,
-                normalized,
-                exclude_member_id=str(sess.get("member_id", "")),
-            )
-            self._send_json(
-                {
-                    "ok": True,
-                    "available": (not in_use),
-                    "normalized_prefix": normalized,
-                    "reason": ("Prefix already taken" if in_use else ""),
-                }
-            )
-            return
-
-        if parsed.path == "/api/qbt/discover":
-            if not self._require_lan():
-                return
-            query = parse_qs(parsed.query)
-            client = str(query.get("client", [""])[0] or "").strip().lower()
-            app_cfg = load_app_config(_APP_ROOT_DIR)
-            if client in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
-                if not isinstance(app_cfg, dict):
-                    app_cfg = {}
-                qbt_cfg = app_cfg.get("qbt")
-                if not isinstance(qbt_cfg, dict):
-                    qbt_cfg = {}
-                qbt_cfg = dict(qbt_cfg)
-                qbt_cfg["client"] = client
-                app_cfg["qbt"] = qbt_cfg
-            self._send_json(self._qbt_discover_options(app_cfg))
-            return
-
-        if parsed.path == "/api/upgrade/status":
-            if not self._require_lan():
-                return
-            self._send_json(self._upgrade_status_payload())
-            return
-
-        if parsed.path == "/api/upgrade/check-version":
-            if not self._require_lan():
-                return
-            query = parse_qs(parsed.query)
-            branch_raw = str(query.get("branch", [""])[0] or "").strip()
-            self._send_json(self._upgrade_branch_version_payload(branch_raw))
-            return
-
-        if parsed.path == "/api/ddns/config":
-            if not self._require_lan():
-                return
-            if not self._ddns_module_enabled():
-                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            cfg = ddns.load_config(_APP_ROOT_DIR)
-            st = ddns.status_for_api(_APP_ROOT_DIR)
-            self._send_json(
-                {
-                    "config": cfg,
-                    "status": st,
-                    "config_path": str(ddns.config_path(_APP_ROOT_DIR)),
-                }
-            )
-            return
-
-        if parsed.path == "/api/http/path-scan":
-            if not self._require_lan():
-                return
-            query = parse_qs(parsed.query)
-            path_raw = str(query.get("path", [""])[0] or "").strip()
-            if not path_raw:
-                self._error("Missing path parameter", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                info = self._http_path_scan(path_raw)
-                self._send_json(info)
-                return
-            except Exception as exc:
-                self._error(f"Path scan failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-
-        if parsed.path == "/api/directories":
-            if not self._require_lan():
-                return
-            try:
-                query = parse_qs(parsed.query)
-                root_raw = query.get("root_dir", [None])[0]
-                http_root = (
-                    self._http_root_from_raw(root_raw, require_exists=True)
-                    if root_raw is not None
-                    else self._http_root_dir()
-                )
-                stats_raw = str(query.get("stats", ["1"])[0] or "1").strip().lower()
-                with_stats = stats_raw not in {"0", "false", "no", "off"}
-                rel_dir = safe_relative_path(query.get("dir", ["."])[0])
-                directories = self._list_child_directories(rel_dir, root_dir=http_root)
-                stats = self._directory_stats(rel_dir, root_dir=http_root) if with_stats else {}
-                self._send_json(
-                    {
-                        "directories": directories,
-                        "current_dir": rel_dir,
-                        "stats": stats,
-                        "http_root_dir": str(http_root),
-                    }
-                )
-                return
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.FORBIDDEN)
-                return
-            except FileNotFoundError as exc:
-                self._error(str(exc), status=HTTPStatus.NOT_FOUND)
-                return
-            except Exception as exc:
-                self._error(f"Directory query failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-
-        if parsed.path == "/api/files":
-            if not self._require_lan():
-                return
-            try:
-                query = parse_qs(parsed.query)
-                root_raw = query.get("root_dir", [None])[0]
-                http_root = (
-                    self._http_root_from_raw(root_raw, require_exists=True)
-                    if root_raw is not None
-                    else self._http_root_dir()
-                )
-                rel_dir = safe_relative_path(query.get("dir", ["."])[0])
-                target_dir = ensure_under_root(http_root, http_root / rel_dir)
-                if not target_dir.exists() or not target_dir.is_dir():
-                    self._error("Directory does not exist", status=HTTPStatus.NOT_FOUND)
-                    return
-
-                items = []
-                for root, dirnames, files in os.walk(target_dir):
-                    dirnames[:] = [d for d in dirnames if not self._is_hidden_system_name(d)]
-                    for filename in files:
-                        if self._is_hidden_system_name(filename):
-                            continue
-                        full_path = Path(root) / filename
-                        rel_file = full_path.relative_to(http_root).as_posix()
-                        file_size = full_path.stat().st_size
-                        items.append(
-                            {
-                                "relative_path": rel_file,
-                                "size": file_size,
-                                "size_human": human_size(file_size),
-                                "http_url": self._build_http_url(rel_file),
-                            }
-                        )
-                items.sort(key=lambda x: x["relative_path"])
-                self._send_json({"items": items, "http_root_dir": str(http_root)})
-                return
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.FORBIDDEN)
-                return
-            except Exception as exc:
-                self._error(f"Scan failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
 
         self._error("Resource not found", status=HTTPStatus.NOT_FOUND)
 
@@ -12904,12 +12704,13 @@ class AppHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             if not self._require_lan():
                 return
-            if self._send_static_asset(
-                "ui/index.html",
-                send_body=False,
-                cache_control="no-store, max-age=0",
-            ):
-                return
+            if _ui_shell_ready(_APP_ROOT_DIR):
+                if self._send_static_asset(
+                    "ui/index.html",
+                    send_body=False,
+                    cache_control="no-store, max-age=0",
+                ):
+                    return
             payload = build_frontend_html().encode("utf-8")
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -12947,19 +12748,6 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urlparse(self.path)
 
-        if parsed.path == "/healthz/restart":
-            if not self._require_lan():
-                return
-            queued = self._schedule_restart()
-            self._send_json(
-                {
-                    "ok": True,
-                    "queued": bool(queued),
-                    "message": "restart scheduled" if queued else "restart already queued",
-                }
-            )
-            return
-
         if self._dispatch_ddnsgo_proxy(parsed, "POST", True):
             return
         if self._dispatch_shareclip_flask(parsed, "POST", True):
@@ -12968,443 +12756,7 @@ class AppHandler(BaseHTTPRequestHandler):
         # Try module routes
         if self._dispatch_module_route(parsed, "POST"):
             return
-
-        if parsed.path == "/api/member/login":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            member_id = str((body or {}).get("member_id", "") or "").strip()
-            password = str((body or {}).get("password", "") or "").strip()
-            if not member_id or not password:
-                self._error("member_id and password are required", status=HTTPStatus.BAD_REQUEST)
-                return
-            status, remote = _member_remote_json(
-                "/api/member/login",
-                method="POST",
-                payload={"member_id": member_id, "password": password},
-            )
-            if status < 200 or status >= 300:
-                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Invalid member credentials")
-                self._error(msg, status=status if status in {400, 401, 403, 404, 429} else HTTPStatus.FORBIDDEN)
-                return
-            remote_member = (remote or {}).get("member") if isinstance((remote or {}).get("member"), dict) else {}
-            remote_member_id = str((remote_member or {}).get("member_id", "") or "").strip()
-            remote_email = str((remote_member or {}).get("email", "") or "").strip()
-            upstream_token = str((remote or {}).get("session_token", "") or "").strip()
-            if not remote_member_id:
-                self._error("Remote auth payload invalid", status=HTTPStatus.BAD_GATEWAY)
-                return
-            session_token = _member_issue_session(
-                remote_member_id,
-                remote_email,
-                member=remote_member,
-                upstream_token=upstream_token,
-            )
-            self._send_json(
-                {
-                    "ok": True,
-                    "session_token": session_token,
-                    "member": remote_member,
-                },
-                extra_headers={"Set-Cookie": self._build_member_cookie(session_token)},
-            )
-            return
-
-        if parsed.path == "/api/member/register":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            password = str((body or {}).get("password", "") or "").strip()
-            display_name = str((body or {}).get("display_name", "") or "").strip()
-            email = str((body or {}).get("email", "") or "").strip()
-            avatar_color = int((body or {}).get("avatar_color", 0) or 0)
-            if not password or not display_name:
-                self._error("password and display_name are required", status=HTTPStatus.BAD_REQUEST)
-                return
-            if len(password) < 6:
-                self._error("password length must be >= 6", status=HTTPStatus.BAD_REQUEST)
-                return
-            if len(display_name) > 64:
-                self._error("display_name too long", status=HTTPStatus.BAD_REQUEST)
-                return
-            if len(email) > 128:
-                self._error("email too long", status=HTTPStatus.BAD_REQUEST)
-                return
-            if avatar_color < 0 or avatar_color > 7:
-                avatar_color = 0
-            status, remote = _member_remote_json(
-                "/api/member/register",
-                method="POST",
-                payload={
-                    "password": password,
-                    "display_name": display_name,
-                    "email": email,
-                    "avatar_color": avatar_color,
-                },
-            )
-            if status < 200 or status >= 300:
-                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Registration failed")
-                self._error(msg, status=status if status in {400, 401, 403, 404, 409, 429} else HTTPStatus.BAD_GATEWAY)
-                return
-            self._send_json(remote)
-            return
-
-        if parsed.path == "/api/member/profile/update":
-            if not self._require_lan():
-                return
-            token = self._member_token_from_request()
-            sess = _member_get_session(token)
-            if not sess:
-                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
-                return
-            body = self._parse_body()
-            display_name = str((body or {}).get("display_name", "") or "").strip()
-            email = str((body or {}).get("email", "") or "").strip()
-            avatar_color = int((body or {}).get("avatar_color", 0) or 0)
-            if not display_name:
-                self._error("display_name is required", status=HTTPStatus.BAD_REQUEST)
-                return
-            if len(display_name) > 64:
-                self._error("display_name too long", status=HTTPStatus.BAD_REQUEST)
-                return
-            if len(email) > 128:
-                self._error("email too long", status=HTTPStatus.BAD_REQUEST)
-                return
-            if avatar_color < 0 or avatar_color > 7:
-                avatar_color = 0
-            upstream_token = str(sess.get("upstream_token", "") or "").strip()
-            if not upstream_token:
-                self._error("Upstream session missing, please login again", status=HTTPStatus.UNAUTHORIZED)
-                return
-            status, remote = _member_remote_json(
-                "/api/member/profile/update",
-                method="POST",
-                payload={"display_name": display_name, "email": email, "avatar_color": avatar_color},
-                headers={"X-Member-Session": upstream_token},
-            )
-            if status < 200 or status >= 300:
-                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Profile update failed")
-                self._error(msg, status=status if status in {400, 401, 403, 404, 429} else HTTPStatus.BAD_GATEWAY)
-                return
-            remote_member = (remote or {}).get("member") if isinstance((remote or {}).get("member"), dict) else {}
-            remote_member_id = str((remote_member or {}).get("member_id", "") or str(sess.get("member_id", ""))).strip()
-            remote_email = str((remote_member or {}).get("email", "") or email or str(sess.get("email", ""))).strip()
-            new_upstream_token = str((remote or {}).get("session_token", "") or upstream_token).strip()
-            session_token = _member_issue_session(
-                remote_member_id,
-                remote_email,
-                member=remote_member,
-                upstream_token=new_upstream_token,
-            )
-            self._send_json(
-                {"ok": True, "session_token": session_token, "member": remote_member},
-                extra_headers={"Set-Cookie": self._build_member_cookie(session_token)},
-            )
-            return
-
-        if parsed.path == "/api/member/logout":
-            if not self._require_lan():
-                return
-            self._send_json(
-                {"ok": True},
-                extra_headers={"Set-Cookie": self._build_member_cookie("", max_age=0)},
-            )
-            return
-
-        if parsed.path == "/api/member/email-change/request":
-            if not self._require_lan():
-                return
-            sess = _member_get_session(self._member_token_from_request())
-            upstream_token = str((sess or {}).get("upstream_token", "") or "").strip()
-            if not upstream_token:
-                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
-                return
-            body = self._parse_body()
-            new_email = str((body or {}).get("new_email", "") or "").strip()
-            if not new_email:
-                self._error("new_email is required", status=HTTPStatus.BAD_REQUEST)
-                return
-            status, remote = _member_remote_json(
-                "/api/member/email-change/request",
-                method="POST",
-                payload={"new_email": new_email},
-                headers={"X-Member-Session": upstream_token},
-            )
-            if status < 200 or status >= 300:
-                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Email change request failed")
-                self._error(msg, status=status if status in {400, 401, 403, 404, 409, 429} else HTTPStatus.BAD_GATEWAY)
-                return
-            self._send_json(remote)
-            return
-
-        if parsed.path == "/api/member/password-reset/request":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            email = str((body or {}).get("email", "") or "").strip()
-            if not email:
-                self._error("email is required", status=HTTPStatus.BAD_REQUEST)
-                return
-            status, remote = _member_remote_json(
-                "/api/member/password-reset/request",
-                method="POST",
-                payload={"email": email},
-            )
-            if status < 200 or status >= 300:
-                msg = str((remote or {}).get("detail") or (remote or {}).get("error") or "Password reset request failed")
-                self._error(msg, status=status if status in {400, 401, 403, 404, 429} else HTTPStatus.BAD_GATEWAY)
-                return
-            self._send_json(remote)
-            return
-
-        if parsed.path == "/api/member/ddns/config":
-            if not self._require_lan():
-                return
-            token = self._member_token_from_request()
-            sess = _member_get_session(token)
-            if not sess:
-                self._error("Member session invalid", status=HTTPStatus.UNAUTHORIZED)
-                return
-            body = self._parse_body()
-            ddns_enabled = bool((body or {}).get("ddns_enabled", False))
-            prefix_raw = str((body or {}).get("ddns_prefix", "") or "").strip()
-            accounts = _load_member_accounts()
-            idx, item = _member_find_account(
-                accounts,
-                str(sess.get("member_id", "")),
-                str(sess.get("email", "")),
-            )
-            if item is None or idx is None:
-                idx, item = _member_find_account_by_member_id(accounts, str(sess.get("member_id", "")))
-            if item is None or idx is None:
-                self._error("Member not found", status=HTTPStatus.NOT_FOUND)
-                return
-            now = _member_now_ts()
-            year_start = now - 365 * 24 * 3600
-            history = [int(x) for x in (item.get("prefix_change_ts") or []) if isinstance(x, (int, float)) and int(x) >= year_start]
-            old_prefix = str(item.get("ddns_prefix", "") or "").strip()
-            new_prefix = old_prefix
-            if prefix_raw:
-                try:
-                    new_prefix = _member_prefix_sanitize(prefix_raw)
-                except ValueError as exc:
-                    self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                    return
-                if _member_prefix_in_use(
-                    accounts,
-                    new_prefix,
-                    exclude_member_id=str(item.get("member_id", "")),
-                ):
-                    self._error("Prefix already taken", status=HTTPStatus.CONFLICT)
-                    return
-                if new_prefix != old_prefix:
-                    if len(history) >= MEMBER_PREFIX_CHANGE_LIMIT_PER_YEAR:
-                        self._error("Domain prefix change limit reached (2/year)", status=HTTPStatus.FORBIDDEN)
-                        return
-                    history.append(now)
-            item["ddns_enabled"] = ddns_enabled
-            item["ddns_prefix"] = new_prefix
-            item["ddns_fqdn"] = _member_build_fqdn(new_prefix) if new_prefix else ""
-            item["prefix_change_ts"] = history
-            item["updated_at"] = now
-            item["status"] = str(item.get("status", "active") or "active")
-            accounts[idx] = item
-            _save_member_accounts(accounts)
-            self._send_json(
-                {
-                    "ok": True,
-                    "member": _member_public_payload(item),
-                }
-            )
-            return
-
-        if parsed.path == "/api/terminal/start":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                sid, meta = self._terminal_start_session(
-                    body.get("cols", 120), body.get("rows", 30), self._client_ip()
-                )
-            except Exception as exc:
-                self._error(f"Terminal connection failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json({"ok": True, "session_id": sid, "meta": meta})
-            return
-
-        if parsed.path == "/api/terminal/sessions":
-            if not self._require_lan():
-                return
-            try:
-                data = self._terminal_list_sessions()
-            except Exception as exc:
-                self._error(f"List sessions failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json({"ok": True, **data})
-            return
-
-        if parsed.path == "/api/terminal/history":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                data = self._terminal_get_history(
-                    body.get("limit", 200),
-                    body.get("keyword", ""),
-                    body.get("client_ip", ""),
-                    body.get("session_id", ""),
-                )
-            except Exception as exc:
-                self._error(f"History fetch failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json({"ok": True, **data})
-            return
-
-        if parsed.path == "/api/terminal/history/clear":
-            if not self._require_lan():
-                return
-            try:
-                data = self._terminal_clear_history()
-            except Exception as exc:
-                self._error(f"History clear failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json(data)
-            return
-
-        if parsed.path == "/api/terminal/read":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                data = self._terminal_read_session(
-                    body.get("session_id"), body.get("max_bytes", 131072)
-                )
-            except Exception as exc:
-                self._error(f"Read failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json(data)
-            return
-
-        if parsed.path == "/api/terminal/write":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                data = self._terminal_write_session(
-                    body.get("session_id"), body.get("data", "")
-                )
-            except Exception as exc:
-                self._error(f"Write failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json(data)
-            return
-
-        if parsed.path == "/api/terminal/resize":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                data = self._terminal_resize_session(
-                    body.get("session_id"), body.get("cols", 120), body.get("rows", 30)
-                )
-            except Exception as exc:
-                self._error(f"Resize failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json(data)
-            return
-
-        if parsed.path == "/api/terminal/close":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                data = self._terminal_close_session(body.get("session_id"))
-            except Exception as exc:
-                self._error(f"Close failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json(data)
-            return
-
-        if parsed.path == "/api/terminal/revoke":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            sid = str(body.get("session_id", "") or "").strip()
-            if not sid:
-                self._error("Missing session_id", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                data = self._terminal_close_session(sid)
-            except Exception as exc:
-                self._error(f"Revoke failed: {exc}", status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json({"ok": True, "revoked": bool(data.get("closed", False)), "session_id": sid})
-            return
-
-        if parsed.path == "/api/terminal/key-file":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            if not isinstance(body, dict):
-                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                file_name, size = _save_terminal_key_file(
-                    body.get("file_name", ""),
-                    body.get("content_b64", ""),
-                    _APP_ROOT_DIR,
-                )
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(f"Key file save failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            current = load_app_config(_APP_ROOT_DIR)
-            term_cfg = current.setdefault("terminal", {})
-            term_cfg["auth_mode"] = "key"
-            term_cfg["key_file"] = file_name
-            saved = save_app_config(current, _APP_ROOT_DIR)
-            self._send_json(
-                {
-                    "ok": True,
-                    "file_name": file_name,
-                    "size": int(size),
-                    "config": saved,
-                    "terminal": _build_terminal_launch_meta(saved),
-                }
-            )
-            return
-
-        if parsed.path == "/api/subtitles/upload":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            if not isinstance(body, dict):
-                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                rel_dir = safe_relative_path(str(body.get("dir", ".") or "."))
-                cfg = load_app_config(_APP_ROOT_DIR)
-                http_cfg = (cfg or {}).get("http_service") if isinstance(cfg, dict) else {}
-                perm = (
-                    (http_cfg or {}).get("subtitle_permissions", {})
-                    if isinstance(http_cfg, dict)
-                    else {}
-                )
-                result = subtitle_uploads.handle_upload_payload(
-                    self._http_root_dir(), rel_dir, body, perm
-                )
-            except FileNotFoundError as exc:
-                self._error(str(exc), status=HTTPStatus.NOT_FOUND)
-                return
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(f"Subtitle upload failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(result)
+        if self._dispatch_modular_post_apis(parsed):
             return
 
         if parsed.path == "/api/ui/theme-background":
@@ -13413,836 +12765,6 @@ class AppHandler(BaseHTTPRequestHandler):
             self._error(
                 "Custom background upload is disabled. Use built-in presets only.",
                 status=HTTPStatus.FORBIDDEN,
-            )
-            return
-
-        if parsed.path == "/api/http/source-ip-pools/sync":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            if body is None:
-                body = {}
-            if not isinstance(body, dict):
-                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
-                return
-            current = load_app_config(_APP_ROOT_DIR)
-            http_cfg = current.setdefault("http_service", {})
-            raw_source = (
-                body.get("source")
-                if "source" in body
-                else http_cfg.get("source_ip_pool_source")
-            )
-            source = _normalize_source_ip_pool_source(raw_source)
-            merge_raw = body.get("merge", True)
-            if isinstance(merge_raw, str):
-                lv = merge_raw.strip().lower()
-                if lv in {"0", "false", "no", "off", "replace"}:
-                    merge_mode = False
-                else:
-                    merge_mode = True
-            else:
-                merge_mode = bool(merge_raw)
-            try:
-                pulled = _fetch_source_ip_pools_from_source(source)
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(f"Source sync failed: {exc}", status=HTTPStatus.BAD_GATEWAY)
-                return
-            local_pools = _normalize_source_ip_pools(http_cfg.get("source_ip_pools"))
-            remote_pools = _normalize_source_ip_pools((pulled or {}).get("pools"))
-            pools = (
-                _merge_source_ip_pools(local_pools, remote_pools)
-                if merge_mode
-                else remote_pools
-            )
-            http_cfg["source_ip_pools"] = pools
-            http_cfg["source_ip_pool_source"] = source
-            saved = save_app_config(current, _APP_ROOT_DIR)
-            counts = {k: len((pools or {}).get(k, [])) for k in SOURCE_POOL_KEYS}
-            remote_counts = {
-                k: len((remote_pools or {}).get(k, [])) for k in SOURCE_POOL_KEYS
-            }
-            local_counts = {
-                k: len((local_pools or {}).get(k, [])) for k in SOURCE_POOL_KEYS
-            }
-            self._send_json(
-                {
-                    "ok": True,
-                    "source": source,
-                    "mode": "merge" if merge_mode else "replace",
-                    "counts": counts,
-                    "remote_counts": remote_counts,
-                    "local_counts": local_counts,
-                    "files_used": (pulled or {}).get("files_used", []),
-                    "meta": (pulled or {}).get("meta", {}),
-                    "pools": pools,
-                    "config": saved,
-                }
-            )
-            return
-
-        if parsed.path == "/api/app-config":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            if not isinstance(body, dict):
-                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
-                return
-            current = load_app_config(_APP_ROOT_DIR)
-            prev_qbt_enabled = self._qbt_module_enabled(current)
-            prev_ddns_enabled = self._ddns_module_enabled(current)
-            prev_shareclip_enabled = self._shareclip_module_enabled(current)
-            prev_http_enabled = self._http_module_enabled(current)
-            if "web_port" in body:
-                web_port_raw = body.get("web_port")
-                try:
-                    web_port_new = int(web_port_raw)
-                except Exception:
-                    self._error("Service port must be an integer in 1-65535", status=HTTPStatus.BAD_REQUEST)
-                    return
-                if web_port_new <= 0 or web_port_new > 65535:
-                    self._error("Service port must be an integer in 1-65535", status=HTTPStatus.BAD_REQUEST)
-                    return
-                current["web_port"] = web_port_new
-            if isinstance(body.get("modules"), dict):
-                mods = current.setdefault("modules", {})
-                incoming = body["modules"]
-                for k in ("qbt", "ddns", "docker", "shareclip", "http"):
-                    if k in body["modules"]:
-                        mods[k] = bool(body["modules"].get(k))
-                # 兼容旧键名
-                if "http" not in incoming and "http_monitor" in incoming:
-                    mods["http"] = bool(incoming.get("http_monitor"))
-            if isinstance(body.get("qbt"), dict):
-                qbt_cfg = current.setdefault("qbt", {})
-                if "monitor_enabled" in body["qbt"]:
-                    qbt_cfg["monitor_enabled"] = bool(body["qbt"].get("monitor_enabled"))
-                if "client" in body["qbt"]:
-                    client = str(body["qbt"].get("client", "") or "").strip().lower()
-                    if client in {"qbittorrent", "deluge", "transmission", "rtorrent"}:
-                        qbt_cfg["client"] = client
-                if "service_unit" in body["qbt"]:
-                    qbt_cfg["service_unit"] = str(
-                        body["qbt"].get("service_unit", "") or ""
-                    ).strip()
-                if "docker_container" in body["qbt"]:
-                    qbt_cfg["docker_container"] = str(
-                        body["qbt"].get("docker_container", "") or ""
-                    ).strip()
-                if "api_url" in body["qbt"]:
-                    qbt_cfg["api_url"] = str(body["qbt"].get("api_url", "") or "").strip()
-                if "homepage_clients_enabled" in body["qbt"] and isinstance(body["qbt"]["homepage_clients_enabled"], dict):
-                    en = qbt_cfg.get("homepage_clients_enabled")
-                    if not isinstance(en, dict):
-                        en = {}
-                    for k in ("qbittorrent", "deluge", "transmission", "rtorrent"):
-                        if k in body["qbt"]["homepage_clients_enabled"]:
-                            en[k] = bool(body["qbt"]["homepage_clients_enabled"].get(k))
-                    qbt_cfg["homepage_clients_enabled"] = en
-                if "homepage_clients_order" in body["qbt"] and isinstance(body["qbt"]["homepage_clients_order"], list):
-                    out = []
-                    seen = set()
-                    for item in body["qbt"]["homepage_clients_order"]:
-                        x = str(item or "").strip().lower()
-                        if x in {"qbittorrent", "deluge", "transmission", "rtorrent"} and x not in seen:
-                            seen.add(x)
-                            out.append(x)
-                    for x in ("qbittorrent", "deluge", "transmission", "rtorrent"):
-                        if x not in seen:
-                            out.append(x)
-                    qbt_cfg["homepage_clients_order"] = out
-            http_path_cfg_changed = False
-            if isinstance(body.get("http_service"), dict):
-                http_cfg = current.setdefault("http_service", {})
-                incoming_http = body["http_service"]
-                if "root_dir" in incoming_http:
-                    root_dir = self._http_root_from_raw(
-                        incoming_http.get("root_dir"), app_cfg=current, require_exists=True
-                    )
-                    http_cfg["root_dir"] = str(root_dir)
-                    http_path_cfg_changed = True
-                if "default_dir" in incoming_http:
-                    http_cfg["default_dir"] = _normalize_rel_dir_setting(
-                        incoming_http.get("default_dir")
-                    )
-                    http_path_cfg_changed = True
-                if "source_ip_pools" in incoming_http:
-                    http_cfg["source_ip_pools"] = _normalize_source_ip_pools(
-                        incoming_http.get("source_ip_pools")
-                    )
-                if "source_ip_pool_source" in incoming_http:
-                    http_cfg["source_ip_pool_source"] = _normalize_source_ip_pool_source(
-                        incoming_http.get("source_ip_pool_source")
-                    )
-                if "transfer_recent_ttl_sec" in incoming_http:
-                    http_cfg["transfer_recent_ttl_sec"] = _normalize_transfer_recent_ttl(
-                        incoming_http.get("transfer_recent_ttl_sec"),
-                        http_cfg.get(
-                            "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC
-                        ),
-                    )
-            if http_path_cfg_changed:
-                http_cfg = current.setdefault("http_service", {})
-                root_for_check = self._http_root_from_raw(
-                    http_cfg.get("root_dir"), app_cfg=current, require_exists=True
-                )
-                rel_default = _normalize_rel_dir_setting(http_cfg.get("default_dir", "."))
-                default_target = ensure_under_root(root_for_check, root_for_check / rel_default)
-                if not default_target.exists() or not default_target.is_dir():
-                    self._error(
-                        f"DefaultDirectory does not exist或不可访问: {default_target}",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-            if isinstance(body.get("terminal"), dict):
-                term_cfg = current.setdefault("terminal", {})
-                incoming_term = body["terminal"]
-                if "enabled" in incoming_term:
-                    term_cfg["enabled"] = bool(incoming_term.get("enabled"))
-                if "host" in incoming_term:
-                    host = str(incoming_term.get("host", "") or "").strip()
-                    if host:
-                        term_cfg["host"] = host
-                if "port" in incoming_term:
-                    term_cfg["port"] = _normalize_ssh_port(incoming_term.get("port"), 22)
-                if "user" in incoming_term:
-                    user = str(incoming_term.get("user", "") or "").strip()
-                    if user:
-                        term_cfg["user"] = user
-                if "auth_mode" in incoming_term:
-                    mode = str(incoming_term.get("auth_mode", "") or "").strip().lower()
-                    if mode in ("key", "password"):
-                        term_cfg["auth_mode"] = mode
-                if "key_path" in incoming_term:
-                    term_cfg["key_path"] = str(
-                        incoming_term.get("key_path", "") or ""
-                    ).strip()
-                if "key_file" in incoming_term:
-                    term_cfg["key_file"] = _normalize_terminal_key_file_name(
-                        incoming_term.get("key_file", "")
-                    )
-            if isinstance(body.get("ui"), dict):
-                ui_cfg = current.setdefault("ui", {})
-                incoming_ui = body["ui"]
-                if "hero_preset" in incoming_ui:
-                    ui_cfg["hero_preset"] = _normalize_ui_hero_preset(
-                        incoming_ui.get("hero_preset")
-                    )
-                if "system_name" in incoming_ui:
-                    ui_cfg["system_name"] = str(
-                        incoming_ui.get("system_name", "") or ""
-                    ).strip()[:64]
-                if "brand_logo_url" in incoming_ui:
-                    ui_cfg["brand_logo_url"] = str(
-                        incoming_ui.get("brand_logo_url", "") or ""
-                    ).strip()[:1024]
-                ui_cfg["hero_custom_bg_file"] = ""
-            if isinstance(body.get("netdisk_sources"), dict):
-                nd_cfg = current.setdefault("netdisk_sources", {})
-                incoming_nd = body["netdisk_sources"]
-                for k in ("baidu", "ali", "guangya", "dropbox", "mega", "onedrive", "gdrive"):
-                    if k in incoming_nd:
-                        nd_cfg[k] = bool(incoming_nd.get(k))
-            saved = save_app_config(current, _APP_ROOT_DIR)
-            saved_http_cfg = (saved.get("http_service") or {}) if isinstance(saved, dict) else {}
-            AppHandler.transfer_recent_ttl_sec = _normalize_transfer_recent_ttl(
-                saved_http_cfg.get(
-                    "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC
-                ),
-                DEFAULT_TRANSFER_RECENT_TTL_SEC,
-            )
-            web_port_restart_required = (
-                _normalize_web_port(saved.get("web_port"), DEFAULT_WEB_PORT)
-                != ACTIVE_WEB_PORT
-            )
-            new_qbt_enabled = self._qbt_module_enabled(saved)
-            new_ddns_enabled = self._ddns_module_enabled(saved)
-            new_shareclip_enabled = self._shareclip_module_enabled(saved)
-            new_http_enabled = self._http_module_enabled(saved)
-            disconnect_triggered = False
-            module_actions = []
-            if prev_http_enabled and not new_http_enabled:
-                with self.control_lock:
-                    self.downloads_enabled = False
-                    AppHandler.downloads_enabled = False
-                # 仅中断本程序 /http-files 上传Connect，不Restart Service。
-                self._cut_http_downloads_once()
-                disconnect_triggered = True
-                module_actions.append(
-                    {
-                        "module": "http",
-                        "action": "disable-downloads",
-                        "ok": True,
-                        "message": "HTTP module is disabled，已禁用上传并中断本程序上传Connect",
-                    }
-                )
-            elif not new_http_enabled:
-                with self.control_lock:
-                    self.downloads_enabled = False
-                    AppHandler.downloads_enabled = False
-                module_actions.append(
-                    {
-                        "module": "http",
-                        "action": "disable-downloads",
-                        "ok": True,
-                        "message": "HTTP module is disabled，上传保持禁用",
-                    }
-                )
-
-            if prev_qbt_enabled and not new_qbt_enabled:
-                qbt_info = self._resolve_existing_unit(self.qbt_candidates)
-                if qbt_info.get("load_state") == "not-found":
-                    qbt_info = (
-                        self._discover_unit_by_keywords(
-                            self._bt_service_keywords(
-                                ((saved or {}).get("qbt") or {}).get("client", "qbittorrent")
-                            )
-                        )
-                        or qbt_info
-                    )
-                qbt_unit = str((qbt_info or {}).get("unit", "") or "").strip()
-                qbt_active = str((qbt_info or {}).get("active_state", "") or "").strip() == "active"
-                if qbt_unit and qbt_active:
-                    ok, msg = self._service_action(qbt_unit, "stop")
-                    module_actions.append(
-                        {
-                            "module": "qbt",
-                            "action": "stop-service",
-                            "unit": qbt_unit,
-                            "ok": bool(ok),
-                            "message": "qB 服务已停止"
-                            if ok
-                            else f"停止 qB 服务失败：{msg}",
-                        }
-                    )
-                elif qbt_unit:
-                    module_actions.append(
-                        {
-                            "module": "qbt",
-                            "action": "stop-service",
-                            "unit": qbt_unit,
-                            "ok": True,
-                            "message": "qB 服务已是停止状态",
-                        }
-                    )
-                else:
-                    module_actions.append(
-                        {
-                            "module": "qbt",
-                            "action": "stop-service",
-                            "ok": False,
-                            "message": "未找到 qB 服务",
-                        }
-                    )
-                self._qbt_reset_stats_cache()
-
-            if prev_ddns_enabled and not new_ddns_enabled:
-                if ddns.config_path(_APP_ROOT_DIR).exists():
-                    ok, msg = ddns.service_action(_APP_ROOT_DIR, "stop")
-                    module_actions.append(
-                        {
-                            "module": "ddns",
-                            "action": "stop-builtin",
-                            "ok": bool(ok),
-                            "message": "内置 DDNS 已停止"
-                            if ok
-                            else f"停止内置 DDNS failed: {msg}",
-                        }
-                    )
-                ext_ddns = self._resolve_existing_unit(self.ddns_candidates)
-                if ext_ddns.get("load_state") == "not-found":
-                    ext_ddns = (
-                        self._discover_unit_by_keywords(
-                            ["ddns", "duckdns", "cloudflare", "dnspod", "ddns-go"]
-                        )
-                        or ext_ddns
-                    )
-                ext_unit = str((ext_ddns or {}).get("unit", "") or "").strip()
-                ext_active = str((ext_ddns or {}).get("active_state", "") or "").strip() == "active"
-                if ext_unit and ext_active:
-                    ok, msg = self._service_action(ext_unit, "stop")
-                    module_actions.append(
-                        {
-                            "module": "ddns",
-                            "action": "stop-service",
-                            "unit": ext_unit,
-                            "ok": bool(ok),
-                            "message": "DDNS 服务已停止"
-                            if ok
-                            else f"停止 DDNS 服务失败：{msg}",
-                        }
-                    )
-
-            if prev_shareclip_enabled and not new_shareclip_enabled:
-                module_actions.append(
-                    {
-                        "module": "shareclip",
-                        "action": "disable-routes",
-                        "ok": True,
-                        "message": "ShareClip 接口已关闭",
-                    }
-                )
-                shareclip_svc = self._discover_unit_by_keywords(
-                    ["shareclip", "file-control-shareclip"]
-                )
-                shareclip_unit = str((shareclip_svc or {}).get("unit", "") or "").strip()
-                shareclip_active = (
-                    str((shareclip_svc or {}).get("active_state", "") or "").strip() == "active"
-                )
-                if shareclip_unit and shareclip_active:
-                    ok, msg = self._service_action(shareclip_unit, "stop")
-                    module_actions.append(
-                        {
-                            "module": "shareclip",
-                            "action": "stop-service",
-                            "unit": shareclip_unit,
-                            "ok": bool(ok),
-                            "message": "ShareClip 服务已停止"
-                            if ok
-                            else f"停止 ShareClip 服务失败：{msg}",
-                        }
-                    )
-            self._send_json(
-                {
-                    "ok": True,
-                    "config": saved,
-                    "running_web_port": ACTIVE_WEB_PORT,
-                    "web_port_restart_required": bool(web_port_restart_required),
-                    "http_disconnect_triggered": bool(disconnect_triggered),
-                    "module_actions": module_actions,
-                    "ui_theme": _ui_theme_payload(saved, _APP_ROOT_DIR),
-                }
-            )
-            return
-
-        if parsed.path == "/api/control/downloads":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            enabled = bool(body.get("enabled", True))
-            if enabled and not self._http_module_enabled():
-                self._error("HTTP module is disabled; cannot enable upload", status=HTTPStatus.BAD_REQUEST)
-                return
-            with self.control_lock:
-                self.downloads_enabled = enabled
-                AppHandler.downloads_enabled = enabled
-            self._send_json({"downloads_enabled": self._downloads_effective_enabled()})
-            return
-
-        if parsed.path == "/api/control/http-access":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            action = str((body or {}).get("action", "") or "").strip().lower()
-            cfg = load_app_config(_APP_ROOT_DIR)
-            policy = http_access.normalize_policy((cfg or {}).get("http_access"))
-            if action == "open_public":
-                try:
-                    duration = int((body or {}).get("duration_sec", 0))
-                except (TypeError, ValueError):
-                    duration = 0
-                if duration <= 0 or duration > 7 * 24 * 3600:
-                    self._error(
-                        "duration_sec must be between 1 and 604800",
-                        status=HTTPStatus.BAD_REQUEST,
-                    )
-                    return
-                policy["mode"] = "public"
-                policy["public_until"] = time.time() + duration
-            elif action == "open_public_persistent":
-                policy["mode"] = "public"
-                policy["public_until"] = None
-            elif action == "close":
-                policy["mode"] = "lan_only"
-                policy["public_until"] = None
-            else:
-                self._error(
-                    "Unknown action; expected 'open_public', 'open_public_persistent', or 'close'",
-                    status=HTTPStatus.BAD_REQUEST,
-                )
-                return
-            cfg["http_access"] = http_access.normalize_policy(policy)
-            save_app_config(cfg, _APP_ROOT_DIR)
-            self._send_json(self._http_access_status(cfg))
-            return
-
-        if parsed.path == "/api/control/restart":
-            if not self._require_lan():
-                return
-            queued = self._schedule_restart()
-            self._send_json({"queued": queued})
-            return
-
-        if parsed.path == "/api/upgrade/run":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            if body is None:
-                body = {}
-            if not isinstance(body, dict):
-                self._error("Request body must be a JSON object", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                queued, status = self._schedule_upgrade(body.get("branch"))
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(f"Failed to start update: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json({"queued": bool(queued), "status": status})
-            return
-
-        if parsed.path == "/api/ddns/config":
-            if not self._require_lan():
-                return
-            if not self._ddns_module_enabled():
-                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            body = self._parse_body()
-            ok, msg = ddns.apply_config_from_body(_APP_ROOT_DIR, body)
-            if not ok:
-                self._error(msg, status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json(
-                {
-                    "ok": True,
-                    "config": ddns.load_config(_APP_ROOT_DIR),
-                    "status": ddns.status_for_api(_APP_ROOT_DIR),
-                }
-            )
-            return
-
-        if parsed.path == "/api/ddns/run":
-            if not self._require_lan():
-                return
-            if not self._ddns_module_enabled():
-                self._error("DDNS module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            ok, msg, ip = ddns.do_update_once(_APP_ROOT_DIR)
-            if not ok:
-                self._error(msg, status=HTTPStatus.BAD_REQUEST)
-                return
-            self._send_json({"ok": True, "message": msg, "ip": ip})
-            return
-
-        if parsed.path == "/api/clean/preview":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            rel = str(body.get("dir", ".") or ".")
-            target = str(body.get("target", "both") or "both")
-            if target not in ("both", "files", "dirs"):
-                self._error("target must be both / files / dirs", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                plan = build_rename_plan(
-                    self.storage_root,
-                    rel,
-                    target=target,
-                    recursive=bool(body.get("recursive", False)),
-                    remove_substrings=str(body.get("remove_substrings", "") or ""),
-                    strip_cjk=bool(body.get("strip_cjk", False)),
-                    move_season_before_year=bool(
-                        body.get("move_season_before_year")
-                        or body.get("reorder_season", False)
-                    ),
-                )
-            except FileNotFoundError as e:
-                self._error(str(e), status=HTTPStatus.NOT_FOUND)
-                return
-            except ValueError as e:
-                self._error(str(e), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(f"Preview failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(
-                {
-                    "moves": [
-                        {
-                            "old_rel": x.old_rel,
-                            "new_rel": x.new_rel,
-                            "kind": x.kind,
-                            "skip": x.skip,
-                            "error": x.error,
-                        }
-                        for x in plan
-                    ]
-                }
-            )
-            return
-
-        if parsed.path == "/api/subtitle-align/preview":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            try:
-                rel = str((body or {}).get("dir", ".") or ".")
-                recursive = bool((body or {}).get("recursive", False))
-                plan = subtitle_align.build_alignment_plan(
-                    self.storage_root,
-                    rel,
-                    recursive=recursive,
-                )
-            except FileNotFoundError as exc:
-                self._error(str(exc), status=HTTPStatus.NOT_FOUND)
-                return
-            except ValueError as exc:
-                self._error(str(exc), status=HTTPStatus.BAD_REQUEST)
-                return
-            except Exception as exc:
-                self._error(f"Subtitle align preview failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json({"moves": subtitle_align.simplify_plan(plan)})
-            return
-
-        if parsed.path == "/api/clean/apply":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            moves = body.get("moves")
-            if not isinstance(moves, list) or not moves:
-                self._error("moves must be a non-empty array", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                results = apply_rename_plan(self.storage_root, moves)
-            except Exception as exc:
-                self._error(f"Execution failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json({"results": results})
-            return
-
-        if parsed.path == "/api/subtitle-align/apply":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            moves = (body or {}).get("moves")
-            if not isinstance(moves, list) or not moves:
-                self._error("moves must be a non-empty array", status=HTTPStatus.BAD_REQUEST)
-                return
-            try:
-                results = apply_rename_plan(self.storage_root, moves)
-            except Exception as exc:
-                self._error(f"Subtitle align apply failed: {exc}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json({"results": results})
-            return
-
-        if parsed.path == "/api/control/service":
-            if not self._require_lan():
-                return
-            body = self._parse_body()
-            service = str(body.get("service", "")).strip().lower()
-            action = str(body.get("action", "")).strip().lower()
-            client_override = str(body.get("client", "") or "").strip().lower()
-            if service not in {"qbt", "ddns", "self"}:
-                self._error("Invalid service parameter", status=HTTPStatus.BAD_REQUEST)
-                return
-            if action not in {"start", "stop", "restart", "quit"}:
-                self._error("Invalid action parameter", status=HTTPStatus.BAD_REQUEST)
-                return
-            if service == "qbt" and (not self._qbt_module_enabled()) and action != "stop":
-                self._error(
-                    "qB module is disabled，请在 Config 中开启后再操作",
-                    status=HTTPStatus.FORBIDDEN,
-                )
-                return
-            if service == "ddns" and (not self._ddns_module_enabled()) and action != "stop":
-                self._error(
-                    "DDNS module is disabled，请在 Config 中开启后再操作",
-                    status=HTTPStatus.FORBIDDEN,
-                )
-                return
-
-            if service == "self":
-                if action != "restart":
-                    self._error("self only supports restart", status=HTTPStatus.BAD_REQUEST)
-                    return
-                queued = self._schedule_restart()
-                self._send_json({"queued": queued})
-                return
-
-            if action == "quit" and service != "qbt":
-                self._error("Only qbt supports quit", status=HTTPStatus.BAD_REQUEST)
-                return
-
-            if service == "qbt" and action == "quit":
-                ok, msg = self._qbt_shutdown_once()
-                if not ok:
-                    self._error(f"quit failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                    return
-                self._qbt_reset_stats_cache()
-                self._send_json(self._control_status_payload(client_override))
-                return
-
-            if service == "ddns" and ddns.config_path(
-                _APP_ROOT_DIR
-            ).exists():
-                ok, msg = ddns.service_action(_APP_ROOT_DIR, action)
-                if not ok:
-                    self._error(
-                        f"{action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR
-                    )
-                    return
-                self._send_json(self._control_status_payload(client_override))
-                return
-
-            status_now = self._control_status_payload(client_override)
-            target_info = status_now.get(service) or {}
-            unit = str(target_info.get("unit", "")).strip()
-            if not unit or target_info.get("load_state") == "not-found":
-                self._error(f"{service} service not found", status=HTTPStatus.NOT_FOUND)
-                return
-
-            ok, msg = self._service_action(unit, action)
-            if not ok:
-                self._error(f"{action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            if service == "qbt":
-                self._qbt_reset_stats_cache()
-            self._send_json(self._control_status_payload(client_override))
-            return
-
-        if parsed.path == "/api/docker/action":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            body = self._parse_body()
-            name = self._docker_safe_name(str((body or {}).get("name", "") or ""))
-            action = str((body or {}).get("action", "") or "").strip().lower()
-            if not name:
-                self._error("Invalid container name", status=HTTPStatus.BAD_REQUEST)
-                return
-            if action not in {"start", "stop", "restart"}:
-                self._error("Invalid Docker action", status=HTTPStatus.BAD_REQUEST)
-                return
-            ok, msg = self._docker_container_action(name, action)
-            if not ok:
-                self._error(f"docker {action} failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(self._docker_status_payload())
-            return
-
-        if parsed.path == "/api/docker/image/pull":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            body = self._parse_body()
-            image = str((body or {}).get("image", "") or "").strip()
-            ok, msg = self._docker_pull_image(image)
-            if not ok:
-                self._error(f"docker pull failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(
-                {
-                    "ok": True,
-                    "message": f"pulled {image}",
-                    "status": self._docker_status_payload(include_stats=False).get("summary", {}),
-                    "images": self._docker_images_payload(),
-                }
-            )
-            return
-
-        if parsed.path == "/api/docker/container/create":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            body = self._parse_body() or {}
-            ok, msg = self._docker_create_container(body)
-            if not ok:
-                self._error(f"docker create failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(self._docker_status_payload())
-            return
-
-        if parsed.path == "/api/docker/container/remove":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            body = self._parse_body()
-            name = str((body or {}).get("name", "") or "").strip()
-            force = bool((body or {}).get("force", False))
-            ok, msg = self._docker_remove_container(name, force=force)
-            if not ok:
-                self._error(f"docker rm failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(self._docker_status_payload())
-            return
-
-        if parsed.path == "/api/docker/image/remove":
-            if not self._require_lan():
-                return
-            if not self._docker_module_enabled():
-                self._error("Docker module is disabled", status=HTTPStatus.FORBIDDEN)
-                return
-            body = self._parse_body()
-            image = str((body or {}).get("image", "") or "").strip()
-            force = bool((body or {}).get("force", False))
-            ok, msg = self._docker_remove_image(image, force=force)
-            if not ok:
-                self._error(f"docker rmi failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            self._send_json(self._docker_images_payload())
-            return
-
-        if parsed.path == "/api/qbt/fix-monitor":
-            if not self._require_lan():
-                return
-            if not self._qbt_module_enabled():
-                self._error(
-                    "qB module is disabled，请在 Config 中开启后再操作",
-                    status=HTTPStatus.FORBIDDEN,
-                )
-                return
-            ok, msg, detail = self._qbt_fix_monitor_config()
-            if not ok:
-                self._error(f"qB fix failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            status_payload = self._control_status_payload()
-            self._send_json(
-                {
-                    "ok": True,
-                    "message": msg,
-                    "detail": detail,
-                    "status": status_payload.get("qbt", {}),
-                }
-            )
-            return
-
-        if parsed.path == "/api/qbt/optimize-config":
-            if not self._require_lan():
-                return
-            if not self._qbt_module_enabled():
-                self._error(
-                    "qB module is disabled，请在 Config 中开启后再操作",
-                    status=HTTPStatus.FORBIDDEN,
-                )
-                return
-            body = self._parse_body()
-            selected = (body.get("qbt") or {}) if isinstance(body, dict) else {}
-            ok, msg, detail = self._qbt_optimize_config(selected if isinstance(selected, dict) else {})
-            if not ok:
-                self._error(f"qB optimize failed: {msg}", status=HTTPStatus.INTERNAL_SERVER_ERROR)
-                return
-            status_payload = self._control_status_payload()
-            self._send_json(
-                {
-                    "ok": True,
-                    "message": msg,
-                    "detail": detail,
-                    "status": status_payload.get("qbt", {}),
-                }
             )
             return
 

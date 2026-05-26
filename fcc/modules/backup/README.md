@@ -2,6 +2,9 @@
 
 Directory-level backup orchestration integrated from TimeCapsule.
 
+> Status (current release): disabled by default in `app.py` and not registered on
+> the public route surface. This document describes the module internals only.
+
 ## Features
 
 - **Intelligent File Classification**: Automatically categorizes files (code, AI, media, large files)
@@ -36,28 +39,24 @@ retention:
   monthly: 12
 ```
 
-## API Endpoints
+## Public Surface Status
 
-- `GET /backup` - Backup management page
-- `GET /api/backup/status` - Get backup status and statistics
-- `POST /api/backup/run` - Execute backup now
-- `GET /api/backup/list` - List all snapshots
+Current release intentionally disables Backup public routes/pages:
 
-## Usage
+- `/backup`
+- `/api/backup/*`
 
-1. Start AfterClaw server:
-   ```bash
-   python3 app.py
-   ```
+Reason: avoid exposing an incomplete/untested surface in production while keeping
+the module implementation available for future re-enable.
 
-2. Access backup page:
-   ```
-   http://localhost:1288/backup
-   ```
+## Development Usage (internal only)
 
-3. Configure backup sources in `data/backup_config.yaml`
+If you are doing internal development on backup re-enable:
 
-4. Click "Run Backup Now" to start backup
+1. Keep config under `data/backup_config.yaml`
+2. Re-enable route registration in app/runtime wiring explicitly
+3. Add/refresh API tests and smoke checks before exposing routes again
+4. Do not claim backup is public-ready until route surface + docs are both restored
 
 ## Architecture
 

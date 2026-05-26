@@ -1,4 +1,4 @@
-"""DDNS module placeholder."""
+"""DDNS module metadata and API dispatch entrypoints."""
 
 from fcc.modules import Module, register
 
