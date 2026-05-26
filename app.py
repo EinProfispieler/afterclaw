@@ -9601,11 +9601,13 @@ class AppHandler(BaseHTTPRequestHandler):
         name: str,
         image: str,
         restart_after_pull: bool = True,
+        allow_offline_local: bool = False,
     ) -> tuple[bool, dict]:
         return docker_service.upgrade_container_with_rollback(
             name=name,
             image=image,
             restart_after_pull=restart_after_pull,
+            allow_offline_local=allow_offline_local,
         )
 
     @staticmethod

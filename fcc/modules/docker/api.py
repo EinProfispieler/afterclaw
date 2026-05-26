@@ -277,6 +277,7 @@ def dispatch_post(handler, parsed) -> bool:
         if action == "upgrade":
             image = handler._docker_safe_image(str((body or {}).get("image", "") or ""))
             restart_after_pull = bool((body or {}).get("restart", True))
+            allow_offline_local = bool((body or {}).get("allow_offline_local", False))
             if not image and name:
                 status = handler._docker_status_payload(include_stats=False)
                 for item in list((status or {}).get("containers") or []):
@@ -299,6 +300,7 @@ def dispatch_post(handler, parsed) -> bool:
                     name=name,
                     image=image,
                     restart_after_pull=restart_after_pull,
+                    allow_offline_local=allow_offline_local,
                 )
                 if not ok_upgrade:
                     message = str((detail or {}).get("error", "") or "docker upgrade failed").strip()
@@ -315,7 +317,21 @@ def dispatch_post(handler, parsed) -> bool:
                             "rollback_ok": bool((detail or {}).get("rollback_ok", False)),
                         },
                     )
-                    handler._error(message, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                    handler._send_json(
+                        {
+                            "ok": False,
+                            "action": "upgrade",
+                            "name": name,
+                            "image": image,
+                            "error": message,
+                            "pulled": bool((detail or {}).get("pulled", False)),
+                            "pull_skipped": bool((detail or {}).get("pull_skipped", False)),
+                            "rollback_attempted": bool((detail or {}).get("rollback_attempted", False)),
+                            "rollback_ok": bool((detail or {}).get("rollback_ok", False)),
+                            "backup_id": str((detail or {}).get("backup_id", "") or ""),
+                        },
+                        status=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
                     return True
                 _audit(
                     handler,
@@ -326,6 +342,8 @@ def dispatch_post(handler, parsed) -> bool:
                     image=image,
                     extra={
                         "recreated": bool((detail or {}).get("recreated", False)),
+                        "pulled": bool((detail or {}).get("pulled", False)),
+                        "pull_skipped": bool((detail or {}).get("pull_skipped", False)),
                         "rollback_attempted": bool((detail or {}).get("rollback_attempted", False)),
                         "rollback_ok": bool((detail or {}).get("rollback_ok", False)),
                         "backup_id": str((detail or {}).get("backup_id", "") or ""),
@@ -339,6 +357,8 @@ def dispatch_post(handler, parsed) -> bool:
                         "image": image,
                         "restarted": True,
                         "recreated": bool((detail or {}).get("recreated", False)),
+                        "pulled": bool((detail or {}).get("pulled", False)),
+                        "pull_skipped": bool((detail or {}).get("pull_skipped", False)),
                         "rollback_attempted": bool((detail or {}).get("rollback_attempted", False)),
                         "rollback_ok": bool((detail or {}).get("rollback_ok", False)),
                         "backup_id": str((detail or {}).get("backup_id", "") or ""),

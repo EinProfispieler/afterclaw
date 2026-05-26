@@ -185,6 +185,86 @@ def test_upgrade_container_with_rollback_recreate_failure_rolls_back(monkeypatch
     assert "docker recreate failed" in detail["error"]
 
 
+def test_upgrade_container_with_rollback_allows_offline_local_when_pull_fails(monkeypatch):
+    inspect_payload = (
+        '[{"Config":{"Image":"old/app:1.0","Env":["TZ=UTC"],"Cmd":["--serve"]},'
+        '"HostConfig":{"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"bridge","PortBindings":{}},'
+        '"State":{"Running":true},"Mounts":[]}]\n'
+    )
+    calls: list[list[str]] = []
+
+    def _fake_execute(args, timeout=None):
+        calls.append(list(args))
+        if args == ["inspect", "inkos"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, inspect_payload, "", "")
+        if args == ["pull", "inkos/app:latest"]:
+            return DockerCommandResult(False, ["docker"] + list(args), 1, "", "pull timeout", "pull timeout")
+        if args == ["image", "inspect", "inkos/app:latest"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "[]\n", "", "")
+        if args == ["stop", "inkos"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "", "", "")
+        if args == ["rename", "inkos", "inkos-preupgrade-1234"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "", "", "")
+        if args and args[:4] == ["run", "-d", "--name", "inkos"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "new-container-id\n", "", "")
+        if args == ["rm", "-f", "inkos-preupgrade-1234"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "", "", "")
+        return DockerCommandResult(False, ["docker"] + list(args), 1, "", "bad", "bad")
+
+    monkeypatch.setattr(service.docker_adapter, "execute_docker", _fake_execute)
+    monkeypatch.setattr(service.time, "time", lambda: 1234)
+
+    ok, detail = service.upgrade_container_with_rollback(
+        name="inkos",
+        image="inkos/app:latest",
+        restart_after_pull=True,
+        allow_offline_local=True,
+    )
+    assert ok is True
+    assert detail["recreated"] is True
+    assert detail["pulled"] is False
+    assert detail["pull_skipped"] is True
+    assert ["image", "inspect", "inkos/app:latest"] in calls
+
+
+def test_upgrade_container_with_rollback_respects_recreate_delay(monkeypatch):
+    inspect_payload = (
+        '[{"Config":{"Image":"old/app:1.0","Env":["TZ=UTC"],"Cmd":["--serve"]},'
+        '"HostConfig":{"RestartPolicy":{"Name":"unless-stopped"},"NetworkMode":"bridge","PortBindings":{}},'
+        '"State":{"Running":true},"Mounts":[]}]\n'
+    )
+    sleeps: list[float] = []
+
+    def _fake_execute(args, timeout=None):
+        if args == ["inspect", "inkos"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, inspect_payload, "", "")
+        if args == ["pull", "inkos/app:latest"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "pulled", "", "")
+        if args == ["stop", "inkos"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "", "", "")
+        if args == ["rename", "inkos", "inkos-preupgrade-1234"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "", "", "")
+        if args and args[:4] == ["run", "-d", "--name", "inkos"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "new-container-id\n", "", "")
+        if args == ["rm", "-f", "inkos-preupgrade-1234"]:
+            return DockerCommandResult(True, ["docker"] + list(args), 0, "", "", "")
+        return DockerCommandResult(False, ["docker"] + list(args), 1, "", "bad", "bad")
+
+    monkeypatch.setattr(service.docker_adapter, "execute_docker", _fake_execute)
+    monkeypatch.setattr(service.time, "time", lambda: 1234)
+    monkeypatch.setattr(service, "_UPGRADE_RECREATE_DELAY_SEC", 0.05)
+    monkeypatch.setattr(service.time, "sleep", lambda s: sleeps.append(float(s)))
+
+    ok, detail = service.upgrade_container_with_rollback(
+        name="inkos",
+        image="inkos/app:latest",
+        restart_after_pull=True,
+    )
+    assert ok is True
+    assert detail["recreated"] is True
+    assert sleeps == [0.05]
+
+
 def test_docker_operation_history_list_export_clear(monkeypatch, tmp_path):
     path = tmp_path / "docker_ops_history.jsonl"
     monkeypatch.setenv("DOCKER_OPS_HISTORY_FILE", str(path))

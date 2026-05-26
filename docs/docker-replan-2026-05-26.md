@@ -112,3 +112,7 @@ Inkos 归入“热门项目基础支持”，处理方式：
   - 覆盖 `basic-op` 与兼容旧接口动作（install/uninstall/upgrade/start/stop/restart/pull/image-remove）写审计记录。
 - [x] Docker 面板新增 `History` 标签页，支持查看操作历史、刷新、导出 JSONL/JSON、清空审计记录。
 - [x] 审计记录持久化到本地 `docker_ops_history.jsonl`（可通过 `DOCKER_OPS_HISTORY_FILE` 覆盖路径），服务重启后历史仍可读取。
+- [x] `192.168.1.30` 实机“升级失败自动回滚”演练完成：
+  - 演练方式：使用本地镜像标签 `ac-local/qbt:offline` + `allow_offline_local=true` 绕过不稳定外网拉取，并通过并发占名触发 `recreate` 失败。
+  - 验收结果：`POST /api/docker/basic-op` 失败响应已包含 `pull_skipped=true`、`rollback_attempted=true`、`rollback_ok=true`、`backup_id`。
+  - 最终状态：目标容器名 `ac_rb_demo` 由回滚恢复成功；演练临时配置与容器已清理，服务已恢复默认运行参数。

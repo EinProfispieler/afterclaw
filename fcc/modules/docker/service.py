@@ -30,7 +30,23 @@ def _env_int(name: str, default: int, minimum: int = 1, maximum: int = 20000) ->
     return max(minimum, min(maximum, val))
 
 
+def _env_float(name: str, default: float, minimum: float = 0.0, maximum: float = 60.0) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return float(default)
+    try:
+        val = float(str(raw).strip())
+    except Exception:
+        return float(default)
+    if val < minimum:
+        return minimum
+    if val > maximum:
+        return maximum
+    return val
+
+
 _DOCKER_OPS_HISTORY_MAX = _env_int("DOCKER_OPS_HISTORY_MAX", 2000, minimum=100, maximum=20000)
+_UPGRADE_RECREATE_DELAY_SEC = _env_float("DOCKER_UPGRADE_RECREATE_DELAY_SEC", 0.0, minimum=0.0, maximum=30.0)
 _DOCKER_OPS_LOCK = threading.Lock()
 _DOCKER_OPS_HISTORY = deque(maxlen=_DOCKER_OPS_HISTORY_MAX)
 _DOCKER_OPS_LOADED = False
@@ -217,6 +233,14 @@ def pull_image(image: str) -> tuple[bool, str]:
     return run(["docker", "pull", ref], timeout=180.0)
 
 
+def image_exists(image: str) -> bool:
+    ref = safe_image(image)
+    if not ref:
+        return False
+    out = docker_adapter.execute_docker(["image", "inspect", ref], timeout=20.0)
+    return bool(out.ok)
+
+
 def remove_image(image: str, force: bool = False) -> tuple[bool, str]:
     ref = safe_image(image)
     if not ref:
@@ -372,6 +396,7 @@ def upgrade_container_with_rollback(
     name: str,
     image: str,
     restart_after_pull: bool = True,
+    allow_offline_local: bool = False,
 ) -> tuple[bool, dict]:
     cname = safe_name(name)
     ref = safe_image(image)
@@ -388,13 +413,19 @@ def upgrade_container_with_rollback(
     previous_running = bool(snapshot.get("running", False))
 
     ok_pull, msg_pull = pull_image(ref)
+    pulled = bool(ok_pull)
+    pull_skipped = False
     if not ok_pull:
-        return False, {"error": f"docker pull failed: {msg_pull}"}
+        if allow_offline_local and image_exists(ref):
+            pull_skipped = True
+        else:
+            return False, {"error": f"docker pull failed: {msg_pull}"}
     if not restart_after_pull:
         return True, {
             "name": cname,
             "image": ref,
-            "pulled": True,
+            "pulled": pulled,
+            "pull_skipped": pull_skipped,
             "recreated": False,
             "rollback_attempted": False,
             "rollback_ok": False,
@@ -414,6 +445,10 @@ def upgrade_container_with_rollback(
             container_action(cname, "start")
         return False, {"error": f"docker rename failed: {msg_rename_old}"}
 
+    # Drill helper: widen the race window for failure-injection rehearsals.
+    if _UPGRADE_RECREATE_DELAY_SEC > 0:
+        time.sleep(_UPGRADE_RECREATE_DELAY_SEC)
+
     ok_new, msg_new = create_container_from_snapshot(snapshot, ref)
     if ok_new:
         if not previous_running:
@@ -422,7 +457,8 @@ def upgrade_container_with_rollback(
         return True, {
             "name": cname,
             "image": ref,
-            "pulled": True,
+            "pulled": pulled,
+            "pull_skipped": pull_skipped,
             "recreated": True,
             "rollback_attempted": False,
             "rollback_ok": False,
@@ -452,7 +488,8 @@ def upgrade_container_with_rollback(
         "error": err,
         "name": cname,
         "image": ref,
-        "pulled": True,
+        "pulled": pulled,
+        "pull_skipped": pull_skipped,
         "recreated": False,
         "rollback_attempted": True,
         "rollback_ok": rollback_ok,

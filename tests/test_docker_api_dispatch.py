@@ -25,10 +25,11 @@ class _FakeHandler:
         self.body = {}
         self.errors = []
         self.sent = []
+        self.sent_status = []
         self.last_action = ("", "")
         self.last_created = None
         self.last_removed = ("", False)
-        self.last_upgrade = ("", "", True)
+        self.last_upgrade = ("", "", True, False)
 
     def _require_lan(self):
         return self.lan_ok
@@ -36,8 +37,9 @@ class _FakeHandler:
     def _error(self, message, status=HTTPStatus.BAD_REQUEST):
         self.errors.append((int(status), str(message)))
 
-    def _send_json(self, payload):
+    def _send_json(self, payload, status=HTTPStatus.OK, cors=False, extra_headers=None):
         self.sent.append(payload)
+        self.sent_status.append(int(status))
 
     def _parse_body(self):
         return self.body
@@ -83,10 +85,17 @@ class _FakeHandler:
     def _docker_safe_image(self, image):
         return str(image or "").strip()
 
-    def _docker_upgrade_container(self, name, image, restart_after_pull=True):
-        self.last_upgrade = (str(name or ""), str(image or ""), bool(restart_after_pull))
+    def _docker_upgrade_container(self, name, image, restart_after_pull=True, allow_offline_local=False):
+        self.last_upgrade = (
+            str(name or ""),
+            str(image or ""),
+            bool(restart_after_pull),
+            bool(allow_offline_local),
+        )
         return True, {
             "recreated": True,
+            "pulled": True,
+            "pull_skipped": False,
             "rollback_attempted": False,
             "rollback_ok": False,
             "backup_id": f"{name}-preupgrade-123",
@@ -162,7 +171,53 @@ def test_dispatch_post_basic_op_upgrade_resolves_image_from_status():
     assert handler.sent[-1]["ok"] is True
     assert handler.sent[-1]["image"] == "inkos/app:latest"
     assert handler.sent[-1]["recreated"] is True
-    assert handler.last_upgrade == ("inkos", "inkos/app:latest", True)
+    assert handler.last_upgrade == ("inkos", "inkos/app:latest", True, False)
+
+
+def test_dispatch_post_basic_op_upgrade_passes_allow_offline_local_flag():
+    handler = _FakeHandler()
+    handler.body = {
+        "action": "upgrade",
+        "name": "inkos",
+        "image": "inkos/app:latest",
+        "allow_offline_local": True,
+    }
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.last_upgrade == ("inkos", "inkos/app:latest", True, True)
+
+
+def test_dispatch_post_basic_op_upgrade_failure_returns_rollback_fields():
+    handler = _FakeHandler()
+
+    def _fail_upgrade(name, image, restart_after_pull=True, allow_offline_local=False):
+        return False, {
+            "error": "docker recreate failed: conflict",
+            "pulled": False,
+            "pull_skipped": True,
+            "rollback_attempted": True,
+            "rollback_ok": True,
+            "backup_id": "inkos-preupgrade-123",
+        }
+
+    handler._docker_upgrade_container = _fail_upgrade
+    handler.body = {
+        "action": "upgrade",
+        "name": "inkos",
+        "image": "inkos/app:latest",
+        "allow_offline_local": True,
+    }
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent_status[-1] == int(HTTPStatus.INTERNAL_SERVER_ERROR)
+    payload = handler.sent[-1]
+    assert payload["ok"] is False
+    assert payload["rollback_attempted"] is True
+    assert payload["rollback_ok"] is True
+    assert payload["pull_skipped"] is True
 
 
 def test_dispatch_post_basic_op_invalid_action():
