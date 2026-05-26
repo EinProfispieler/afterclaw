@@ -84,6 +84,8 @@ def test_docker_routes_exist_smoke():
         "/api/docker/logs",
         "/api/docker/recommendations",
         "/api/docker/images",
+        "/api/docker/ops/history",
+        "/api/docker/ops/export",
     }
     write_routes = {
         "/api/docker/action",
@@ -91,6 +93,7 @@ def test_docker_routes_exist_smoke():
         "/api/docker/container/create",
         "/api/docker/container/remove",
         "/api/docker/image/remove",
+        "/api/docker/ops/history/clear",
     }
     assert read_routes.issubset(routes)
     assert write_routes.issubset(routes)

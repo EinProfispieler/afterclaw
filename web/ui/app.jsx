@@ -1847,6 +1847,8 @@ window.AfterClaw = function () {
     const [logs, setLogs] = useState({ name: "", text: "" });
     const [recs, setRecs] = useState([]);
     const [pullImage, setPullImage] = useState("");
+    const [opsHistory, setOpsHistory] = useState([]);
+    const [opsLoading, setOpsLoading] = useState(false);
     const [installForm, setInstallForm] = useState({
       name: "",
       image: "",
@@ -1857,6 +1859,13 @@ window.AfterClaw = function () {
       network: "bridge",
       command: "",
     });
+    const dockerBasicOp = async (payload) => {
+      return apiJson("/api/docker/basic-op", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+    };
     const refreshDocker = async (silent = false) => {
       if (!silent) setLoading(true);
       setErr("");
@@ -1878,6 +1887,56 @@ window.AfterClaw = function () {
         if (!silent) toast(`Docker images load failed: ${String(e && e.message || e)}`);
       } finally {
         if (!silent) setImagesLoading(false);
+      }
+    };
+    const refreshOpsHistory = async (silent = false) => {
+      if (!silent) setOpsLoading(true);
+      try {
+        const d = await apiJson("/api/docker/ops/history?limit=200", { cache: "no-store" });
+        setOpsHistory(Array.isArray((d || {}).items) ? d.items : []);
+      } catch (e) {
+        if (!silent) toast(`Docker history load failed: ${String(e && e.message || e)}`);
+      } finally {
+        if (!silent) setOpsLoading(false);
+      }
+    };
+    const exportOpsHistory = async (format = "jsonl") => {
+      setBusy(`ops-export:${format}`);
+      try {
+        const d = await apiJson(`/api/docker/ops/export?format=${encodeURIComponent(format)}&limit=5000`, { cache: "no-store" });
+        const content = String((d || {}).content || "");
+        const filename = String((d || {}).filename || `afterclaw-docker-ops-history.${format === "json" ? "json" : "jsonl"}`);
+        const blob = new Blob([content], { type: format === "json" ? "application/json" : "application/x-ndjson" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast(`Docker history exported: ${filename}`);
+      } catch (e) {
+        toast(`Export failed: ${String(e && e.message || e)}`);
+      } finally {
+        setBusy("");
+      }
+    };
+    const clearOpsHistory = async () => {
+      if (!confirm("Clear Docker operation history?")) return;
+      setBusy("ops-clear");
+      try {
+        await apiJson("/api/docker/ops/history/clear", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        setOpsHistory([]);
+        toast("Docker history cleared");
+      } catch (e) {
+        toast(`Clear history failed: ${String(e && e.message || e)}`);
+      } finally {
+        setBusy("");
       }
     };
     useEffect(() => {
@@ -1908,15 +1967,15 @@ window.AfterClaw = function () {
       }).catch(() => {});
       return () => { dead = true; };
     }, []);
+    useEffect(() => {
+      if (tab === "History") refreshOpsHistory(false);
+    }, [tab]);
     const runDocker = async (name, action) => {
       setBusy(`${name}:${action}`);
       try {
-        const d = await apiJson("/api/docker/action", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, action })
-        });
-        setData(d || {});
+        await dockerBasicOp({ name, action });
+        await refreshDocker(true);
+        await refreshOpsHistory(true);
         toast(`Docker ${action} requested: ${name}`);
       } catch (e) {
         toast(`Docker ${action} failed: ${String(e && e.message || e)}`);
@@ -1929,15 +1988,28 @@ window.AfterClaw = function () {
       if (!confirm(`Remove container ${name}?`)) return;
       setBusy(`rm:${name}`);
       try {
-        const d = await apiJson("/api/docker/container/remove", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, force: true }),
-        });
-        setData(d || {});
+        await dockerBasicOp({ action: "uninstall", name, force: true });
+        await refreshDocker(true);
+        await refreshImages(true);
+        await refreshOpsHistory(true);
         toast(`Container removed: ${name}`);
       } catch (e) {
         toast(`Remove container failed: ${String(e && e.message || e)}`);
+      } finally {
+        setBusy("");
+      }
+    };
+    const upgradeContainer = async (name) => {
+      if (!name) return;
+      setBusy(`upgrade:${name}`);
+      try {
+        await dockerBasicOp({ action: "upgrade", name, restart: true });
+        await refreshDocker(true);
+        await refreshImages(true);
+        await refreshOpsHistory(true);
+        toast(`Container upgraded: ${name}`);
+      } catch (e) {
+        toast(`Upgrade failed: ${String(e && e.message || e)}`);
       } finally {
         setBusy("");
       }
@@ -1947,14 +2019,11 @@ window.AfterClaw = function () {
       if (!image) return;
       setBusy(`pull:${image}`);
       try {
-        await apiJson("/api/docker/image/pull", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image }),
-        });
+        await dockerBasicOp({ action: "upgrade", image, restart: false });
         toast(`Image pulled: ${image}`);
         setPullImage("");
         await refreshImages(true);
+        await refreshOpsHistory(true);
       } catch (e) {
         toast(`Pull failed: ${String(e && e.message || e)}`);
       } finally {
@@ -1973,6 +2042,7 @@ window.AfterClaw = function () {
           body: JSON.stringify({ image, force: true }),
         });
         setImages(Array.isArray((d || {}).images) ? d.images : []);
+        await refreshOpsHistory(true);
         toast(`Image removed: ${image}`);
       } catch (e) {
         toast(`Remove image failed: ${String(e && e.message || e)}`);
@@ -1990,6 +2060,7 @@ window.AfterClaw = function () {
       setBusy(`create:${name}`);
       try {
         const body = {
+          action: "install",
           name,
           image,
           ports: String(installForm.ports || "").split("\n").map((x) => x.trim()).filter(Boolean),
@@ -1999,12 +2070,9 @@ window.AfterClaw = function () {
           network: String(installForm.network || "bridge"),
           command: String(installForm.command || "").trim(),
         };
-        const d = await apiJson("/api/docker/container/create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        setData(d || {});
+        await dockerBasicOp(body);
+        await refreshDocker(true);
+        await refreshOpsHistory(true);
         toast(`Container created: ${name}`);
         setTab("Containers");
       } catch (e) {
@@ -2038,6 +2106,11 @@ window.AfterClaw = function () {
         setLogs({ name, text: `Log load failed: ${String(e && e.message || e)}` });
       }
     };
+    const fmtOpTime = (ts) => {
+      const n = Number(ts || 0);
+      if (!Number.isFinite(n) || n <= 0) return "-";
+      try { return new Date(n * 1000).toLocaleString(); } catch (_) { return String(ts); }
+    };
     const summary = (data && data.summary) || (live && live.docker) || {};
     const containers = Array.isArray(data && data.containers) ? data.containers : [];
     const available = data ? !!data.available : !!summary.available;
@@ -2053,6 +2126,9 @@ window.AfterClaw = function () {
         <div>
           <h1 className="h1">Docker</h1>
           <p className="sub">{summaryText}</p>
+          <p className="sub" style={{ marginTop: 6 }}>
+            Recommended path: verified templates. Compatibility path (for popular projects like Inkos): status/start/stop/restart/install/uninstall/upgrade only.
+          </p>
         </div>
         <div className="row">
           <button className="btn" onClick={() => refreshDocker(false)}>{Ic.restart}<span style={{ marginLeft: 4 }}>Refresh</span></button>
@@ -2060,7 +2136,7 @@ window.AfterClaw = function () {
       </div>
       <div className="card">
         <div className="tablist" style={{ padding: "0 12px" }}>
-          {["Containers", "Install", "Recommended", "Images", "Logs"].map((t) =>
+          {["Containers", "Install", "Recommended", "Images", "Logs", "History"].map((t) =>
             <div key={t} className={cx("tab", tab === t && "on")} onClick={() => setTab(t)}>{t}</div>
             )}
         </div>
@@ -2097,6 +2173,7 @@ window.AfterClaw = function () {
                     <div className="row" style={{ gap: 4, justifyContent: "flex-end" }}>
                       <button className="btn sm icon" title="Restart" disabled={!!busy} onClick={() => runDocker(c.name, "restart")}>{Ic.restart}</button>
                       <button className="btn sm icon" title={c.running ? "Stop" : "Start"} disabled={!!busy} onClick={() => runDocker(c.name, c.running ? "stop" : "start")}>{c.running ? Ic.stop : Ic.play}</button>
+                      <button className="btn sm icon" title="Upgrade image + restart" disabled={!!busy} onClick={() => upgradeContainer(c.name)}>{Ic.upload}</button>
                       <button className="btn sm icon" title="Logs" onClick={() => showLogs(c.name)}>{Ic.term}</button>
                       <button className="btn sm danger" title="Remove" disabled={!!busy} onClick={() => removeContainer(c.name)}>remove</button>
                     </div>
@@ -2197,6 +2274,37 @@ window.AfterClaw = function () {
                   </tr>
                 )}
                 {!images.length && <tr><td colSpan="4" style={{ color: "var(--ink-3)", textAlign: "center", padding: 20 }}>No images found.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        }
+        {tab === "History" &&
+          <div className="card-b">
+            <div className="row" style={{ justifyContent: "space-between", marginBottom: 10, gap: 8, flexWrap: "wrap" }}>
+              <b>Operation history</b>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <button className="btn sm" disabled={!!busy || opsLoading} onClick={() => refreshOpsHistory(false)}>Refresh</button>
+                <button className="btn sm" disabled={!!busy} onClick={() => exportOpsHistory("jsonl")}>Export JSONL</button>
+                <button className="btn sm" disabled={!!busy} onClick={() => exportOpsHistory("json")}>Export JSON</button>
+                <button className="btn sm danger" disabled={!!busy} onClick={clearOpsHistory}>Clear</button>
+              </div>
+            </div>
+            {opsLoading && <div style={{ color: "var(--ink-3)", marginBottom: 10 }}>Loading operation history...</div>}
+            <table className="tbl docker-table">
+              <thead><tr><th>Time</th><th>Action</th><th>Result</th><th>Name</th><th>Image</th><th>Client</th><th>Message</th></tr></thead>
+              <tbody>
+                {opsHistory.map((it, idx) =>
+                  <tr key={`${it.ts || idx}:${it.action || ""}:${it.name || ""}:${idx}`}>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{fmtOpTime(it.ts)}</td>
+                    <td className="k">{String(it.action || "-")}</td>
+                    <td>{it.ok ? <span className="pill ok"><span className="d" />ok</span> : <span className="pill err"><span className="d" />failed</span>}</td>
+                    <td className="k">{String(it.name || "-")}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-3)" }}>{String(it.image || "-")}</td>
+                    <td style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{String(it.client_ip || "-")}</td>
+                    <td>{String(it.message || ((it.extra && JSON.stringify(it.extra)) || "-"))}</td>
+                  </tr>
+                )}
+                {!opsHistory.length && <tr><td colSpan="7" style={{ color: "var(--ink-3)", textAlign: "center", padding: 20 }}>No Docker operations recorded.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -3000,7 +3108,7 @@ window.AfterClaw = function () {
   const CORE_MODULES = [
   { id: "qbt", name: "qBittorrent", desc: "BitTorrent integration and service control." },
   { id: "ddns", name: "DDNS", desc: "Domain update module and controls." },
-  { id: "docker", name: "Docker", desc: "Container inventory, logs, and safe controls." },
+  { id: "docker", name: "Docker", desc: "AfterClaw Docker API exposure toggle only. Does not stop or uninstall host Docker daemon." },
   { id: "shareclip", name: "ShareClip", desc: "Clipboard and file-drop module." },
   { id: "http", name: "HTTP file access", desc: "Public/LAN file routes and directory service." }];
   const OPT_MODULES = [

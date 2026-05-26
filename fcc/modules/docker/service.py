@@ -6,11 +6,80 @@ existing payload shapes and error semantics.
 
 from __future__ import annotations
 
+from collections import deque
 import json
+import os
+from pathlib import Path
 import re
 import shlex
+import threading
+import time
 
+from fcc.config import app_root
 from fcc.runtime.adapters import docker_adapter
+
+
+def _env_int(name: str, default: int, minimum: int = 1, maximum: int = 20000) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        val = int(str(raw).strip())
+    except Exception:
+        return default
+    return max(minimum, min(maximum, val))
+
+
+_DOCKER_OPS_HISTORY_MAX = _env_int("DOCKER_OPS_HISTORY_MAX", 2000, minimum=100, maximum=20000)
+_DOCKER_OPS_LOCK = threading.Lock()
+_DOCKER_OPS_HISTORY = deque(maxlen=_DOCKER_OPS_HISTORY_MAX)
+_DOCKER_OPS_LOADED = False
+_DOCKER_OPS_FILE_NAME = "docker_ops_history.jsonl"
+
+
+def _operation_history_path() -> Path:
+    configured = str(os.environ.get("DOCKER_OPS_HISTORY_FILE", "") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return app_root() / _DOCKER_OPS_FILE_NAME
+
+
+def _ensure_operation_history_loaded_locked() -> None:
+    global _DOCKER_OPS_LOADED
+    if _DOCKER_OPS_LOADED:
+        return
+    path = _operation_history_path()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+        for line in lines[-_DOCKER_OPS_HISTORY_MAX:]:
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(row, dict):
+                _DOCKER_OPS_HISTORY.append(row)
+    except Exception:
+        pass
+    _DOCKER_OPS_LOADED = True
+
+
+def _persist_operation_history_locked() -> bool:
+    path = _operation_history_path()
+    temp = path.with_name(f".{path.name}.tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = "\n".join(json.dumps(x, ensure_ascii=False) for x in _DOCKER_OPS_HISTORY)
+        if content:
+            content += "\n"
+        temp.write_text(content, encoding="utf-8")
+        temp.replace(path)
+        return True
+    except Exception:
+        try:
+            temp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
 
 
 def container_action(name: str, action: str) -> tuple[bool, str]:
@@ -203,6 +272,195 @@ def create_container(body: dict) -> tuple[bool, str]:
     return run(argv, timeout=90.0)
 
 
+def _restart_policy_value(value: str) -> str:
+    v = str(value or "").strip().lower()
+    return v if v in {"no", "always", "unless-stopped", "on-failure"} else ""
+
+
+def snapshot_container(name: str) -> tuple[bool, dict | str]:
+    cname = safe_name(name)
+    if not cname:
+        return False, "invalid container name"
+    out = docker_adapter.execute_docker(["inspect", cname], timeout=12.0)
+    if not out.ok:
+        return False, str(out.message or out.stderr or out.stdout or "docker inspect failed").strip()
+    try:
+        payload = json.loads(str(out.stdout or "[]"))
+        if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+            return False, "invalid inspect payload"
+        raw = payload[0]
+    except Exception as exc:
+        return False, f"invalid inspect json: {exc}"
+
+    config = dict(raw.get("Config") or {})
+    host = dict(raw.get("HostConfig") or {})
+    state = dict(raw.get("State") or {})
+    mounts = list(raw.get("Mounts") or [])
+    port_bindings = dict(host.get("PortBindings") or {})
+
+    volumes: list[str] = []
+    for m in mounts:
+        if not isinstance(m, dict):
+            continue
+        src = str(m.get("Source", "") or "").strip()
+        dst = str(m.get("Destination", "") or "").strip()
+        if not src or not dst:
+            continue
+        rw = bool(m.get("RW", True))
+        mode = "rw" if rw else "ro"
+        volumes.append(f"{src}:{dst}:{mode}")
+
+    ports: list[str] = []
+    for container_port, bindings in port_bindings.items():
+        cport = str(container_port or "").strip()
+        if not cport:
+            continue
+        if not isinstance(bindings, list):
+            continue
+        for binding in bindings:
+            if not isinstance(binding, dict):
+                continue
+            hport = str(binding.get("HostPort", "") or "").strip()
+            if not hport:
+                continue
+            hip = str(binding.get("HostIp", "") or "").strip()
+            if hip and hip not in {"0.0.0.0", "::"}:
+                ports.append(f"{hip}:{hport}:{cport}")
+            else:
+                ports.append(f"{hport}:{cport}")
+
+    cmd = config.get("Cmd")
+    cmd_parts = [str(x) for x in cmd] if isinstance(cmd, list) else []
+    command = " ".join(shlex.quote(x) for x in cmd_parts if x)
+
+    image_ref = str(config.get("Image", "") or "").strip()
+    restart_policy = _restart_policy_value(str((host.get("RestartPolicy") or {}).get("Name", "") or ""))
+    network_mode = str(host.get("NetworkMode", "") or "").strip()
+    if network_mode == "default":
+        network_mode = "bridge"
+    env = [str(x) for x in list(config.get("Env") or []) if str(x or "").strip()]
+    running = bool((state or {}).get("Running", False))
+
+    return True, {
+        "name": cname,
+        "image": image_ref,
+        "running": running,
+        "restart": restart_policy or "unless-stopped",
+        "network": network_mode or "bridge",
+        "ports": ports,
+        "volumes": volumes,
+        "env": env,
+        "command": command,
+    }
+
+
+def create_container_from_snapshot(snapshot: dict, image: str) -> tuple[bool, str]:
+    body = {
+        "name": str((snapshot or {}).get("name", "") or "").strip(),
+        "image": str(image or "").strip(),
+        "ports": list((snapshot or {}).get("ports") or []),
+        "volumes": list((snapshot or {}).get("volumes") or []),
+        "env": list((snapshot or {}).get("env") or []),
+        "restart": str((snapshot or {}).get("restart", "unless-stopped") or "unless-stopped"),
+        "network": str((snapshot or {}).get("network", "bridge") or "bridge"),
+        "command": str((snapshot or {}).get("command", "") or "").strip(),
+    }
+    return create_container(body)
+
+
+def upgrade_container_with_rollback(
+    name: str,
+    image: str,
+    restart_after_pull: bool = True,
+) -> tuple[bool, dict]:
+    cname = safe_name(name)
+    ref = safe_image(image)
+    if not cname:
+        return False, {"error": "invalid container name"}
+    if not ref:
+        return False, {"error": "invalid image reference"}
+
+    ok_snapshot, snapshot_or_err = snapshot_container(cname)
+    if not ok_snapshot:
+        return False, {"error": f"snapshot failed: {snapshot_or_err}"}
+    snapshot = dict(snapshot_or_err or {})
+    previous_image = str(snapshot.get("image", "") or "").strip()
+    previous_running = bool(snapshot.get("running", False))
+
+    ok_pull, msg_pull = pull_image(ref)
+    if not ok_pull:
+        return False, {"error": f"docker pull failed: {msg_pull}"}
+    if not restart_after_pull:
+        return True, {
+            "name": cname,
+            "image": ref,
+            "pulled": True,
+            "recreated": False,
+            "rollback_attempted": False,
+            "rollback_ok": False,
+            "backup_id": "",
+        }
+
+    backup_id = f"{cname}-preupgrade-{int(time.time())}"
+
+    if previous_running:
+        ok_stop, msg_stop = container_action(cname, "stop")
+        if not ok_stop:
+            return False, {"error": f"docker stop failed: {msg_stop}"}
+
+    ok_rename_old, msg_rename_old = run(["docker", "rename", cname, backup_id], timeout=30.0)
+    if not ok_rename_old:
+        if previous_running:
+            container_action(cname, "start")
+        return False, {"error": f"docker rename failed: {msg_rename_old}"}
+
+    ok_new, msg_new = create_container_from_snapshot(snapshot, ref)
+    if ok_new:
+        if not previous_running:
+            container_action(cname, "stop")
+        remove_container(backup_id, force=True)
+        return True, {
+            "name": cname,
+            "image": ref,
+            "pulled": True,
+            "recreated": True,
+            "rollback_attempted": False,
+            "rollback_ok": False,
+            "backup_id": backup_id,
+        }
+
+    rollback_ok = False
+    rollback_error = ""
+    run(["docker", "rm", "-f", cname], timeout=45.0)
+    ok_rename_back, msg_rename_back = run(["docker", "rename", backup_id, cname], timeout=30.0)
+    if not ok_rename_back:
+        rollback_error = f"rename rollback failed: {msg_rename_back}"
+    else:
+        if previous_running:
+            ok_start, msg_start = container_action(cname, "start")
+            if not ok_start:
+                rollback_error = f"rollback start failed: {msg_start}"
+            else:
+                rollback_ok = True
+        else:
+            rollback_ok = True
+
+    err = f"docker recreate failed: {msg_new}"
+    if rollback_error:
+        err = f"{err}; rollback error: {rollback_error}"
+    return False, {
+        "error": err,
+        "name": cname,
+        "image": ref,
+        "pulled": True,
+        "recreated": False,
+        "rollback_attempted": True,
+        "rollback_ok": rollback_ok,
+        "backup_id": backup_id,
+        "previous_image": previous_image,
+    }
+
+
 def linked_roles(name: str, image: str, app_cfg: dict | None = None) -> list[str]:
     text = f"{name} {image}".lower()
     roles = []
@@ -333,3 +591,103 @@ def container_logs(name: str, tail: int = 160) -> tuple[bool, str]:
     if not out.ok:
         return False, str(out.message or text[:1000] or "docker logs failed")
     return True, text[-24000:]
+
+
+def record_operation(
+    action: str,
+    *,
+    ok: bool,
+    source: str = "",
+    name: str = "",
+    image: str = "",
+    message: str = "",
+    client_ip: str = "",
+    extra: dict | None = None,
+) -> None:
+    item = {
+        "ts": int(time.time()),
+        "action": str(action or "").strip().lower(),
+        "ok": bool(ok),
+        "source": str(source or "").strip(),
+        "name": str(name or "").strip(),
+        "image": str(image or "").strip(),
+        "message": str(message or "").strip()[:800],
+        "client_ip": str(client_ip or "").strip(),
+    }
+    if isinstance(extra, dict) and extra:
+        safe_extra = {}
+        for k, v in extra.items():
+            key = str(k or "").strip()
+            if not key:
+                continue
+            if isinstance(v, (str, int, float, bool)) or v is None:
+                safe_extra[key] = v
+            else:
+                safe_extra[key] = str(v)
+        if safe_extra:
+            item["extra"] = safe_extra
+    with _DOCKER_OPS_LOCK:
+        _ensure_operation_history_loaded_locked()
+        _DOCKER_OPS_HISTORY.append(item)
+        _persist_operation_history_locked()
+
+
+def list_operation_history(
+    *,
+    limit: int = 200,
+    action: str = "",
+    name: str = "",
+    ok: bool | None = None,
+) -> dict:
+    try:
+        n = int(limit)
+    except Exception:
+        n = 200
+    n = max(1, min(10000, n))
+    act = str(action or "").strip().lower()
+    cname = str(name or "").strip().lower()
+    with _DOCKER_OPS_LOCK:
+        _ensure_operation_history_loaded_locked()
+        rows = list(_DOCKER_OPS_HISTORY)
+    if act:
+        rows = [x for x in rows if str(x.get("action", "")).lower() == act]
+    if cname:
+        rows = [x for x in rows if cname in str(x.get("name", "")).lower()]
+    if ok is not None:
+        rows = [x for x in rows if bool(x.get("ok")) is bool(ok)]
+    if len(rows) > n:
+        rows = rows[-n:]
+    rows.reverse()
+    return {"items": rows, "count": len(rows), "max": _DOCKER_OPS_HISTORY_MAX}
+
+
+def clear_operation_history() -> dict:
+    with _DOCKER_OPS_LOCK:
+        _ensure_operation_history_loaded_locked()
+        removed = len(_DOCKER_OPS_HISTORY)
+        _DOCKER_OPS_HISTORY.clear()
+        persisted = _persist_operation_history_locked()
+    return {"ok": True, "removed": int(removed), "persisted": bool(persisted)}
+
+
+def export_operation_history(*, fmt: str = "jsonl", limit: int = 5000) -> dict:
+    data = list_operation_history(limit=limit)
+    rows = list(data.get("items") or [])
+    format_text = str(fmt or "jsonl").strip().lower()
+    if format_text not in {"jsonl", "json"}:
+        format_text = "jsonl"
+    if format_text == "json":
+        content = json.dumps(rows, ensure_ascii=False, indent=2)
+        filename = "afterclaw-docker-ops-history.json"
+    else:
+        content = "\n".join(json.dumps(x, ensure_ascii=False) for x in rows)
+        if content:
+            content += "\n"
+        filename = "afterclaw-docker-ops-history.jsonl"
+    return {
+        "ok": True,
+        "format": format_text,
+        "filename": filename,
+        "line_count": len(rows),
+        "content": content,
+    }

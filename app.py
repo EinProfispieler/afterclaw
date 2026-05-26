@@ -349,6 +349,9 @@ else:
 DEFAULT_TRANSFER_RECENT_TTL_SEC = float(
     os.environ.get("TRANSFER_RECENT_TTL_SEC", "15").strip() or "15"
 )
+DEFAULT_TRANSFER_ACTIVE_LINGER_SEC = float(
+    os.environ.get("TRANSFER_ACTIVE_LINGER_SEC", "3").strip() or "3"
+)
 DEFAULT_HTTP_MAX_ACTIVE_DOWNLOADS = _env_int("HTTP_MAX_ACTIVE_DOWNLOADS", 384, 1)
 DEFAULT_HTTP_MAX_PER_IP_DOWNLOADS = _env_int("HTTP_MAX_PER_IP_DOWNLOADS", 64, 1)
 DEFAULT_TERMINAL_HISTORY_MAX = _env_int("TERMINAL_HISTORY_MAX", 500, 50)
@@ -5191,8 +5194,8 @@ def build_config_html() -> str:
             <input type="checkbox" id="modDocker" class="cfg-switch-input" checked />
             <span class="cfg-switch" aria-hidden="true"></span>
             <div>
-              <p class="cfg-module-title">Docker Module</p>
-              <p class="cfg-module-desc">Shows real container inventory, logs, and safe start/stop/restart actions.</p>
+              <p class="cfg-module-title">Docker API Module (AfterClaw scope)</p>
+              <p class="cfg-module-desc">Controls whether AfterClaw exposes <code>/api/docker/*</code>. Turning this off does not stop or uninstall Docker daemon on the host.</p>
             </div>
           </label>
           <label class="cfg-module-item">
@@ -8273,6 +8276,7 @@ class AppHandler(BaseHTTPRequestHandler):
     max_active_http_downloads = DEFAULT_HTTP_MAX_ACTIVE_DOWNLOADS
     max_http_downloads_per_ip = DEFAULT_HTTP_MAX_PER_IP_DOWNLOADS
     transfer_recent_ttl_sec = DEFAULT_TRANSFER_RECENT_TTL_SEC
+    transfer_active_linger_sec = DEFAULT_TRANSFER_ACTIVE_LINGER_SEC
     qbt_candidates = [
         DEFAULT_QBT_SERVICE,
         "qbittorrent-nox",
@@ -9577,6 +9581,19 @@ class AppHandler(BaseHTTPRequestHandler):
     @classmethod
     def _docker_create_container(cls, body: dict) -> tuple[bool, str]:
         return docker_service.create_container(body)
+
+    @classmethod
+    def _docker_upgrade_container(
+        cls,
+        name: str,
+        image: str,
+        restart_after_pull: bool = True,
+    ) -> tuple[bool, dict]:
+        return docker_service.upgrade_container_with_rollback(
+            name=name,
+            image=image,
+            restart_after_pull=restart_after_pull,
+        )
 
     @staticmethod
     def _docker_parse_percent(value) -> float:
@@ -10972,18 +10989,42 @@ class AppHandler(BaseHTTPRequestHandler):
                 getattr(self, "transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC)
                 or DEFAULT_TRANSFER_RECENT_TTL_SEC
             )
+            try:
+                active_linger_ttl = float(
+                    getattr(
+                        self,
+                        "transfer_active_linger_sec",
+                        DEFAULT_TRANSFER_ACTIVE_LINGER_SEC,
+                    )
+                    or DEFAULT_TRANSFER_ACTIVE_LINGER_SEC
+                )
+            except Exception:
+                active_linger_ttl = float(DEFAULT_TRANSFER_ACTIVE_LINGER_SEC)
+            if active_linger_ttl != active_linger_ttl or active_linger_ttl in (
+                float("inf"),
+                float("-inf"),
+            ):
+                active_linger_ttl = float(DEFAULT_TRANSFER_ACTIVE_LINGER_SEC)
+            active_linger_ttl = max(0.0, min(active_linger_ttl, 60.0))
+            # Keep short completed bursts visible, so resumed range downloads
+            # don't disappear between polling intervals.
+            done_keep_ttl = max(recent_ttl, active_linger_ttl)
             for tid, t in self.active_transfers.items():
                 done = bool(t.get("done", False))
                 started_at = float(t.get("started_at", now))
                 ended_at = float(t.get("ended_at", 0.0) or 0.0)
-                if done and ended_at > 0 and (now - ended_at) > recent_ttl:
+                just_finished = (
+                    done and ended_at > 0 and (now - ended_at) <= active_linger_ttl
+                )
+                effective_done = done and (not just_finished)
+                if done and ended_at > 0 and (now - ended_at) > done_keep_ttl:
                     stale_ids.append(tid)
                     continue
-                if done:
+                if effective_done:
                     recent_count += 1
                 else:
                     active_count += 1
-                elapsed_end = ended_at if done and ended_at > 0 else now
+                elapsed_end = ended_at if effective_done and ended_at > 0 else now
                 elapsed = max(elapsed_end - started_at, 0.001)
                 sent = int(t.get("sent_bytes", 0))
                 total = int(t.get("total_bytes", 0))
@@ -11009,7 +11050,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         source_ip_pools,
                     )
                 )
-                if not done:
+                if not effective_done:
                     total_sent_all += sent
                     total_size_all += total
                     source_row = source_agg.setdefault(
@@ -11029,9 +11070,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 items.append(
                     {
                         "id": tid,
-                        "done": done,
+                        "done": effective_done,
                         "started_at": started_at,
-                        "ended_at": ended_at if done else 0.0,
+                        "ended_at": ended_at if effective_done else 0.0,
                         "source": source,
                         "client_ip": t.get("client_ip", ""),
                         "relative_path": t.get("relative_path", ""),

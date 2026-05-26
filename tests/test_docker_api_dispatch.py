@@ -3,7 +3,19 @@ from __future__ import annotations
 from http import HTTPStatus
 from urllib.parse import urlparse
 
+import pytest
+
 from fcc.modules.docker import api as docker_api
+from fcc.modules.docker import service as docker_service
+
+
+@pytest.fixture(autouse=True)
+def _isolated_docker_ops_history(monkeypatch, tmp_path):
+    monkeypatch.setenv("DOCKER_OPS_HISTORY_FILE", str(tmp_path / "docker_ops_history.jsonl"))
+    monkeypatch.setattr(docker_service, "_DOCKER_OPS_LOADED", False)
+    docker_service._DOCKER_OPS_HISTORY.clear()
+    yield
+    docker_service._DOCKER_OPS_HISTORY.clear()
 
 
 class _FakeHandler:
@@ -14,6 +26,9 @@ class _FakeHandler:
         self.errors = []
         self.sent = []
         self.last_action = ("", "")
+        self.last_created = None
+        self.last_removed = ("", False)
+        self.last_upgrade = ("", "", True)
 
     def _require_lan(self):
         return self.lan_ok
@@ -31,7 +46,12 @@ class _FakeHandler:
         return self.module_enabled
 
     def _docker_status_payload(self, include_stats=True):
-        return {"ok": True, "summary": {"total": 1}, "include_stats": include_stats}
+        return {
+            "ok": True,
+            "summary": {"total": 1},
+            "containers": [{"name": "qbt", "image": "lscr.io/linuxserver/qbittorrent:latest"}],
+            "include_stats": include_stats,
+        }
 
     def _docker_images_payload(self):
         return {"ok": True, "images": [{"ref": "img:latest"}]}
@@ -47,9 +67,11 @@ class _FakeHandler:
         return True, f"pulled {image}"
 
     def _docker_create_container(self, body):
+        self.last_created = dict(body or {})
         return True, "created"
 
     def _docker_remove_container(self, name, force=False):
+        self.last_removed = (str(name or ""), bool(force))
         return True, "removed"
 
     def _docker_remove_image(self, image, force=False):
@@ -57,6 +79,21 @@ class _FakeHandler:
 
     def _docker_container_logs(self, name, tail=160):
         return True, f"logs:{name}:{tail}"
+
+    def _docker_safe_image(self, image):
+        return str(image or "").strip()
+
+    def _docker_upgrade_container(self, name, image, restart_after_pull=True):
+        self.last_upgrade = (str(name or ""), str(image or ""), bool(restart_after_pull))
+        return True, {
+            "recreated": True,
+            "rollback_attempted": False,
+            "rollback_ok": False,
+            "backup_id": f"{name}-preupgrade-123",
+        }
+
+    def _client_ip(self):
+        return "127.0.0.1"
 
 
 def test_dispatch_get_logs_rejects_when_module_disabled():
@@ -95,3 +132,99 @@ def test_dispatch_returns_true_when_lan_rejected():
     assert handled is True
     assert not handler.errors
     assert not handler.sent
+
+
+def test_dispatch_post_basic_op_restart_success():
+    handler = _FakeHandler()
+    handler.body = {"action": "restart", "name": "qbt"}
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.last_action == ("qbt", "restart")
+
+
+def test_dispatch_post_basic_op_upgrade_resolves_image_from_status():
+    handler = _FakeHandler()
+
+    def _status(include_stats=True):
+        return {
+            "ok": True,
+            "containers": [{"name": "inkos", "image": "inkos/app:latest"}],
+            "summary": {"total": 1},
+        }
+
+    handler._docker_status_payload = _status
+    handler.body = {"action": "upgrade", "name": "inkos"}
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.sent[-1]["image"] == "inkos/app:latest"
+    assert handler.sent[-1]["recreated"] is True
+    assert handler.last_upgrade == ("inkos", "inkos/app:latest", True)
+
+
+def test_dispatch_post_basic_op_invalid_action():
+    handler = _FakeHandler()
+    handler.body = {"action": "exec", "name": "inkos"}
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert handler.errors == [(int(HTTPStatus.BAD_REQUEST), "Invalid Docker basic action")]
+
+
+def test_dispatch_post_basic_op_status_by_name_success():
+    handler = _FakeHandler()
+    handler.body = {"action": "status", "name": "qbt"}
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.sent[-1]["container"]["name"] == "qbt"
+
+
+def test_dispatch_post_basic_op_install_success():
+    handler = _FakeHandler()
+    handler.body = {"action": "install", "name": "inkos", "image": "inkos/app:latest"}
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.last_created["name"] == "inkos"
+
+
+def test_dispatch_post_basic_op_uninstall_calls_remove_with_force_default():
+    handler = _FakeHandler()
+    handler.body = {"action": "uninstall", "name": "inkos"}
+    handled = docker_api.dispatch_post(handler, urlparse("/api/docker/basic-op"))
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.last_removed == ("inkos", True)
+
+
+def test_dispatch_get_ops_history_and_export_and_clear():
+    docker_service.clear_operation_history()
+    docker_service.record_operation("restart", ok=True, name="qbt", source="/api/docker/action", client_ip="127.0.0.1")
+    docker_service.record_operation("upgrade", ok=False, name="inkos", source="/api/docker/basic-op", client_ip="127.0.0.1")
+
+    handler = _FakeHandler()
+    handled = docker_api.dispatch_get(handler, urlparse("/api/docker/ops/history?limit=10"), [])
+    assert handled is True
+    assert not handler.errors
+    assert handler.sent[-1]["ok"] is True
+    assert handler.sent[-1]["count"] >= 2
+
+    handler_export = _FakeHandler()
+    handled_export = docker_api.dispatch_get(handler_export, urlparse("/api/docker/ops/export?format=jsonl&limit=10"), [])
+    assert handled_export is True
+    assert not handler_export.errors
+    assert handler_export.sent[-1]["ok"] is True
+    assert handler_export.sent[-1]["format"] == "jsonl"
+    assert "content" in handler_export.sent[-1]
+
+    handler_clear = _FakeHandler()
+    handled_clear = docker_api.dispatch_post(handler_clear, urlparse("/api/docker/ops/history/clear"))
+    assert handled_clear is True
+    assert not handler_clear.errors
+    assert handler_clear.sent[-1]["ok"] is True
