@@ -25,7 +25,7 @@ def test_service_restart_commands_macos(monkeypatch):
         "which",
         lambda name: "/bin/launchctl" if name == "launchctl" else None,
     )
-    monkeypatch.setattr(service_adapter.os, "getuid", lambda: 501)
+    monkeypatch.setattr(service_adapter.os, "getuid", lambda: 501, raising=False)
     commands, reason = service_adapter.self_restart_commands(
         systemd_unit="storage-http-link-web",
         launchd_label="com.fcc.afterclaw",

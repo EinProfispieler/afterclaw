@@ -19,7 +19,7 @@ def test_self_restart_command_candidates_macos_launchctl(monkeypatch):
     monkeypatch.setattr(
         app.shutil, "which", lambda name: "/bin/launchctl" if name == "launchctl" else None
     )
-    monkeypatch.setattr(app.os, "getuid", lambda: 501)
+    monkeypatch.setattr(app.os, "getuid", lambda: 501, raising=False)
     monkeypatch.setattr(app, "SELF_LAUNCHD_SERVICE_LABEL", "com.fcc.afterclaw")
     commands, reason = app.AppHandler._self_restart_command_candidates()
     assert reason == ""
