@@ -6,13 +6,10 @@ import configparser
 import hashlib
 import hmac
 import http.cookiejar
-import fcntl
 import json
 import ipaddress
 import mimetypes
 import os
-import pwd
-import pty
 import platform
 import re
 import secrets
@@ -24,7 +21,6 @@ import tarfile
 import tempfile
 import threading
 import time
-import termios
 import socket
 import urllib.error
 import urllib.request
@@ -61,6 +57,26 @@ from ddns.web import load_ddns_settings_page
 
 # Backup feature temporarily disabled (v0.9.11): module intentionally not
 # imported so its routes are never registered. Re-import to re-enable.
+
+try:
+    import fcntl  # type: ignore[attr-defined]
+except Exception:
+    fcntl = None  # type: ignore[assignment]
+
+try:
+    import pwd  # type: ignore[attr-defined]
+except Exception:
+    pwd = None  # type: ignore[assignment]
+
+try:
+    import pty  # type: ignore[attr-defined]
+except Exception:
+    pty = None  # type: ignore[assignment]
+
+try:
+    import termios  # type: ignore[attr-defined]
+except Exception:
+    termios = None  # type: ignore[assignment]
 
 _CODE_DIR = Path(__file__).resolve().parent
 _LEGACY_APP_ROOT_DIR = _CODE_DIR.parent
@@ -352,8 +368,14 @@ DEFAULT_TRANSFER_RECENT_TTL_SEC = float(
 DEFAULT_TRANSFER_ACTIVE_LINGER_SEC = float(
     os.environ.get("TRANSFER_ACTIVE_LINGER_SEC", "3").strip() or "3"
 )
+DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC = float(
+    os.environ.get("HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC", "15").strip() or "15"
+)
 DEFAULT_HTTP_MAX_ACTIVE_DOWNLOADS = _env_int("HTTP_MAX_ACTIVE_DOWNLOADS", 384, 1)
 DEFAULT_HTTP_MAX_PER_IP_DOWNLOADS = _env_int("HTTP_MAX_PER_IP_DOWNLOADS", 64, 1)
+DEFAULT_HTTP_STREAM_WRITE_TIMEOUT_SEC = float(
+    os.environ.get("HTTP_STREAM_WRITE_TIMEOUT_SEC", "25").strip() or "25"
+)
 DEFAULT_TERMINAL_HISTORY_MAX = _env_int("TERMINAL_HISTORY_MAX", 500, 50)
 DEFAULT_SUBTITLE_OWNER_UID = int(os.environ.get("SUBTITLE_OWNER_UID", "501"))
 DEFAULT_SUBTITLE_OWNER_GID = int(os.environ.get("SUBTITLE_OWNER_GID", "20"))
@@ -837,6 +859,63 @@ def _normalize_source_ip_pool_source(raw) -> str:
     return text or _default_source_ip_pool_source()
 
 
+def _normalize_source_profile(raw, default: str = "official") -> str:
+    text = str(raw or "").strip().lower()
+    allowed = set(config_schema.SOURCE_PROFILE_KEYS)
+    return text if text in allowed else str(default or "official")
+
+
+def _normalize_source_policy(raw) -> dict:
+    base = config_schema.default_source_policy()
+    if isinstance(raw, dict):
+        if "docker_source_profile" in raw:
+            base["docker_source_profile"] = _normalize_source_profile(
+                raw.get("docker_source_profile"), base["docker_source_profile"]
+            )
+        if "docker_mirror_custom" in raw:
+            base["docker_mirror_custom"] = str(raw.get("docker_mirror_custom", "") or "").strip()
+        if "npm_source_profile" in raw:
+            base["npm_source_profile"] = _normalize_source_profile(
+                raw.get("npm_source_profile"), base["npm_source_profile"]
+            )
+        if "npm_registry_custom" in raw:
+            base["npm_registry_custom"] = str(raw.get("npm_registry_custom", "") or "").strip()
+        if "github_raw_source_profile" in raw:
+            base["github_raw_source_profile"] = _normalize_source_profile(
+                raw.get("github_raw_source_profile"), base["github_raw_source_profile"]
+            )
+        if "github_raw_base_custom" in raw:
+            base["github_raw_base_custom"] = str(raw.get("github_raw_base_custom", "") or "").strip()
+    return base
+
+
+def _source_policy_raw_base(source_policy: dict | None = None) -> str:
+    sp = _normalize_source_policy(source_policy or {})
+    profile = _normalize_source_profile(sp.get("github_raw_source_profile"), "official")
+    presets = {
+        "official": "https://raw.githubusercontent.com",
+        "china": "https://raw.gitmirror.com",
+        "aws_us": "https://raw.githubusercontent.com",
+        "aws_eu": "https://raw.githubusercontent.com",
+        "aws_ap": "https://raw.githubusercontent.com",
+    }
+    return presets.get(profile, "https://raw.githubusercontent.com")
+
+
+def _source_policy_npm_registry(source_policy: dict | None = None) -> str:
+    sp = _normalize_source_policy(source_policy or {})
+    profile = _normalize_source_profile(sp.get("npm_source_profile"), "official")
+    presets = {
+        "official": "https://registry.npmjs.org",
+        "china": "https://registry.npmmirror.com",
+        # AWS CodeArtifact is tenant/region specific; this is a template hint.
+        "aws_us": "https://domain-111122223333.d.codeartifact.us-east-1.amazonaws.com/npm/repo/",
+        "aws_eu": "https://domain-111122223333.d.codeartifact.eu-west-1.amazonaws.com/npm/repo/",
+        "aws_ap": "https://domain-111122223333.d.codeartifact.ap-southeast-1.amazonaws.com/npm/repo/",
+    }
+    return presets.get(profile, "https://registry.npmjs.org")
+
+
 def _normalize_source_ip_pools(raw) -> dict:
     pools = _default_source_ip_pools()
     if not isinstance(raw, dict):
@@ -1118,12 +1197,13 @@ def _upgrade_script_candidate_urls(
                     f"{rendered}/upgrade.sh",
                 ]
             )
+        raw_base = _source_policy_raw_base((load_app_config(_APP_ROOT_DIR) or {}).get("source_policy"))
         for rel in candidate_paths:
             rel = str(rel or "").strip().strip("/")
             if not rel:
                 continue
             raw_url = (
-                f"https://raw.githubusercontent.com/{quote(owner)}/{quote(name)}"
+                f"{raw_base}/{quote(owner)}/{quote(name)}"
                 f"/{quote(ref)}/{quote(rel, safe='/')}"
             )
             add(raw_url)
@@ -1174,10 +1254,8 @@ def _github_branch_version_payload(repo: str, branch: str = "nightly") -> dict:
     safe_repo = _normalize_upgrade_repo(repo, DEFAULT_UPGRADE_GITHUB_REPO)
     safe_branch = _normalize_upgrade_branch(branch, "nightly")
     owner, name = safe_repo.split("/", 1)
-    raw_url = (
-        f"https://raw.githubusercontent.com/{quote(owner)}/{quote(name)}"
-        f"/{quote(safe_branch)}/fcc/__init__.py"
-    )
+    raw_base = _source_policy_raw_base((load_app_config(_APP_ROOT_DIR) or {}).get("source_policy"))
+    raw_url = f"{raw_base}/{quote(owner)}/{quote(name)}/{quote(safe_branch)}/fcc/__init__.py"
     tree_url = (
         f"https://github.com/{quote(owner)}/{quote(name)}"
         f"/tree/{quote(safe_branch)}"
@@ -1449,6 +1527,19 @@ def _normalize_transfer_recent_ttl(value, default: float = DEFAULT_TRANSFER_RECE
     return round(sec, 1)
 
 
+def _normalize_http_keepalive_idle_timeout(
+    value, default: float = DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC
+) -> float:
+    try:
+        sec = float(value)
+    except Exception:
+        sec = float(default)
+    if sec != sec or sec in (float("inf"), float("-inf")):
+        sec = float(default)
+    sec = max(1.0, min(sec, 600.0))
+    return round(sec, 1)
+
+
 def _build_terminal_launch_meta(cfg: dict) -> dict:
     term = ((cfg or {}).get("terminal") or {}) if isinstance(cfg, dict) else {}
     enabled = bool(term.get("enabled", True))
@@ -1619,6 +1710,9 @@ def _app_config_defaults_base() -> dict:
             "transfer_recent_ttl_sec": _normalize_transfer_recent_ttl(
                 DEFAULT_TRANSFER_RECENT_TTL_SEC
             ),
+            "keepalive_idle_timeout_sec": _normalize_http_keepalive_idle_timeout(
+                DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC
+            ),
         },
         "http_access": http_access.default_policy(),
         "terminal": {
@@ -1637,6 +1731,7 @@ def _app_config_defaults_base() -> dict:
         },
         "ui": config_schema.default_ui_config(),
         "netdisk_sources": config_schema.default_netdisk_sources(),
+        "source_policy": config_schema.default_source_policy(),
     }
 
 
@@ -1734,6 +1829,16 @@ def normalize_app_config(raw) -> dict:
                         ),
                     )
                 )
+            if "keepalive_idle_timeout_sec" in http_service:
+                base["http_service"]["keepalive_idle_timeout_sec"] = (
+                    _normalize_http_keepalive_idle_timeout(
+                        http_service.get("keepalive_idle_timeout_sec"),
+                        base["http_service"].get(
+                            "keepalive_idle_timeout_sec",
+                            DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
+                        ),
+                    )
+                )
         elif "http_root_dir" in raw:
             base["http_service"]["root_dir"] = _normalize_abs_dir_setting(
                 raw.get("http_root_dir"), str(DEFAULT_STORAGE_ROOT)
@@ -1788,6 +1893,8 @@ def normalize_app_config(raw) -> dict:
             for k in config_schema.NETDISK_SOURCE_KEYS:
                 if k in nd:
                     nd_cfg[k] = bool(nd.get(k))
+        if "source_policy" in raw:
+            base["source_policy"] = _normalize_source_policy(raw.get("source_policy"))
     if base["terminal"]["auth_mode"] not in ("key", "password"):
         base["terminal"]["auth_mode"] = "key"
     base["http_service"]["root_dir"] = _normalize_abs_dir_setting(
@@ -1818,6 +1925,15 @@ def normalize_app_config(raw) -> dict:
         ),
         DEFAULT_TRANSFER_RECENT_TTL_SEC,
     )
+    base["http_service"]["keepalive_idle_timeout_sec"] = (
+        _normalize_http_keepalive_idle_timeout(
+            base["http_service"].get(
+                "keepalive_idle_timeout_sec",
+                DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
+            ),
+            DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
+        )
+    )
     base["terminal"]["port"] = _normalize_ssh_port(base["terminal"]["port"], 22)
     base["terminal"]["key_file"] = _normalize_terminal_key_file_name(
         base["terminal"].get("key_file", "")
@@ -1831,6 +1947,7 @@ def normalize_app_config(raw) -> dict:
     base["ui"]["hero_custom_bg_file"] = ""
     base["ui"]["system_name"] = str((base.get("ui") or {}).get("system_name", "") or "").strip()[:64]
     base["ui"]["brand_logo_url"] = str((base.get("ui") or {}).get("brand_logo_url", "") or "").strip()[:1024]
+    base["source_policy"] = _normalize_source_policy(base.get("source_policy"))
     base["version"] = config_schema.CONFIG_VERSION
     return base
 
@@ -5141,6 +5258,7 @@ def build_config_html() -> str:
         <button class="cfg-tab active" type="button" data-tab="general" data-i18n="config.tab.general" data-i18n-fallback="General">General</button>
         <button class="cfg-tab" type="button" data-tab="http" data-i18n="config.tab.http" data-i18n-fallback="HTTP">HTTP</button>
         <button class="cfg-tab" type="button" data-tab="qbt" data-i18n="config.tab.bt" data-i18n-fallback="BitTorrent">BitTorrent</button>
+        <button class="cfg-tab" type="button" data-tab="docker" data-i18n-fallback="Docker">Docker</button>
         <button class="cfg-tab" type="button" data-tab="terminal" data-i18n="config.tab.terminal" data-i18n-fallback="Terminal">Terminal</button>
         <button class="cfg-tab" type="button" data-tab="ddns" data-i18n="config.tab.ddns" data-i18n-fallback="DDNS">DDNS</button>
         <button id="cfgTabExclusive" class="cfg-tab" type="button" data-tab="exclusive" data-i18n-fallback="Exclusive" style="display:none">Exclusive</button>
@@ -5231,6 +5349,49 @@ def build_config_html() -> str:
         </div>
         <p id="upgradeStatus" class="cfg-status"></p>
         <p id="upgradeMeta" class="cfg-help"></p>
+      </div>
+    </section>
+
+    <section id="panel-docker" class="cfg-panel">
+      <div class="card">
+        <span class="card-title">Docker Workload Source Policy</span>
+        <p class="cfg-help">Docker-related workload follows this source policy. Upgrade workflow also reuses npm/github raw settings.</p>
+        <div class="cfg-grid" style="margin-top:12px;">
+          <label class="cfg-item">
+            <div class="title">Docker source</div>
+            <select id="dockerSourceProfile">
+              <option value="official">Official (docker.io)</option>
+              <option value="china">China mirror (docker.1ms.run)</option>
+              <option value="aws_us">AWS US (ECR cache template)</option>
+              <option value="aws_eu">AWS EU (ECR cache template)</option>
+              <option value="aws_ap">AWS AP (ECR cache template)</option>
+            </select>
+          </label>
+          <label class="cfg-item">
+            <div class="title">NPM registry</div>
+            <select id="npmSourceProfile">
+              <option value="official">Official (registry.npmjs.org)</option>
+              <option value="china">China mirror (registry.npmmirror.com)</option>
+              <option value="aws_us">AWS US (CodeArtifact template)</option>
+              <option value="aws_eu">AWS EU (CodeArtifact template)</option>
+              <option value="aws_ap">AWS AP (CodeArtifact template)</option>
+            </select>
+          </label>
+          <label class="cfg-item">
+            <div class="title">GitHub raw fetch source</div>
+            <select id="githubRawSourceProfile">
+              <option value="official">Official (raw.githubusercontent.com)</option>
+              <option value="china">China mirror (raw.gitmirror.com)</option>
+              <option value="aws_us">AWS US (official fallback)</option>
+              <option value="aws_eu">AWS EU (official fallback)</option>
+              <option value="aws_ap">AWS AP (official fallback)</option>
+            </select>
+          </label>
+        </div>
+        <div class="cfg-actions">
+          <button type="button" id="saveSourcePolicyBtn">Save Source Policy</button>
+        </div>
+        <p id="sourcePolicyStatus" class="cfg-status"></p>
       </div>
     </section>
 
@@ -5542,6 +5703,14 @@ def build_config_html() -> str:
         mega: false,
         onedrive: false,
         gdrive: false
+      },
+      source_policy: {
+        docker_source_profile: "official",
+        docker_mirror_custom: "",
+        npm_source_profile: "official",
+        npm_registry_custom: "",
+        github_raw_source_profile: "official",
+        github_raw_base_custom: ""
       }
     };
     var runtimeWebPort = 1288;
@@ -6465,6 +6634,7 @@ def build_config_html() -> str:
       cfg.ui = c.ui || cfg.ui;
       cfg.terminal = c.terminal || cfg.terminal;
       cfg.netdisk_sources = c.netdisk_sources || cfg.netdisk_sources;
+      cfg.source_policy = c.source_policy || cfg.source_policy;
       if (byId("webPortInput")) byId("webPortInput").value = String(cfg.web_port);
       byId("modQbt").checked = cfg.modules.qbt !== false;
       byId("modDdns").checked = cfg.modules.ddns !== false;
@@ -6519,6 +6689,13 @@ def build_config_html() -> str:
       byId("ndMega").checked = ns.mega !== false;
       byId("ndOnedrive").checked = ns.onedrive !== false;
       byId("ndGdrive").checked = ns.gdrive !== false;
+      var sp = cfg.source_policy || {};
+      if (byId("dockerSourceProfile")) byId("dockerSourceProfile").value = String(sp.docker_source_profile || "official");
+      if (byId("dockerMirrorCustom")) byId("dockerMirrorCustom").value = String(sp.docker_mirror_custom || "");
+      if (byId("npmSourceProfile")) byId("npmSourceProfile").value = String(sp.npm_source_profile || "official");
+      if (byId("npmRegistryCustom")) byId("npmRegistryCustom").value = String(sp.npm_registry_custom || "");
+      if (byId("githubRawSourceProfile")) byId("githubRawSourceProfile").value = String(sp.github_raw_source_profile || "official");
+      if (byId("githubRawBaseCustom")) byId("githubRawBaseCustom").value = String(sp.github_raw_base_custom || "");
       updateWebPortHint();
     }
     async function loadCfg(){
@@ -6562,14 +6739,14 @@ def build_config_html() -> str:
     }
     function switchTab(name){
       var tab = (name || "").trim() || "general";
-      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, exclusive:1, netdisk:1 };
+      var valid = { general:1, http:1, qbt:1, docker:1, terminal:1, ddns:1, exclusive:1, netdisk:1 };
       if (!valid[tab]) tab = "general";
       var btns = Array.prototype.slice.call(document.querySelectorAll(".cfg-tab"));
       for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
         b.classList.toggle("active", b.getAttribute("data-tab") === tab);
       }
-      ["general","http","qbt","terminal","ddns","exclusive","netdisk"].forEach(function(t){
+      ["general","http","qbt","docker","terminal","ddns","exclusive","netdisk"].forEach(function(t){
         var p = byId("panel-" + t);
         if (p) p.classList.toggle("active", t === tab);
       });
@@ -6785,6 +6962,32 @@ def build_config_html() -> str:
         setStatus("generalStatus", "Save failed: " + err.message, true);
       }
     });
+
+    if (byId("saveSourcePolicyBtn")) {
+      byId("saveSourcePolicyBtn").addEventListener("click", async function(){
+        try {
+          var payload = {
+            source_policy: {
+              docker_source_profile: String((byId("dockerSourceProfile") && byId("dockerSourceProfile").value) || "official"),
+              docker_mirror_custom: String((byId("dockerMirrorCustom") && byId("dockerMirrorCustom").value) || "").trim(),
+              npm_source_profile: String((byId("npmSourceProfile") && byId("npmSourceProfile").value) || "official"),
+              npm_registry_custom: String((byId("npmRegistryCustom") && byId("npmRegistryCustom").value) || "").trim(),
+              github_raw_source_profile: String((byId("githubRawSourceProfile") && byId("githubRawSourceProfile").value) || "official"),
+              github_raw_base_custom: String((byId("githubRawBaseCustom") && byId("githubRawBaseCustom").value) || "").trim()
+            }
+          };
+          var d = await apiJson("/api/app-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          applyCfg(d.config || d);
+          setStatus("sourcePolicyStatus", "Source policy saved", false);
+        } catch (err) {
+          setStatus("sourcePolicyStatus", "Save failed: " + err.message, true);
+        }
+      });
+    }
 
     byId("saveNetdiskBtn").addEventListener("click", async function(){
       try {
@@ -7332,12 +7535,12 @@ def build_config_html() -> str:
     }
     function switchTab(name){
       var tab = (name || "").trim() || "general";
-      var valid = { general:1, http:1, qbt:1, terminal:1, ddns:1, exclusive:1, netdisk:1 };
+      var valid = { general:1, http:1, qbt:1, docker:1, terminal:1, ddns:1, exclusive:1, netdisk:1 };
       if (!valid[tab]) tab = "general";
       Array.prototype.slice.call(document.querySelectorAll(".cfg-tab")).forEach(function(btn){
         btn.classList.toggle("active", btn.getAttribute("data-tab") === tab);
       });
-      ["general","http","qbt","terminal","ddns","exclusive","netdisk"].forEach(function(t){
+      ["general","http","qbt","docker","terminal","ddns","exclusive","netdisk"].forEach(function(t){
         var p = byId("panel-" + t);
         if (p) p.classList.toggle("active", t === tab);
       });
@@ -7354,6 +7557,13 @@ def build_config_html() -> str:
       var wp = parseWebPort((cfg || {}).web_port, 1288);
       if (byId("webPortInput")) byId("webPortInput").value = String(wp);
       if (byId("webPortHint")) byId("webPortHint").textContent = "Saved port: " + String(wp) + " (restart required after change)";
+      var sp = ((cfg || {}).source_policy) || {};
+      if (byId("dockerSourceProfile")) byId("dockerSourceProfile").value = String(sp.docker_source_profile || "official");
+      if (byId("dockerMirrorCustom")) byId("dockerMirrorCustom").value = String(sp.docker_mirror_custom || "");
+      if (byId("npmSourceProfile")) byId("npmSourceProfile").value = String(sp.npm_source_profile || "official");
+      if (byId("npmRegistryCustom")) byId("npmRegistryCustom").value = String(sp.npm_registry_custom || "");
+      if (byId("githubRawSourceProfile")) byId("githubRawSourceProfile").value = String(sp.github_raw_source_profile || "official");
+      if (byId("githubRawBaseCustom")) byId("githubRawBaseCustom").value = String(sp.github_raw_base_custom || "");
     }
     async function loadModuleConfig(){
       var d = await apiJson("/api/app-config");
@@ -7369,6 +7579,14 @@ def build_config_html() -> str:
           docker: !!(byId("modDocker") && byId("modDocker").checked),
           shareclip: !!(byId("modShareclip") && byId("modShareclip").checked),
           http: !!(byId("modHttp") && byId("modHttp").checked),
+        },
+        source_policy: {
+          docker_source_profile: String((byId("dockerSourceProfile") && byId("dockerSourceProfile").value) || "official"),
+          docker_mirror_custom: String((byId("dockerMirrorCustom") && byId("dockerMirrorCustom").value) || "").trim(),
+          npm_source_profile: String((byId("npmSourceProfile") && byId("npmSourceProfile").value) || "official"),
+          npm_registry_custom: String((byId("npmRegistryCustom") && byId("npmRegistryCustom").value) || "").trim(),
+          github_raw_source_profile: String((byId("githubRawSourceProfile") && byId("githubRawSourceProfile").value) || "official"),
+          github_raw_base_custom: String((byId("githubRawBaseCustom") && byId("githubRawBaseCustom").value) || "").trim()
         }
       };
       var d = await apiJson("/api/app-config", {
@@ -8289,6 +8507,7 @@ class AppHandler(BaseHTTPRequestHandler):
     max_http_downloads_per_ip = DEFAULT_HTTP_MAX_PER_IP_DOWNLOADS
     transfer_recent_ttl_sec = DEFAULT_TRANSFER_RECENT_TTL_SEC
     transfer_active_linger_sec = DEFAULT_TRANSFER_ACTIVE_LINGER_SEC
+    http_keepalive_idle_timeout_sec = DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC
     qbt_candidates = [
         DEFAULT_QBT_SERVICE,
         "qbittorrent-nox",
@@ -8311,6 +8530,28 @@ class AppHandler(BaseHTTPRequestHandler):
     terminal_max_sessions = 20
     terminal_history = []
     terminal_history_max = DEFAULT_TERMINAL_HISTORY_MAX
+
+    def setup(self):
+        super().setup()
+        timeout_sec = _normalize_http_keepalive_idle_timeout(
+            getattr(
+                self.__class__,
+                "http_keepalive_idle_timeout_sec",
+                DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
+            ),
+            DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
+        )
+        try:
+            self.connection.settimeout(timeout_sec)
+        except Exception:
+            pass
+
+    def handle_one_request(self):
+        try:
+            return super().handle_one_request()
+        except socket.timeout:
+            self.close_connection = True
+            return
 
     @staticmethod
     def _is_hidden_system_name(name: str) -> bool:
@@ -8484,14 +8725,17 @@ class AppHandler(BaseHTTPRequestHandler):
                 _normalize_source_ip_pools,
                 _normalize_source_ip_pool_source,
                 _normalize_transfer_recent_ttl,
+                _normalize_http_keepalive_idle_timeout,
                 _normalize_ssh_port,
                 _normalize_terminal_key_file_name,
                 _normalize_ui_hero_preset,
+                _normalize_source_policy,
                 ensure_under_root,
                 _ui_theme_payload,
                 DEFAULT_WEB_PORT,
                 ACTIVE_WEB_PORT,
                 DEFAULT_TRANSFER_RECENT_TTL_SEC,
+                DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
                 ddns,
             )
         )
@@ -11798,6 +12042,11 @@ class AppHandler(BaseHTTPRequestHandler):
                 run_env.setdefault("STORAGE_ROOT", str(DEFAULT_STORAGE_ROOT))
                 run_env.setdefault("PUBLIC_HOST", str(DEFAULT_PUBLIC_HOST))
                 run_env.setdefault("PUBLIC_SCHEME", str(DEFAULT_PUBLIC_SCHEME))
+                source_policy = (cfg or {}).get("source_policy")
+                npm_registry = _source_policy_npm_registry(source_policy)
+                if npm_registry:
+                    run_env["NPM_CONFIG_REGISTRY"] = npm_registry
+                    run_env["npm_config_registry"] = npm_registry
                 proc = process_adapter.execute_command(
                     ["bash", "install.sh"],
                     cwd=str(pkg_dir),
@@ -12459,6 +12708,21 @@ class AppHandler(BaseHTTPRequestHandler):
                         "ended_at": 0.0,
                         "cut_epoch": cut_epoch,
                     }
+                old_sock_timeout = None
+                timeout_applied = False
+                try:
+                    old_sock_timeout = self.connection.gettimeout()
+                except Exception:
+                    old_sock_timeout = None
+                try:
+                    # Avoid zombie download slots: if client disappears after tab close,
+                    # socket writes must time out so the slot can be released.
+                    self.connection.settimeout(
+                        max(5.0, float(DEFAULT_HTTP_STREAM_WRITE_TIMEOUT_SEC))
+                    )
+                    timeout_applied = True
+                except Exception:
+                    timeout_applied = False
                 with file_path.open("rb") as f:
                     f.seek(start)
                     remaining = content_len
@@ -12475,7 +12739,16 @@ class AppHandler(BaseHTTPRequestHandler):
                                 break
                             if len(chunk) > remaining:
                                 chunk = chunk[:remaining]
-                            self.wfile.write(chunk)
+                            try:
+                                self.wfile.write(chunk)
+                            except (
+                                BrokenPipeError,
+                                ConnectionResetError,
+                                TimeoutError,
+                                OSError,
+                            ):
+                                self.close_connection = True
+                                break
                             sent_now = len(chunk)
                             remaining -= sent_now
                             with self.transfers_lock:
@@ -12483,6 +12756,11 @@ class AppHandler(BaseHTTPRequestHandler):
                                 if tr is not None:
                                     tr["sent_bytes"] = int(tr.get("sent_bytes", 0)) + sent_now
                     finally:
+                        if timeout_applied:
+                            try:
+                                self.connection.settimeout(old_sock_timeout)
+                            except Exception:
+                                pass
                         with self.transfers_lock:
                             tr = self.active_transfers.get(transfer_id)
                             if tr is not None:
@@ -12859,6 +13137,12 @@ def main():
     AppHandler.transfer_recent_ttl_sec = _normalize_transfer_recent_ttl(
         startup_http_cfg.get("transfer_recent_ttl_sec", DEFAULT_TRANSFER_RECENT_TTL_SEC),
         DEFAULT_TRANSFER_RECENT_TTL_SEC,
+    )
+    AppHandler.http_keepalive_idle_timeout_sec = _normalize_http_keepalive_idle_timeout(
+        startup_http_cfg.get(
+            "keepalive_idle_timeout_sec", DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC
+        ),
+        DEFAULT_HTTP_KEEPALIVE_IDLE_TIMEOUT_SEC,
     )
     AppHandler._start_metrics_sampler()
     AppHandler.storage_root = DEFAULT_STORAGE_ROOT

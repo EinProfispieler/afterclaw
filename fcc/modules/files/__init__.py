@@ -221,7 +221,9 @@ def _handle_speed(handler, parsed, params, body):
 def _handle_transfers(handler, parsed, params, body):
     if not handler._require_lan():
         return
-    handler._send_json(transfer_snapshot())
+    # Keep transfer payload aligned with app-wide snapshot logic so
+    # dashboard/workload widgets show the same active+recent semantics.
+    handler._send_json(handler._transfer_snapshot())
 
 
 def _handle_directories(handler, parsed, params, body):

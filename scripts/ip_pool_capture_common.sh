@@ -8,7 +8,7 @@ if [[ "$(id -un)" != "${ALLOWED_USER}" ]]; then
   exit 1
 fi
 
-BASE_URL="${FCC_BASE_URL:-http://127.0.0.1:1288}"
+BASE_URL="${FCC_BASE_URL:-http://192.168.1.30:1288}"
 POOL_KEY="${FCC_POOL_KEY:-}"
 LABELS="${FCC_LABELS:-}"
 INCLUDE_HTTP_DIRECT="${FCC_INCLUDE_HTTP_DIRECT:-0}"
@@ -42,6 +42,20 @@ def get_json(url: str):
     with urllib.request.urlopen(url, timeout=10) as resp:
         return json.load(resp)
 
+def canon_source(value: str) -> str:
+    s = str(value or "").strip().lower()
+    if not s:
+        return ""
+    if any(k in s for k in ("guangya", "光鸭", "clouddrive", "cloud drive")):
+        return "guangya"
+    if any(k in s for k in ("baidu", "百度", "xpan", "pan.baidu")):
+        return "baidu"
+    if any(k in s for k in ("aliyun", "阿里", "alipan")):
+        return "aliyun"
+    if s in {"http直连", "direct http", "http-direct", "http"}:
+        return "http-direct"
+    return s
+
 cfg_payload = get_json(base.rstrip("/") + "/api/app-config")
 cfg = cfg_payload.get("config") or cfg_payload or {}
 http_cfg = cfg.get("http_service") or {}
@@ -51,10 +65,18 @@ existing = list(pools.get(pool_key) or [])
 transfers = get_json(base.rstrip("/") + "/api/transfers")
 items = transfers.get("items") or []
 
+target_key = canon_source(pool_key)
+allowed_keys = {canon_source(x) for x in labels if str(x or "").strip()}
+allowed_keys.discard("")
+# Keep compatibility with older localized labels by forcing target pool itself.
+allowed_keys.add(target_key)
+if include_http_direct:
+    allowed_keys.add("http-direct")
+
 targets = set()
 for it in items:
-    source = str(it.get("source") or "").strip()
-    if source not in labels:
+    source = canon_source(it.get("source"))
+    if source not in allowed_keys:
         continue
     ip = str(it.get("client_ip") or "").strip()
     if not ip:

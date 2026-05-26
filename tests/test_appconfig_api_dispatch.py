@@ -110,13 +110,16 @@ def _dispatch_post(handler, cfg):
         lambda source: str(source or "github"),
         lambda raw, default: int(raw if raw is not None else default),
         lambda raw, default: int(raw if raw is not None else default),
+        lambda raw, default: int(raw if raw is not None else default),
         lambda name: str(name or "").strip(),
         lambda preset: str(preset or "default"),
+        lambda policy: policy if isinstance(policy, dict) else {},
         lambda root, target: target,
         lambda _cfg, _root: {"theme": "ok"},
         18090,
         18090,
         600,
+        15,
         _FakeDDNS,
     )
 

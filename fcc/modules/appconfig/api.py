@@ -28,14 +28,17 @@ def dispatch_post(
     normalize_source_ip_pools,
     normalize_source_ip_pool_source,
     normalize_transfer_recent_ttl,
+    normalize_http_keepalive_idle_timeout,
     normalize_ssh_port,
     normalize_terminal_key_file_name,
     normalize_ui_hero_preset,
+    normalize_source_policy,
     ensure_under_root,
     ui_theme_payload,
     default_web_port,
     active_web_port,
     default_transfer_recent_ttl_sec,
+    default_http_keepalive_idle_timeout_sec,
     ddns_mod,
 ) -> bool:
     path = str(getattr(parsed, "path", "") or "")
@@ -135,6 +138,14 @@ def dispatch_post(
                 incoming_http.get("transfer_recent_ttl_sec"),
                 http_cfg.get("transfer_recent_ttl_sec", default_transfer_recent_ttl_sec),
             )
+        if "keepalive_idle_timeout_sec" in incoming_http:
+            http_cfg["keepalive_idle_timeout_sec"] = normalize_http_keepalive_idle_timeout(
+                incoming_http.get("keepalive_idle_timeout_sec"),
+                http_cfg.get(
+                    "keepalive_idle_timeout_sec",
+                    default_http_keepalive_idle_timeout_sec,
+                ),
+            )
 
     if http_path_cfg_changed:
         http_cfg = current.setdefault("http_service", {})
@@ -194,11 +205,20 @@ def dispatch_post(
             if key in incoming_nd:
                 nd_cfg[key] = bool(incoming_nd.get(key))
 
+    if isinstance(body.get("source_policy"), dict):
+        current["source_policy"] = normalize_source_policy(body.get("source_policy"))
+
     saved = save_app_config(current, app_root)
     saved_http_cfg = (saved.get("http_service") or {}) if isinstance(saved, dict) else {}
     handler.__class__.transfer_recent_ttl_sec = normalize_transfer_recent_ttl(
         saved_http_cfg.get("transfer_recent_ttl_sec", default_transfer_recent_ttl_sec),
         default_transfer_recent_ttl_sec,
+    )
+    handler.__class__.http_keepalive_idle_timeout_sec = normalize_http_keepalive_idle_timeout(
+        saved_http_cfg.get(
+            "keepalive_idle_timeout_sec", default_http_keepalive_idle_timeout_sec
+        ),
+        default_http_keepalive_idle_timeout_sec,
     )
 
     web_port_restart_required = normalize_web_port(saved.get("web_port"), default_web_port) != active_web_port

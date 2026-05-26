@@ -1272,6 +1272,8 @@ window.AfterClaw = function () {
     const [rootDir, setRootDir] = useState("/");
     const [relDir, setRelDir] = useState(".");
     const [subdirs, setSubdirs] = useState([]);
+    const [siblingDirs, setSiblingDirs] = useState([]);
+    const [siblingIndex, setSiblingIndex] = useState(-1);
     const [scanText, setScanText] = useState("");
     const [files, setFiles] = useState([]);
     const [linksGenerated, setLinksGenerated] = useState(false);
@@ -1304,6 +1306,10 @@ window.AfterClaw = function () {
       setRootDir(effectiveRoot);
       setRelDir(cur);
       setSubdirs(Array.isArray(d.directories) ? d.directories : []);
+      refreshSiblings(cur, effectiveRoot).catch(() => {
+        setSiblingDirs([]);
+        setSiblingIndex(-1);
+      });
       return d;
     };
     const parentDir = (dir) => {
@@ -1312,6 +1318,15 @@ window.AfterClaw = function () {
       const parts = s.split("/");
       parts.pop();
       return parts.length ? parts.join("/") : ".";
+    };
+    const refreshSiblings = async (dirArg, rootArg) => {
+      const root = String(rootArg || rootDir || "/");
+      const cur = String(dirArg || relDir || ".");
+      const parent = parentDir(cur);
+      const d = await apiJson(`/api/directories?stats=0&root_dir=${encodeURIComponent(root)}&dir=${encodeURIComponent(parent)}`);
+      const dirs = Array.isArray(d && d.directories) ? d.directories : [];
+      setSiblingDirs(dirs);
+      setSiblingIndex(dirs.indexOf(cur));
     };
     const dirName = (dir) => {
       const s = String(dir || ".").replace(/^\/+|\/+$/g, "");
@@ -1508,7 +1523,53 @@ window.AfterClaw = function () {
             <button className="btn sm httpd-btn-2" onClick={() => copyText(files.map((x) => x.http_url).filter(Boolean).join("\n"), "All links copied")}>Copy all links</button>
             <button className="btn sm httpd-btn-3" onClick={() => copyText(dirName(relDir), "Directory name copied")}>Copy dir name</button>
           </div>
-          <h3 className="httpd-dir-title" style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>{relDir}</h3>
+          <div className="httpd-dir-center">
+            <h3 className="httpd-dir-title" title={relDir} style={{ fontFamily: "var(--font-mono)", fontSize: 12.5 }}>{relDir}</h3>
+            <div className="row httpd-sibling-nav" style={{ gap: 6 }}>
+              <button
+                className="btn sm ghost"
+                disabled={siblingIndex <= 0}
+                onClick={() => {
+                  if (siblingIndex <= 0) return;
+                  const prev = siblingDirs[siblingIndex - 1];
+                  if (!prev) return;
+                  setRelDir(prev);
+                  setFiles([]);
+                  setLinksGenerated(false);
+                  loadDirs(prev).catch((e) => toast(e.message || String(e)));
+                }}
+              >
+                Prev
+              </button>
+              <button
+                className="btn sm ghost"
+                onClick={() => {
+                  const p = parentDir(relDir);
+                  setRelDir(p);
+                  setFiles([]);
+                  setLinksGenerated(false);
+                  loadDirs(p).catch((e) => toast(e.message || String(e)));
+                }}
+              >
+                Parent
+              </button>
+              <button
+                className="btn sm ghost"
+                disabled={siblingIndex < 0 || siblingIndex >= siblingDirs.length - 1}
+                onClick={() => {
+                  if (siblingIndex < 0 || siblingIndex >= siblingDirs.length - 1) return;
+                  const next = siblingDirs[siblingIndex + 1];
+                  if (!next) return;
+                  setRelDir(next);
+                  setFiles([]);
+                  setLinksGenerated(false);
+                  loadDirs(next).catch((e) => toast(e.message || String(e)));
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
           <span className="meta httpd-dir-meta">{subdirs.length} subdirectories · {files.length} files</span>
         </div>
         <div className="card-b httpd-main-list" style={{ fontFamily: "var(--font-mono)", fontSize: 11.5 }}>
@@ -1849,6 +1910,12 @@ window.AfterClaw = function () {
     const [pullImage, setPullImage] = useState("");
     const [opsHistory, setOpsHistory] = useState([]);
     const [opsLoading, setOpsLoading] = useState(false);
+    const [sourceBusy, setSourceBusy] = useState(false);
+    const [sourcePolicy, setSourcePolicy] = useState({
+      docker_source_profile: "official",
+      npm_source_profile: "official",
+      github_raw_source_profile: "official",
+    });
     const [installForm, setInstallForm] = useState({
       name: "",
       image: "",
@@ -1876,6 +1943,42 @@ window.AfterClaw = function () {
         setErr(String(e && e.message || e || "Docker load failed"));
       } finally {
         setLoading(false);
+      }
+    };
+    const loadSourcePolicy = async () => {
+      try {
+        const d = await apiJson("/api/app-config", { cache: "no-store" });
+        const cfg = (d && d.config) || d || {};
+        const sp = (cfg && cfg.source_policy) || {};
+        setSourcePolicy({
+          docker_source_profile: String(sp.docker_source_profile || "official"),
+          npm_source_profile: String(sp.npm_source_profile || "official"),
+          github_raw_source_profile: String(sp.github_raw_source_profile || "official"),
+        });
+      } catch (_) {}
+    };
+    const saveSourcePolicy = async () => {
+      setSourceBusy(true);
+      try {
+        await apiJson("/api/app-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source_policy: {
+              docker_source_profile: String(sourcePolicy.docker_source_profile || "official"),
+              docker_mirror_custom: "",
+              npm_source_profile: String(sourcePolicy.npm_source_profile || "official"),
+              npm_registry_custom: "",
+              github_raw_source_profile: String(sourcePolicy.github_raw_source_profile || "official"),
+              github_raw_base_custom: "",
+            },
+          }),
+        });
+        toast("Docker source policy saved");
+      } catch (e) {
+        toast(`Save source policy failed: ${String(e && e.message || e)}`);
+      } finally {
+        setSourceBusy(false);
       }
     };
     const refreshImages = async (silent = false) => {
@@ -1969,6 +2072,9 @@ window.AfterClaw = function () {
     }, []);
     useEffect(() => {
       if (tab === "History") refreshOpsHistory(false);
+    }, [tab]);
+    useEffect(() => {
+      if (tab === "Source") loadSourcePolicy();
     }, [tab]);
     const runDocker = async (name, action) => {
       setBusy(`${name}:${action}`);
@@ -2136,7 +2242,7 @@ window.AfterClaw = function () {
       </div>
       <div className="card">
         <div className="tablist" style={{ padding: "0 12px" }}>
-          {["Containers", "Install", "Recommended", "Images", "Logs", "History"].map((t) =>
+          {["Containers", "Install", "Recommended", "Images", "Logs", "History", "Source"].map((t) =>
             <div key={t} className={cx("tab", tab === t && "on")} onClick={() => setTab(t)}>{t}</div>
             )}
         </div>
@@ -2309,6 +2415,62 @@ window.AfterClaw = function () {
             </table>
           </div>
         }
+        {tab === "Source" &&
+          <div className="card-b col" style={{ gap: 10 }}>
+            <div style={{ color: "var(--ink-3)" }}>
+              Docker workload source settings. Custom sources are disabled by policy.
+            </div>
+            <div className="grid-2">
+              <label className="col" style={{ gap: 6 }}>
+                <span>Docker source</span>
+                <select
+                  className="input"
+                  value={String(sourcePolicy.docker_source_profile || "official")}
+                  onChange={(e) => setSourcePolicy((p) => ({ ...p, docker_source_profile: e.target.value }))}
+                >
+                  <option value="official">Official (docker.io)</option>
+                  <option value="china">China mirror (docker.1ms.run)</option>
+                  <option value="aws_us">AWS US (ECR cache template)</option>
+                  <option value="aws_eu">AWS EU (ECR cache template)</option>
+                  <option value="aws_ap">AWS AP (ECR cache template)</option>
+                </select>
+              </label>
+              <label className="col" style={{ gap: 6 }}>
+                <span>NPM registry</span>
+                <select
+                  className="input"
+                  value={String(sourcePolicy.npm_source_profile || "official")}
+                  onChange={(e) => setSourcePolicy((p) => ({ ...p, npm_source_profile: e.target.value }))}
+                >
+                  <option value="official">Official (registry.npmjs.org)</option>
+                  <option value="china">China mirror (registry.npmmirror.com)</option>
+                  <option value="aws_us">AWS US (CodeArtifact template)</option>
+                  <option value="aws_eu">AWS EU (CodeArtifact template)</option>
+                  <option value="aws_ap">AWS AP (CodeArtifact template)</option>
+                </select>
+              </label>
+            </div>
+            <label className="col" style={{ gap: 6 }}>
+              <span>GitHub raw source</span>
+              <select
+                className="input"
+                value={String(sourcePolicy.github_raw_source_profile || "official")}
+                onChange={(e) => setSourcePolicy((p) => ({ ...p, github_raw_source_profile: e.target.value }))}
+              >
+                <option value="official">Official (raw.githubusercontent.com)</option>
+                <option value="china">China mirror (raw.gitmirror.com)</option>
+                <option value="aws_us">AWS US (official fallback)</option>
+                <option value="aws_eu">AWS EU (official fallback)</option>
+                <option value="aws_ap">AWS AP (official fallback)</option>
+              </select>
+            </label>
+            <div className="row">
+              <button className="btn primary" disabled={sourceBusy} onClick={saveSourcePolicy}>
+                {sourceBusy ? "Saving..." : "Save Source Policy"}
+              </button>
+            </div>
+          </div>
+        }
       </div>
     </div>);
 
@@ -2359,6 +2521,20 @@ window.AfterClaw = function () {
       try {
         el.scrollTop = el.scrollHeight;
       } catch (_) {}
+    };
+
+    const focusPromptInput = () => {
+      const input = inputRef.current;
+      if (!input) return;
+      input.focus();
+      try {
+        const end = String(input.value || "").length;
+        input.setSelectionRange(end, end);
+      } catch (_) {}
+    };
+    const shouldKeepNativeMouseTarget = (el) => {
+      if (!el || typeof el.closest !== "function") return false;
+      return !!el.closest("button, a, input[type='file'], select, textarea, label");
     };
 
     const stopPolling = () => {
@@ -2474,18 +2650,35 @@ window.AfterClaw = function () {
     };
 
     return (
-      <div className="card-b">
+      <div
+        className="card-b"
+        onMouseDownCapture={(e) => {
+          if (shouldKeepNativeMouseTarget(e.target)) return;
+          requestAnimationFrame(focusPromptInput);
+        }}
+      >
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
         <span className="meta" style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-3)" }}>
           {status}
         </span>
       </div>
-      <div ref={termRef} className="term term-shell-fit">
+      <div
+        ref={termRef}
+        className="term term-shell-fit"
+        onMouseDown={(e) => {
+          if (e.target === inputRef.current) return;
+          requestAnimationFrame(focusPromptInput);
+        }}
+      >
         {lines.length === 0 && <div className="dim">No output yet.</div>}
         {lines.map((l, i) => <div key={i} style={{ whiteSpace: "pre-wrap" }}>{l.v}</div>)}
         <form onSubmit={submit} style={{ display: "flex", alignItems: "center" }}>
           <span><span className="acc">$</span><span className="dim"> </span></span>
           <input ref={inputRef} value={val} onChange={(e) => setVal(e.target.value)}
+            onMouseUp={(e) => {
+              if (e.button !== 0) return;
+              requestAnimationFrame(focusPromptInput);
+            }}
             style={{ flex: 1, background: "transparent", border: 0, outline: 0, font: "inherit", color: "var(--ink)" }} />
         </form>
       </div>
@@ -3414,8 +3607,11 @@ window.AfterClaw = function () {
               <SRow label="Default dir" hint="http_service.default_dir">
                 <input className="input" value={String(httpService.default_dir || ".")} onChange={(e) => patchNested("http_service", { default_dir: e.target.value })} />
               </SRow>
-              <SRow label="Recent transfer TTL" hint="http_service.transfer_recent_ttl_sec">
-                <input className="input" style={{ maxWidth: 160 }} value={String(httpService.transfer_recent_ttl_sec ?? 15)} onChange={(e) => patchNested("http_service", { transfer_recent_ttl_sec: Number(e.target.value || 15) })} />
+              <SRow label="Recent transfer record TTL (history only)" hint="http_service.transfer_recent_ttl_sec · only affects /api/transfers recent display, does not disconnect keep-alive/downloading connections">
+                <input className="input" style={{ maxWidth: 220 }} value={String(httpService.transfer_recent_ttl_sec ?? 15)} onChange={(e) => patchNested("http_service", { transfer_recent_ttl_sec: Number(e.target.value || 15) })} />
+              </SRow>
+              <SRow label="HTTP keep-alive idle timeout (sec)" hint="http_service.keepalive_idle_timeout_sec · close idle persistent HTTP connections after timeout">
+                <input className="input" style={{ maxWidth: 220 }} value={String(httpService.keepalive_idle_timeout_sec ?? 15)} onChange={(e) => patchNested("http_service", { keepalive_idle_timeout_sec: Number(e.target.value || 15) })} />
               </SRow>
               <div className="row" style={{ marginTop: 10, gap: 8 }}>
                 <button className="btn sm primary" disabled={saving} onClick={() => saveConfig({ http_service: cfg.http_service || {} }, "Server settings saved")}>Save server</button>

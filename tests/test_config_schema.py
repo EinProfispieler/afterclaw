@@ -24,6 +24,7 @@ def test_default_configs_reuse_shared_schema_version_and_keys():
     assert fcc_cfg["version"] == config_schema.CONFIG_VERSION
     assert tuple(app_cfg["modules"].keys()) == config_schema.MODULE_KEYS
     assert tuple(fcc_cfg["modules"].keys()) == config_schema.MODULE_KEYS
+    assert app_cfg["source_policy"]["docker_source_profile"] == "official"
 
 
 def test_default_configs_are_normalized_via_single_path():
@@ -38,3 +39,20 @@ def test_app_migration_entrypoint_v0_to_v1():
     assert migrated["version"] == 1
     assert migrated["modules"]["http"] is True
     assert migrated["http_service"]["default_dir"] == "/Private"
+
+
+def test_source_policy_normalization_rejects_unknown_profiles():
+    cfg = app.normalize_app_config(
+        {
+            "source_policy": {
+                "docker_source_profile": "invalid",
+                "npm_source_profile": "china",
+                "github_raw_source_profile": "custom",
+                "github_raw_base_custom": " https://raw.gitmirror.com ",
+            }
+        }
+    )
+    sp = cfg["source_policy"]
+    assert sp["docker_source_profile"] == "official"
+    assert sp["npm_source_profile"] == "china"
+    assert sp["github_raw_source_profile"] == "official"

@@ -41,6 +41,16 @@ DEFAULT_UI_CONFIG = {
     "brand_logo_url": "",
 }
 
+SOURCE_PROFILE_KEYS = ("official", "china", "aws_us", "aws_eu", "aws_ap")
+DEFAULT_SOURCE_POLICY = {
+    "docker_source_profile": "official",
+    "docker_mirror_custom": "",
+    "npm_source_profile": "official",
+    "npm_registry_custom": "",
+    "github_raw_source_profile": "official",
+    "github_raw_base_custom": "",
+}
+
 
 def default_modules() -> dict[str, bool]:
     return {k: True for k in MODULE_KEYS}
@@ -61,3 +71,6 @@ def default_netdisk_sources() -> dict[str, bool]:
 def default_ui_config() -> dict[str, str]:
     return deepcopy(DEFAULT_UI_CONFIG)
 
+
+def default_source_policy() -> dict[str, str]:
+    return deepcopy(DEFAULT_SOURCE_POLICY)

@@ -49,6 +49,34 @@ def test_docker_create_container_executes_expected_command(monkeypatch):
     assert "-e" in argv
 
 
+def test_docker_apply_source_policy_rewrites_dockerhub_refs():
+    out = service._apply_docker_source_policy(
+        "nginx:latest",
+        {"docker_source_profile": "china"},
+    )
+    assert out == "docker.1ms.run/library/nginx:latest"
+    out2 = service._apply_docker_source_policy(
+        "ghcr.io/example/app:1.0",
+        {"docker_source_profile": "china"},
+    )
+    assert out2 == "ghcr.io/example/app:1.0"
+
+
+def test_docker_pull_image_uses_effective_source_policy(monkeypatch):
+    captured: list[list[str]] = []
+
+    def _fake_execute(args, timeout=None):
+        captured.append(list(args))
+        return DockerCommandResult(True, ["docker"] + list(args), 0, "ok\n", "", "")
+
+    monkeypatch.setattr(service.docker_adapter, "execute_docker", _fake_execute)
+    monkeypatch.setattr(service, "_load_source_policy", lambda: {"docker_source_profile": "china"})
+    ok, _msg = service.pull_image("nginx:latest")
+    assert ok is True
+    assert captured
+    assert captured[0] == ["pull", "docker.1ms.run/library/nginx:latest"]
+
+
 def test_docker_status_payload_when_disabled():
     payload = service.status_payload(app_cfg={}, include_stats=True, module_enabled=False)
     assert payload["ok"] is True

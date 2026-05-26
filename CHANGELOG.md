@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.1.3.alpha] - 2026-05-27
+
+### Changed
+
+- Added HTTP keep-alive idle timeout runtime setting (`http_service.keepalive_idle_timeout_sec`) and applied it to idle persistent HTTP connections.
+- Clarified server settings copy: transfer TTL now explicitly means recent transfer history retention only (not active connection eviction).
+- Refined HTTP tools UX: directory navigation controls, alignment polish, and terminal click-to-focus behavior.
+- Extended source policy/appconfig wiring and Docker source profile handling to keep settings-driven source behavior consistent.
+- Improved Guangya IP pool capture workflow scripts and related integration tests.
+
 ## [1.1.2.alpha] - 2026-05-26
 
 ### Changed

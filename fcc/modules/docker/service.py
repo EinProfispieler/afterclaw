@@ -133,6 +133,50 @@ def safe_image(image: str) -> str:
     return text
 
 
+def _load_source_policy() -> dict:
+    try:
+        path = app_root() / "app_config.json"
+        if not path.is_file():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            sp = data.get("source_policy")
+            return dict(sp) if isinstance(sp, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def _docker_source_host_from_policy(source_policy: dict | None) -> str:
+    sp = dict(source_policy or {})
+    profile = str(sp.get("docker_source_profile", "official") or "official").strip().lower()
+    presets = {
+        "official": "",
+        "china": "docker.1ms.run",
+        # AWS presets are templates for pull-through cache hosts.
+        "aws_us": "111122223333.dkr.ecr.us-east-1.amazonaws.com/docker-hub",
+        "aws_eu": "111122223333.dkr.ecr.eu-west-1.amazonaws.com/docker-hub",
+        "aws_ap": "111122223333.dkr.ecr.ap-southeast-1.amazonaws.com/docker-hub",
+    }
+    return str(presets.get(profile, "") or "").strip("/")
+
+
+def _apply_docker_source_policy(image: str, source_policy: dict | None) -> str:
+    ref = safe_image(image)
+    if not ref:
+        return ""
+    mirror_host = _docker_source_host_from_policy(source_policy)
+    if not mirror_host:
+        return ref
+    if "/" not in ref:
+        return f"{mirror_host}/library/{ref}"
+    first = ref.split("/", 1)[0].lower()
+    if "." in first or ":" in first:
+        # Already explicit registry, leave unchanged.
+        return ref
+    return f"{mirror_host}/{ref}"
+
+
 def safe_kv(text: str) -> str:
     raw = str(text or "").strip()
     if not raw or len(raw) > 512:
@@ -230,7 +274,9 @@ def pull_image(image: str) -> tuple[bool, str]:
     ref = safe_image(image)
     if not ref:
         return False, "invalid image reference"
-    return run(["docker", "pull", ref], timeout=180.0)
+    source_policy = _load_source_policy()
+    effective_ref = _apply_docker_source_policy(ref, source_policy)
+    return run(["docker", "pull", effective_ref], timeout=180.0)
 
 
 def image_exists(image: str) -> bool:
