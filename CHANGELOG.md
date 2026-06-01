@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.2.0.alpha] - 2026-06-01
+
+### Changed
+
+- Improved 1288 UI cold-load performance by removing in-browser Babel transpilation on `/ui`.
+- Added precompiled static bundles (`web/ui/tweaks-panel.compiled.js`, `web/ui/app.compiled.js`) and switched `web/ui/index.html` to load compiled scripts directly.
+- Added build helper script `scripts/build_ui_compiled.js` to regenerate UI compiled assets from JSX sources.
+
 ## [1.1.3.alpha] - 2026-05-27
 
 ### Changed
